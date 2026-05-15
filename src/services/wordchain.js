@@ -38,13 +38,23 @@ function hasUnusedContinuation(syllable, usedWords) {
 }
 
 function isWinningMove(word, usedWords) {
+    return countUnusedContinuations(word, usedWords) === 0;
+}
+
+function countUnusedContinuations(word, usedWords) {
     const second = splitWord(word)[1];
     const bucket = dict[second];
-    if (!Array.isArray(bucket)) return true;
+    if (!Array.isArray(bucket)) return 0;
+    let count = 0;
     for (const next of bucket) {
-        if (next !== word && !usedWords.has(next)) return false;
+        if (next === word) continue;
+        if (!usedWords.has(next)) count++;
     }
-    return true;
+    return count;
+}
+
+function isEasyChain(word, usedWords) {
+    return countUnusedContinuations(word, usedWords) > 5;
 }
 
 function randomFrom(arr) {
@@ -67,6 +77,9 @@ function pickFromBucket(bucket, usedWords, turn) {
 
     const fullPoolRate = Math.min(turn * 0.001, 1.0);
     if (Math.random() < fullPoolRate) return randomFrom(candidates);
+
+    const easy = nonWinning.filter(w => isEasyChain(w, usedWords));
+    if (easy.length > 0 && Math.random() < 0.95) return randomFrom(easy);
     return randomFrom(nonWinning);
 }
 
@@ -74,11 +87,14 @@ function pickBotWord(syllable, usedWords, turn) {
     return pickFromBucket(dict[syllable], usedWords, turn);
 }
 
-function pickRandomOpener(usedWords, turn) {
-    for (let i = 0; i < 50; i++) {
+function pickRandomOpener(usedWords) {
+    for (let i = 0; i < 500; i++) {
         const key = randomFrom(dictKeys);
-        const word = pickFromBucket(dict[key], usedWords, turn);
-        if (word) return word;
+        const bucket = dict[key];
+        if (!Array.isArray(bucket) || bucket.length === 0) continue;
+        const word = randomFrom(bucket);
+        if (usedWords.has(word)) continue;
+        if (countUnusedContinuations(word, usedWords) > 10) return word;
     }
     return null;
 }
@@ -212,7 +228,7 @@ async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
     await thread.send(startMessage);
 
     if (mode === 'BOT') {
-        const opener = pickRandomOpener(usedWords, 1);
+        const opener = pickRandomOpener(usedWords);
         if (!opener) {
             await thread.send('Không tìm được từ mở đầu. Trò chơi kết thúc.');
             await endSession(thread.id, { winnerId: null, reason: 'no_opener' });
