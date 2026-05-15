@@ -17,14 +17,14 @@ module.exports = {
         )
         .addIntegerOption(o =>
             o.setName('time')
-                .setDescription('Thời gian chờ mỗi lượt (phút). Mặc định 5.')
-                .setMinValue(1)
+                .setDescription('Thời gian chờ mỗi lượt (phút). 0 = không giới hạn. Mặc định 0.')
+                .setMinValue(0)
                 .setMaxValue(60)
                 .setRequired(false)
         ),
     async execute(interaction) {
         const mode = interaction.options.getString('mode');
-        const timeoutMinutes = interaction.options.getInteger('time') ?? 5;
+        const timeoutMinutes = interaction.options.getInteger('time') ?? 0;
 
         if (interaction.channel.type !== ChannelType.GuildText) {
             await interaction.reply({

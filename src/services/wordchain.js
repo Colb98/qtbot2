@@ -5,6 +5,8 @@ const dict = require('../../word_dict/vietnamese_wordchain.json');
 
 const dictKeys = Object.keys(dict).filter(k => Array.isArray(dict[k]) && dict[k].length > 0);
 
+const HARD_CAP_MS = 2 * 24 * 60 * 60 * 1000;
+
 const sessions = new Map();
 
 function hasSession(threadId) {
@@ -92,7 +94,10 @@ function validateWord(word, lastSyllable, usedWords) {
 
 function armTimer(session) {
     if (session.timer) clearTimeout(session.timer);
-    session.timer = setTimeout(() => onTimeout(session.threadId), session.timeoutMs);
+    session.timer = null;
+    if (session.timeoutMs > 0) {
+        session.timer = setTimeout(() => onTimeout(session.threadId), session.timeoutMs);
+    }
 }
 
 async function onTimeout(threadId) {
@@ -106,22 +111,43 @@ async function onTimeout(threadId) {
     }
 }
 
+async function onHardCap(threadId) {
+    const session = sessions.get(threadId);
+    if (!session || session.ended) return;
+    const winnerId = session.lastPlayerId;
+    if (winnerId) {
+        await endSession(threadId, { winnerId, reason: 'hard_cap' });
+    } else {
+        await endSession(threadId, { winnerId: null, reason: 'hard_cap' });
+    }
+}
+
 async function endSession(threadId, { winnerId, reason }) {
     const session = sessions.get(threadId);
     if (!session || session.ended) return;
     session.ended = true;
     if (session.timer) clearTimeout(session.timer);
+    if (session.hardCapTimer) clearTimeout(session.hardCapTimer);
 
     const thread = await client.channels.fetch(threadId).catch(() => null);
 
     if (thread) {
         let message;
         if (winnerId === null) {
-            message = '⏰ Hết giờ. Trò chơi kết thúc, không có người thắng.';
+            message = reason === 'hard_cap'
+                ? '⏰ Phiên đã kéo dài quá 2 ngày. Trò chơi kết thúc, không có người thắng.'
+                : '⏰ Hết giờ. Trò chơi kết thúc, không có người thắng.';
         } else if (winnerId === 'bot') {
-            message = `🎉 Bot thắng! Lý do: ${reason === 'timeout' ? 'người chơi quá thời gian' : 'không còn từ để nối'}.`;
+            const botReason = reason === 'timeout' ? 'người chơi quá thời gian'
+                : reason === 'surrender' ? 'người chơi đầu hàng'
+                : reason === 'hard_cap' ? 'phiên kéo dài quá 2 ngày'
+                : 'không còn từ để nối';
+            message = `🎉 Bot thắng! Lý do: ${botReason}.`;
         } else {
-            const reasonText = reason === 'timeout' ? 'đối thủ quá thời gian' : 'không còn từ để nối';
+            const reasonText = reason === 'timeout' ? 'đối thủ quá thời gian'
+                : reason === 'surrender' ? 'đối thủ đầu hàng'
+                : reason === 'hard_cap' ? 'phiên kéo dài quá 2 ngày'
+                : 'không còn từ để nối';
             message = `🎉 Chúc mừng <@${winnerId}> đã thắng! Lý do: ${reasonText}.`;
         }
         await thread.send(message).catch(e => log.warn('wordchain: send end message failed', e));
@@ -133,13 +159,17 @@ async function endSession(threadId, { winnerId, reason }) {
 }
 
 function getHelpText(session) {
+    const timerLine = session.timeoutMinutes > 0
+        ? `• Thời gian chờ: ${session.timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).`
+        : `• Không giới hạn thời gian — chỉ kết thúc khi dead-end hoặc đầu hàng.`;
     return (
         `**Trò chơi Nối Từ — chế độ ${session.mode}**\n` +
         `• Mỗi từ phải có đúng 2 âm tiết và có trong từ điển.\n` +
         `• Âm tiết đầu của từ tiếp theo phải khớp với âm tiết cuối của từ trước.\n` +
         `• Mỗi từ chỉ được dùng 1 lần trong ván.\n` +
         `• ✅ hợp lệ — ❌ không có trong từ điển / sai luật nối — ⛔ đã dùng rồi.\n` +
-        `• Thời gian chờ: ${session.timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).` +
+        `• Đầu hàng: gõ \`surrender\`, \`sur\`, \`end\` hoặc \`THUA\` (sau ≥ 30s kể từ từ hợp lệ gần nhất).\n` +
+        timerLine +
         (session.mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '')
     );
 }
@@ -166,15 +196,19 @@ async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
         lastWord: null,
         lastSyllable: null,
         lastPlayerId: null,
+        lastValidAt: null,
         usedWords,
         timer: null,
+        hardCapTimer: null,
         ended: false
     };
     sessions.set(thread.id, session);
+    session.hardCapTimer = setTimeout(() => onHardCap(thread.id), HARD_CAP_MS);
 
-    const startMessage =
-        `• Thời gian chờ: ${timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).` +
-        (mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '');
+    const timerLine = timeoutMinutes > 0
+        ? `• Thời gian chờ: ${timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).`
+        : `• Không giới hạn thời gian — chỉ kết thúc khi dead-end hoặc đầu hàng.`;
+    const startMessage = timerLine + (mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '');
     await thread.send(startMessage);
 
     if (mode === 'BOT') {
@@ -189,6 +223,7 @@ async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
         session.lastWord = opener;
         session.lastSyllable = second;
         session.lastPlayerId = 'bot';
+        session.lastValidAt = Date.now();
         await thread.send(`**${opener}**`);
     }
 
@@ -209,6 +244,29 @@ async function handleThreadMessage(msg) {
         return;
     }
 
+    const raw = msg.content.trim();
+    const isSurrender = word === 'surrender' || word === 'sur' || word === 'end' || raw === 'THUA';
+    if (isSurrender) {
+        if (!session.lastValidAt) {
+            await msg.reply('Chưa có từ hợp lệ nào — chưa thể đầu hàng.').catch(() => {});
+            return;
+        }
+        const elapsed = Date.now() - session.lastValidAt;
+        if (elapsed < 30000) {
+            const remaining = Math.ceil((30000 - elapsed) / 1000);
+            await msg.reply(`Chưa thể đầu hàng (đợi thêm ${remaining}s sau từ hợp lệ gần nhất).`).catch(() => {});
+            return;
+        }
+        if (session.mode === 'PVP' && session.lastPlayerId === msg.author.id) {
+            await msg.reply('Bạn vừa chơi từ hợp lệ, không thể tự đầu hàng.').catch(() => {});
+            return;
+        }
+        const winnerId = session.mode === 'BOT' ? 'bot' : session.lastPlayerId;
+        await msg.react('🏳️').catch(() => {});
+        await endSession(session.threadId, { winnerId, reason: 'surrender' });
+        return;
+    }
+
     let action;
     if (session.mode === 'PVP' && session.lastPlayerId === msg.author.id) {
         action = 'wrong_turn';
@@ -223,6 +281,7 @@ async function handleThreadMessage(msg) {
         session.lastWord = word;
         session.lastSyllable = second;
         session.lastPlayerId = msg.author.id;
+        session.lastValidAt = Date.now();
         armTimer(session);
     }
 
@@ -259,6 +318,7 @@ async function handleThreadMessage(msg) {
         session.lastWord = botWord;
         session.lastSyllable = botSecond;
         session.lastPlayerId = 'bot';
+        session.lastValidAt = Date.now();
         armTimer(session);
         await msg.channel.send(`**${botWord}**`);
 
