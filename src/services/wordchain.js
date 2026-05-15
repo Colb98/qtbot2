@@ -1,16 +1,24 @@
-const { ChannelType } = require('discord.js');
+const {
+    ChannelType,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    MessageFlags
+} = require('discord.js');
 const log = require('../../logger');
 const client = require('../client');
 const dict = require('../../word_dict/vietnamese_wordchain.json');
 
 const dictKeys = Object.keys(dict).filter(k => Array.isArray(dict[k]) && dict[k].length > 0);
+const popularKeys = dictKeys.filter(k => dict[k].length >= 10);
 
 const HARD_CAP_MS = 2 * 24 * 60 * 60 * 1000;
 
 const sessions = new Map();
+const threads = new Map();
 
-function hasSession(threadId) {
-    return sessions.has(threadId);
+function hasThread(threadId) {
+    return threads.has(threadId);
 }
 
 function normalize(text) {
@@ -37,10 +45,6 @@ function hasUnusedContinuation(syllable, usedWords) {
     return false;
 }
 
-function isWinningMove(word, usedWords) {
-    return countUnusedContinuations(word, usedWords) === 0;
-}
-
 function countUnusedContinuations(word, usedWords) {
     const second = splitWord(word)[1];
     const bucket = dict[second];
@@ -51,6 +55,10 @@ function countUnusedContinuations(word, usedWords) {
         if (!usedWords.has(next)) count++;
     }
     return count;
+}
+
+function isWinningMove(word, usedWords) {
+    return countUnusedContinuations(word, usedWords) === 0;
 }
 
 function isEasyChain(word, usedWords) {
@@ -88,8 +96,9 @@ function pickBotWord(syllable, usedWords, turn) {
 }
 
 function pickRandomOpener(usedWords) {
+    const pool = popularKeys.length > 0 ? popularKeys : dictKeys;
     for (let i = 0; i < 500; i++) {
-        const key = randomFrom(dictKeys);
+        const key = randomFrom(pool);
         const bucket = dict[key];
         if (!Array.isArray(bucket) || bucket.length === 0) continue;
         const word = randomFrom(bucket);
@@ -116,26 +125,16 @@ function armTimer(session) {
     }
 }
 
+function armThreadHardCap(threadInfo, threadId) {
+    if (threadInfo.hardCapTimer) clearTimeout(threadInfo.hardCapTimer);
+    threadInfo.hardCapTimer = setTimeout(() => closeThread(threadId, { reason: 'hard_cap' }), HARD_CAP_MS);
+}
+
 async function onTimeout(threadId) {
     const session = sessions.get(threadId);
     if (!session || session.ended) return;
     const winnerId = session.lastPlayerId;
-    if (winnerId) {
-        await endSession(threadId, { winnerId, reason: 'timeout' });
-    } else {
-        await endSession(threadId, { winnerId: null, reason: 'timeout' });
-    }
-}
-
-async function onHardCap(threadId) {
-    const session = sessions.get(threadId);
-    if (!session || session.ended) return;
-    const winnerId = session.lastPlayerId;
-    if (winnerId) {
-        await endSession(threadId, { winnerId, reason: 'hard_cap' });
-    } else {
-        await endSession(threadId, { winnerId: null, reason: 'hard_cap' });
-    }
+    await endSession(threadId, { winnerId: winnerId || null, reason: 'timeout' });
 }
 
 async function endSession(threadId, { winnerId, reason }) {
@@ -143,71 +142,91 @@ async function endSession(threadId, { winnerId, reason }) {
     if (!session || session.ended) return;
     session.ended = true;
     if (session.timer) clearTimeout(session.timer);
-    if (session.hardCapTimer) clearTimeout(session.hardCapTimer);
 
     const thread = await client.channels.fetch(threadId).catch(() => null);
 
     if (thread) {
         let message;
         if (winnerId === null) {
-            message = reason === 'hard_cap'
-                ? '⏰ Phiên đã kéo dài quá 2 ngày. Trò chơi kết thúc, không có người thắng.'
-                : '⏰ Hết giờ. Trò chơi kết thúc, không có người thắng.';
+            message = '⏰ Hết giờ. Trò chơi kết thúc, không có người thắng.';
         } else if (winnerId === 'bot') {
             const botReason = reason === 'timeout' ? 'người chơi quá thời gian'
                 : reason === 'surrender' ? 'người chơi đầu hàng'
-                : reason === 'hard_cap' ? 'phiên kéo dài quá 2 ngày'
                 : 'không còn từ để nối';
             message = `🎉 Bot thắng! Lý do: ${botReason}.`;
         } else {
             const reasonText = reason === 'timeout' ? 'đối thủ quá thời gian'
                 : reason === 'surrender' ? 'đối thủ đầu hàng'
-                : reason === 'hard_cap' ? 'phiên kéo dài quá 2 ngày'
                 : 'không còn từ để nối';
             message = `🎉 Chúc mừng <@${winnerId}> đã thắng! Lý do: ${reasonText}.`;
         }
+        message += `\nGõ \`start\` để bắt đầu ván mới, hoặc \`close\` để đóng thread.`;
         await thread.send(message).catch(e => log.warn('wordchain: send end message failed', e));
-        await thread.setLocked(true).catch(e => log.warn('wordchain: lock thread failed', e));
-        await thread.setArchived(true).catch(e => log.warn('wordchain: archive thread failed', e));
     }
 
     sessions.delete(threadId);
 }
 
-function getHelpText(session) {
-    const timerLine = session.timeoutMinutes > 0
-        ? `• Thời gian chờ: ${session.timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).`
+async function closeThread(threadId, { reason }) {
+    const threadInfo = threads.get(threadId);
+    if (threadInfo) {
+        if (threadInfo.hardCapTimer) clearTimeout(threadInfo.hardCapTimer);
+        threads.delete(threadId);
+    }
+    const session = sessions.get(threadId);
+    if (session && !session.ended) {
+        session.ended = true;
+        if (session.timer) clearTimeout(session.timer);
+        sessions.delete(threadId);
+    }
+
+    const thread = await client.channels.fetch(threadId).catch(() => null);
+    if (thread) {
+        const closingMsg = reason === 'hard_cap'
+            ? '⏰ Thread không hoạt động quá 2 ngày. Đóng thread.'
+            : '🔒 Thread đã được đóng.';
+        await thread.send(closingMsg).catch(e => log.warn('wordchain: send close message failed', e));
+        await thread.setLocked(true).catch(e => log.warn('wordchain: lock thread failed', e));
+        await thread.setArchived(true).catch(e => log.warn('wordchain: archive thread failed', e));
+    }
+}
+
+function getHelpText(threadInfo) {
+    const timerLine = threadInfo.timeoutMinutes > 0
+        ? `• Thời gian chờ: ${threadInfo.timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).`
         : `• Không giới hạn thời gian — chỉ kết thúc khi dead-end hoặc đầu hàng.`;
     return (
-        `**Trò chơi Nối Từ — chế độ ${session.mode}**\n` +
+        `**Trò chơi Nối Từ — chế độ ${threadInfo.mode}**\n` +
         `• Mỗi từ phải có đúng 2 âm tiết và có trong từ điển.\n` +
         `• Âm tiết đầu của từ tiếp theo phải khớp với âm tiết cuối của từ trước.\n` +
         `• Mỗi từ chỉ được dùng 1 lần trong ván.\n` +
         `• ✅ hợp lệ — ❌ không có trong từ điển / sai luật nối — ⛔ đã dùng rồi.\n` +
         `• Đầu hàng: gõ \`surrender\`, \`sur\`, \`end\` hoặc \`THUA\` (sau ≥ 30s kể từ từ hợp lệ gần nhất).\n` +
+        `• Sau khi ván kết thúc, gõ \`start\` để chơi tiếp hoặc \`close\` để đóng thread.\n` +
         timerLine +
-        (session.mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '')
+        (threadInfo.mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '')
     );
 }
 
-async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
-    if (channel.type !== ChannelType.GuildText) {
-        throw new Error('not_text_channel');
+async function beginGame(thread, mode, timeoutMinutes) {
+    if (sessions.has(thread.id)) return;
+
+    let threadInfo = threads.get(thread.id);
+    if (!threadInfo) {
+        threadInfo = { mode, timeoutMinutes, hardCapTimer: null };
+        threads.set(thread.id, threadInfo);
+    } else {
+        threadInfo.mode = mode;
+        threadInfo.timeoutMinutes = timeoutMinutes;
     }
-    const timeoutMs = timeoutMinutes * 60 * 1000;
-    const thread = await channel.threads.create({
-        name: `Nối từ — ${mode}`,
-        autoArchiveDuration: 60,
-        type: ChannelType.PublicThread,
-        reason: `Wordchain ${mode} started by ${invokerId}`
-    });
+    armThreadHardCap(threadInfo, thread.id);
 
     const usedWords = new Set();
     const session = {
         mode,
-        guildId: channel.guildId,
+        guildId: thread.guildId,
         threadId: thread.id,
-        timeoutMs,
+        timeoutMs: timeoutMinutes * 60 * 1000,
         timeoutMinutes,
         lastWord: null,
         lastSyllable: null,
@@ -215,24 +234,22 @@ async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
         lastValidAt: null,
         usedWords,
         timer: null,
-        hardCapTimer: null,
         ended: false
     };
     sessions.set(thread.id, session);
-    session.hardCapTimer = setTimeout(() => onHardCap(thread.id), HARD_CAP_MS);
 
     const timerLine = timeoutMinutes > 0
         ? `• Thời gian chờ: ${timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).`
         : `• Không giới hạn thời gian — chỉ kết thúc khi dead-end hoặc đầu hàng.`;
-    const startMessage = timerLine + (mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '');
+    const startMessage = `**Ván mới — chế độ ${mode}**\n` + timerLine + (mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '');
     await thread.send(startMessage);
 
     if (mode === 'BOT') {
         const opener = pickRandomOpener(usedWords);
         if (!opener) {
-            await thread.send('Không tìm được từ mở đầu. Trò chơi kết thúc.');
-            await endSession(thread.id, { winnerId: null, reason: 'no_opener' });
-            return thread;
+            await thread.send('Không tìm được từ mở đầu. Gõ `start` để thử lại.');
+            sessions.delete(thread.id);
+            return;
         }
         usedWords.add(opener);
         const [, second] = splitWord(opener);
@@ -244,19 +261,97 @@ async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
     }
 
     armTimer(session);
+}
+
+async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
+    if (channel.type !== ChannelType.GuildText) {
+        throw new Error('not_text_channel');
+    }
+    const thread = await channel.threads.create({
+        name: `Nối từ — ${mode}`,
+        autoArchiveDuration: 1440,
+        type: ChannelType.PublicThread,
+        reason: `Wordchain ${mode} started by ${invokerId}`
+    });
+    await beginGame(thread, mode, timeoutMinutes);
     return thread;
 }
 
+async function showCloseConfirmation(msg) {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`wc_close_ok_${msg.author.id}`)
+            .setLabel('OK')
+            .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+            .setCustomId(`wc_close_cancel_${msg.author.id}`)
+            .setLabel('Cancel')
+            .setStyle(ButtonStyle.Secondary)
+    );
+    await msg.reply({
+        content: `<@${msg.author.id}> xác nhận đóng thread?`,
+        components: [row]
+    }).catch(e => log.warn('wordchain: send close confirmation failed', e));
+}
+
+async function handleButtonInteraction(interaction) {
+    if (!interaction.isButton()) return false;
+    if (!interaction.customId.startsWith('wc_close_')) return false;
+
+    const parts = interaction.customId.split('_');
+    const action = parts[2];
+    const typerId = parts[3];
+
+    if (interaction.user.id !== typerId) {
+        await interaction.reply({
+            content: 'Chỉ người gọi lệnh `close` mới có thể xác nhận.',
+            flags: MessageFlags.Ephemeral
+        }).catch(() => {});
+        return true;
+    }
+
+    if (action === 'cancel') {
+        await interaction.update({
+            content: '❎ Đã hủy đóng thread.',
+            components: []
+        }).catch(() => {});
+        return true;
+    }
+
+    await interaction.update({
+        content: '✅ Đang đóng thread...',
+        components: []
+    }).catch(() => {});
+    await closeThread(interaction.channel.id, { reason: 'manual' });
+    return true;
+}
+
 async function handleThreadMessage(msg) {
-    const session = sessions.get(msg.channel.id);
-    if (!session || session.ended) return;
+    const threadInfo = threads.get(msg.channel.id);
+    if (!threadInfo) return;
     if (msg.author.bot) return;
+
+    armThreadHardCap(threadInfo, msg.channel.id);
 
     const word = normalize(msg.content);
     if (!word) return;
 
     if (word === 'help') {
-        await msg.reply(getHelpText(session)).catch(() => {});
+        await msg.reply(getHelpText(threadInfo)).catch(() => {});
+        return;
+    }
+
+    if (word === 'close') {
+        await showCloseConfirmation(msg);
+        return;
+    }
+
+    const session = sessions.get(msg.channel.id);
+
+    if (!session || session.ended) {
+        if (word === 'start') {
+            await beginGame(msg.channel, threadInfo.mode, threadInfo.timeoutMinutes);
+        }
         return;
     }
 
@@ -344,4 +439,4 @@ async function handleThreadMessage(msg) {
     }
 }
 
-module.exports = { hasSession, startSession, handleThreadMessage };
+module.exports = { hasThread, startSession, handleThreadMessage, handleButtonInteraction };
