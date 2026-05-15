@@ -160,8 +160,18 @@ async function endSession(threadId, { winnerId, reason }) {
                 : 'không còn từ để nối';
             message = `🎉 Chúc mừng <@${winnerId}> đã thắng! Lý do: ${reasonText}.`;
         }
-        message += `\nGõ \`start\` để bắt đầu ván mới, hoặc \`close\` để đóng thread.`;
-        await thread.send(message).catch(e => log.warn('wordchain: send end message failed', e));
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('wc_start_new')
+                .setLabel('Ván mới')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId('wc_close_init')
+                .setLabel('Đóng thread')
+                .setStyle(ButtonStyle.Secondary)
+        );
+        await thread.send({ content: message, components: [row] })
+            .catch(e => log.warn('wordchain: send end message failed', e));
     }
 
     sessions.delete(threadId);
@@ -202,7 +212,7 @@ function getHelpText(threadInfo) {
         `• Mỗi từ chỉ được dùng 1 lần trong ván.\n` +
         `• ✅ hợp lệ — ❌ không có trong từ điển / sai luật nối — ⛔ đã dùng rồi.\n` +
         `• Đầu hàng: gõ \`surrender\`, \`sur\`, \`end\` hoặc \`THUA\` (sau ≥ 30s kể từ từ hợp lệ gần nhất).\n` +
-        `• Sau khi ván kết thúc, gõ \`start\` để chơi tiếp hoặc \`close\` để đóng thread.\n` +
+        `• Sau khi ván kết thúc, bấm nút **Ván mới** để chơi tiếp hoặc **Đóng thread** để đóng.\n` +
         timerLine +
         (threadInfo.mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '')
     );
@@ -296,34 +306,88 @@ async function showCloseConfirmation(msg) {
 
 async function handleButtonInteraction(interaction) {
     if (!interaction.isButton()) return false;
-    if (!interaction.customId.startsWith('wc_close_')) return false;
+    if (!interaction.customId.startsWith('wc_')) return false;
 
-    const parts = interaction.customId.split('_');
-    const action = parts[2];
-    const typerId = parts[3];
+    const id = interaction.customId;
+    const threadId = interaction.channel.id;
 
-    if (interaction.user.id !== typerId) {
+    if (id === 'wc_start_new') {
+        const threadInfo = threads.get(threadId);
+        if (!threadInfo) {
+            await interaction.reply({
+                content: 'Không tìm được phiên này.',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+            return true;
+        }
+        if (sessions.has(threadId)) {
+            await interaction.reply({
+                content: 'Đã có ván đang chơi.',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+            return true;
+        }
+        await interaction.update({ components: [] }).catch(() => {});
+        await beginGame(interaction.channel, threadInfo.mode, threadInfo.timeoutMinutes);
+        return true;
+    }
+
+    if (id === 'wc_close_init') {
+        const threadInfo = threads.get(threadId);
+        if (!threadInfo) {
+            await interaction.reply({
+                content: 'Không tìm được phiên này.',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+            return true;
+        }
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`wc_close_ok_${interaction.user.id}`)
+                .setLabel('OK')
+                .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+                .setCustomId(`wc_close_cancel_${interaction.user.id}`)
+                .setLabel('Cancel')
+                .setStyle(ButtonStyle.Secondary)
+        );
         await interaction.reply({
-            content: 'Chỉ người gọi lệnh `close` mới có thể xác nhận.',
-            flags: MessageFlags.Ephemeral
+            content: `<@${interaction.user.id}> xác nhận đóng thread?`,
+            components: [row]
         }).catch(() => {});
         return true;
     }
 
-    if (action === 'cancel') {
+    if (id.startsWith('wc_close_ok_') || id.startsWith('wc_close_cancel_')) {
+        const parts = id.split('_');
+        const action = parts[2];
+        const typerId = parts[3];
+
+        if (interaction.user.id !== typerId) {
+            await interaction.reply({
+                content: 'Chỉ người gọi đóng thread mới có thể xác nhận.',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+            return true;
+        }
+
+        if (action === 'cancel') {
+            await interaction.update({
+                content: '❎ Đã hủy đóng thread.',
+                components: []
+            }).catch(() => {});
+            return true;
+        }
+
         await interaction.update({
-            content: '❎ Đã hủy đóng thread.',
+            content: '✅ Đang đóng thread...',
             components: []
         }).catch(() => {});
+        await closeThread(threadId, { reason: 'manual' });
         return true;
     }
 
-    await interaction.update({
-        content: '✅ Đang đóng thread...',
-        components: []
-    }).catch(() => {});
-    await closeThread(interaction.channel.id, { reason: 'manual' });
-    return true;
+    return false;
 }
 
 async function handleThreadMessage(msg) {
