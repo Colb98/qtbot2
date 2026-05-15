@@ -62,10 +62,9 @@ function pickFromBucket(bucket, usedWords, turn) {
         else nonWinning.push(w);
     }
     if (nonWinning.length === 0) return randomFrom(winning);
-    if (winning.length === 0) return randomFrom(nonWinning);
 
-    const winRate = Math.min(turn * 0.001, 1.0);
-    if (Math.random() < winRate) return randomFrom(winning);
+    const fullPoolRate = Math.min(turn * 0.001, 1.0);
+    if (Math.random() < fullPoolRate) return randomFrom(candidates);
     return randomFrom(nonWinning);
 }
 
