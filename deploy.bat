@@ -1,0 +1,1 @@
+scp -r ./index.js root@149.28.132.82:~/qtbot/index.js

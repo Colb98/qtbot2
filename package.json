@@ -1,0 +1,17 @@
+{
+  "name": "guild-war-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for weekly guild war signups",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.25.1",
+    "dotenv": "^17.2.3",
+    "node-cron": "^3.0.2"
+  },
+  "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.10"
+  }
+}
