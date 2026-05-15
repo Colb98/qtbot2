@@ -35,18 +35,48 @@ function hasUnusedContinuation(syllable, usedWords) {
     return false;
 }
 
-function pickBotWord(syllable, usedWords) {
-    const bucket = dict[syllable];
+function isWinningMove(word, usedWords) {
+    const second = splitWord(word)[1];
+    const bucket = dict[second];
+    if (!Array.isArray(bucket)) return true;
+    for (const next of bucket) {
+        if (next !== word && !usedWords.has(next)) return false;
+    }
+    return true;
+}
+
+function randomFrom(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function pickFromBucket(bucket, usedWords, turn) {
     if (!Array.isArray(bucket) || bucket.length === 0) return null;
     const candidates = bucket.filter(w => !usedWords.has(w));
     if (candidates.length === 0) return null;
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    if (candidates.length === 1) return candidates[0];
+
+    const winning = [];
+    const nonWinning = [];
+    for (const w of candidates) {
+        if (isWinningMove(w, usedWords)) winning.push(w);
+        else nonWinning.push(w);
+    }
+    if (nonWinning.length === 0) return randomFrom(winning);
+    if (winning.length === 0) return randomFrom(nonWinning);
+
+    const winRate = Math.min(turn * 0.001, 1.0);
+    if (Math.random() < winRate) return randomFrom(winning);
+    return randomFrom(nonWinning);
 }
 
-function pickRandomOpener(usedWords) {
+function pickBotWord(syllable, usedWords, turn) {
+    return pickFromBucket(dict[syllable], usedWords, turn);
+}
+
+function pickRandomOpener(usedWords, turn) {
     for (let i = 0; i < 50; i++) {
-        const key = dictKeys[Math.floor(Math.random() * dictKeys.length)];
-        const word = pickBotWord(key, usedWords);
+        const key = randomFrom(dictKeys);
+        const word = pickFromBucket(dict[key], usedWords, turn);
         if (word) return word;
     }
     return null;
@@ -70,11 +100,10 @@ async function onTimeout(threadId) {
     const session = sessions.get(threadId);
     if (!session || session.ended) return;
     const winnerId = session.lastPlayerId;
-    const reason = 'timeout';
     if (winnerId) {
-        await endSession(threadId, { winnerId, reason });
+        await endSession(threadId, { winnerId, reason: 'timeout' });
     } else {
-        await endSession(threadId, { winnerId: null, reason });
+        await endSession(threadId, { winnerId: null, reason: 'timeout' });
     }
 }
 
@@ -93,9 +122,7 @@ async function endSession(threadId, { winnerId, reason }) {
         } else if (winnerId === 'bot') {
             message = `🎉 Bot thắng! Lý do: ${reason === 'timeout' ? 'người chơi quá thời gian' : 'không còn từ để nối'}.`;
         } else {
-            const reasonText = reason === 'timeout'
-                ? 'đối thủ quá thời gian'
-                : 'không còn từ để nối';
+            const reasonText = reason === 'timeout' ? 'đối thủ quá thời gian' : 'không còn từ để nối';
             message = `🎉 Chúc mừng <@${winnerId}> đã thắng! Lý do: ${reasonText}.`;
         }
         await thread.send(message).catch(e => log.warn('wordchain: send end message failed', e));
@@ -104,6 +131,18 @@ async function endSession(threadId, { winnerId, reason }) {
     }
 
     sessions.delete(threadId);
+}
+
+function getHelpText(session) {
+    return (
+        `**Trò chơi Nối Từ — chế độ ${session.mode}**\n` +
+        `• Mỗi từ phải có đúng 2 âm tiết và có trong từ điển.\n` +
+        `• Âm tiết đầu của từ tiếp theo phải khớp với âm tiết cuối của từ trước.\n` +
+        `• Mỗi từ chỉ được dùng 1 lần trong ván.\n` +
+        `• ✅ hợp lệ — ❌ không có trong từ điển / sai luật nối — ⛔ đã dùng rồi.\n` +
+        `• Thời gian chờ: ${session.timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).` +
+        (session.mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '')
+    );
 }
 
 async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
@@ -134,18 +173,13 @@ async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
     };
     sessions.set(thread.id, session);
 
-    const rules =
-        `**Trò chơi Nối Từ — chế độ ${mode}**\n` +
-        `• Mỗi từ phải có đúng 2 âm tiết và có trong từ điển.\n` +
-        `• Âm tiết đầu của từ tiếp theo phải khớp với âm tiết cuối của từ trước.\n` +
-        `• Mỗi từ chỉ được dùng 1 lần trong ván.\n` +
-        `• ✅ hợp lệ — ❌ không có trong từ điển / sai luật nối — ⛔ đã dùng rồi.\n` +
-        `• Thời gian chờ: **${timeoutMinutes} phút** mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).` +
+    const startMessage =
+        `• Thời gian chờ: ${timeoutMinutes} phút mỗi lượt (chỉ từ hợp lệ mới reset đồng hồ).` +
         (mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '');
-    await thread.send(rules);
+    await thread.send(startMessage);
 
     if (mode === 'BOT') {
-        const opener = pickRandomOpener(usedWords);
+        const opener = pickRandomOpener(usedWords, 1);
         if (!opener) {
             await thread.send('Không tìm được từ mở đầu. Trò chơi kết thúc.');
             await endSession(thread.id, { winnerId: null, reason: 'no_opener' });
@@ -156,9 +190,7 @@ async function startSession({ channel, invokerId, mode, timeoutMinutes }) {
         session.lastWord = opener;
         session.lastSyllable = second;
         session.lastPlayerId = 'bot';
-        await thread.send(`Bot mở đầu: **${opener}**\nTừ tiếp theo phải bắt đầu bằng **"${second}"**.`);
-    } else {
-        await thread.send('Người chơi đầu tiên hãy gõ từ mở đầu (2 âm tiết, có trong từ điển).');
+        await thread.send(`**${opener}**`);
     }
 
     armTimer(session);
@@ -172,6 +204,11 @@ async function handleThreadMessage(msg) {
 
     const word = normalize(msg.content);
     if (!word) return;
+
+    if (word === 'help') {
+        await msg.reply(getHelpText(session)).catch(() => {});
+        return;
+    }
 
     let action;
     if (session.mode === 'PVP' && session.lastPlayerId === msg.author.id) {
@@ -212,7 +249,8 @@ async function handleThreadMessage(msg) {
     }
 
     if (session.mode === 'BOT') {
-        const botWord = pickBotWord(second, session.usedWords);
+        const turn = session.usedWords.size + 1;
+        const botWord = pickBotWord(second, session.usedWords, turn);
         if (!botWord) {
             await endSession(session.threadId, { winnerId: msg.author.id, reason: 'dead_end' });
             return;
@@ -223,7 +261,7 @@ async function handleThreadMessage(msg) {
         session.lastSyllable = botSecond;
         session.lastPlayerId = 'bot';
         armTimer(session);
-        await msg.channel.send(`Bot: **${botWord}**\nTừ tiếp theo phải bắt đầu bằng **"${botSecond}"**.`);
+        await msg.channel.send(`**${botWord}**`);
 
         if (!hasUnusedContinuation(botSecond, session.usedWords)) {
             await endSession(session.threadId, { winnerId: 'bot', reason: 'dead_end' });
