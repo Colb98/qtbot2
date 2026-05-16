@@ -7,12 +7,34 @@ const {
 } = require('discord.js');
 const log = require('../../logger');
 const client = require('../client');
+const { data, saveData } = require('../state');
 const dict = require('../../word_dict/vietnamese_wordchain.json');
 
 const dictKeys = Object.keys(dict).filter(k => Array.isArray(dict[k]) && dict[k].length > 0);
 const popularKeys = dictKeys.filter(k => dict[k].length >= 10);
 
 const HARD_CAP_MS = 2 * 24 * 60 * 60 * 1000;
+const SURRENDER_COOLDOWN_MS = 10 * 1000;
+
+function getScore(guildId, userId) {
+    return (data.wordchainScores && data.wordchainScores[guildId] && data.wordchainScores[guildId][userId]) || 0;
+}
+
+function incrementScore(guildId, userId) {
+    data.wordchainScores = data.wordchainScores || {};
+    data.wordchainScores[guildId] = data.wordchainScores[guildId] || {};
+    data.wordchainScores[guildId][userId] = (data.wordchainScores[guildId][userId] || 0) + 1;
+    saveData();
+    return data.wordchainScores[guildId][userId];
+}
+
+function getTopScores(guildId, limit = 10) {
+    const scores = data.wordchainScores && data.wordchainScores[guildId];
+    if (!scores) return [];
+    return Object.entries(scores)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit);
+}
 
 const sessions = new Map();
 const threads = new Map();
@@ -158,7 +180,8 @@ async function endSession(threadId, { winnerId, reason }) {
             const reasonText = reason === 'timeout' ? 'đối thủ quá thời gian'
                 : reason === 'surrender' ? 'đối thủ đầu hàng'
                 : 'không còn từ để nối';
-            message = `🎉 Chúc mừng <@${winnerId}> đã thắng! Lý do: ${reasonText}.`;
+            const newScore = incrementScore(session.guildId, winnerId);
+            message = `🎉 Chúc mừng <@${winnerId}> đã thắng! Lý do: ${reasonText}. (Tổng điểm: **${newScore}**)`;
         }
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -211,7 +234,7 @@ function getHelpText(threadInfo) {
         `• Âm tiết đầu của từ tiếp theo phải khớp với âm tiết cuối của từ trước.\n` +
         `• Mỗi từ chỉ được dùng 1 lần trong ván.\n` +
         `• ✅ hợp lệ — ❌ không có trong từ điển / sai luật nối — ⛔ đã dùng rồi.\n` +
-        `• Đầu hàng: gõ \`surrender\`, \`sur\`, \`end\` hoặc \`THUA\` (sau ≥ 30s kể từ từ hợp lệ gần nhất).\n` +
+        `• Đầu hàng: gõ \`surrender\`, \`sur\`, \`end\` hoặc \`THUA\` (sau ≥ 10s kể từ từ hợp lệ gần nhất).\n` +
         `• Sau khi ván kết thúc, bấm nút **Ván mới** để chơi tiếp hoặc **Đóng thread** để đóng.\n` +
         timerLine +
         (threadInfo.mode === 'PVP' ? `\n• PVP: không được chơi 2 lượt liên tiếp.` : '')
@@ -427,8 +450,8 @@ async function handleThreadMessage(msg) {
             return;
         }
         const elapsed = Date.now() - session.lastValidAt;
-        if (elapsed < 30000) {
-            const remaining = Math.ceil((30000 - elapsed) / 1000);
+        if (elapsed < SURRENDER_COOLDOWN_MS) {
+            const remaining = Math.ceil((SURRENDER_COOLDOWN_MS - elapsed) / 1000);
             await msg.reply(`Chưa thể đầu hàng (đợi thêm ${remaining}s sau từ hợp lệ gần nhất).`).catch(() => {});
             return;
         }
@@ -503,4 +526,4 @@ async function handleThreadMessage(msg) {
     }
 }
 
-module.exports = { hasThread, startSession, handleThreadMessage, handleButtonInteraction };
+module.exports = { hasThread, startSession, handleThreadMessage, handleButtonInteraction, getTopScores };
