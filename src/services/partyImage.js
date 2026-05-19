@@ -6,12 +6,19 @@ const { getUserDisplayName } = require('../utils');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FONT_PATH = path.join(ROOT, 'assets', 'NotoSans-Regular.ttf');
+const FONT_CJK_PATH = path.join(ROOT, 'assets', 'NotoSansSC-Regular.otf');
 const EMOTES_DIR = path.join(ROOT, 'emotes');
+const FONT_STACK = 'NotoSans, NotoSansCJK';
 
 if (!fs.existsSync(FONT_PATH)) {
     throw new Error(`Cần file font ${FONT_PATH}`);
 }
 GlobalFonts.registerFromPath(FONT_PATH, 'NotoSans');
+if (fs.existsSync(FONT_CJK_PATH)) {
+    GlobalFonts.registerFromPath(FONT_CJK_PATH, 'NotoSansCJK');
+} else {
+    log.warn(`Không tìm thấy ${FONT_CJK_PATH}, tên có ký tự CJK sẽ render tofu.`);
+}
 
 const CLASS_TO_FILE = {
     'Cửu Linh': 'CL.png',
@@ -110,7 +117,7 @@ async function renderArrangement(result, mode, guildId) {
         ctx.fillStyle = party.isDayTru ? HEADER_PUSH : HEADER_BG;
         ctx.fillRect(x0, y, d.width, PARTY_HEADER_H);
         ctx.fillStyle = TEXT;
-        ctx.font = 'bold 18px NotoSans';
+        ctx.font = `bold 18px ${FONT_STACK}`;
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'center';
         const title = party.isDayTru
@@ -120,7 +127,7 @@ async function renderArrangement(result, mode, guildId) {
 
         // Sub headers
         const subY = y + PARTY_HEADER_H;
-        ctx.font = 'bold 14px NotoSans';
+        ctx.font = `bold 14px ${FONT_STACK}`;
         for (let si = 0; si < d.cols; si++) {
             const cx = x0 + si * CELL_W;
             ctx.fillStyle = SUB_HEADER_BG;
@@ -135,7 +142,7 @@ async function renderArrangement(result, mode, guildId) {
 
         // Cells
         const cellY0 = subY + SUB_HEADER_H;
-        ctx.font = '14px NotoSans';
+        ctx.font = `14px ${FONT_STACK}`;
         for (let si = 0; si < d.cols; si++) {
             const cx = x0 + si * CELL_W;
             const sub = subs[si] || [];
