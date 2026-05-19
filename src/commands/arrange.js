@@ -1,13 +1,16 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder } = require('discord.js');
-const { canManageKimlan, getUserDisplayName } = require('../utils');
+const { canManageKimlan, isSuperAdmin } = require('../utils');
 const { data } = require('../state');
 const kimlan = require('../services/kimlan');
 const partyAssignment = require('../services/partyAssignment');
+const partyImage = require('../services/partyImage');
 const log = require('../../logger');
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
-const MAX_CONTENT = 1900;
 const cache = new Map();
+
+const RATE_LIMIT_MS = 30 * 1000;
+const lastUseByGuild = new Map();
 
 setInterval(() => {
     const now = Date.now();
@@ -29,54 +32,28 @@ function buildMembers(guildId, warnings) {
         if (!participants[uid]) continue;
         const reg = regs[uid];
         if (!reg || !reg.class) { missing++; continue; }
-        members.push({
-            id: uid,
-            name: getUserDisplayName(uid, guildId),
-            faction: reg.class
-        });
+        members.push({ id: uid, name: uid, faction: reg.class });
     }
     if (missing > 0) warnings.push(`${missing} thành viên đã đăng ký nhưng thiếu phái, bị bỏ qua.`);
     return members;
 }
 
-function renderView(result, mode, guildId) {
-    const title = mode === 'sa' ? 'SIMULATED ANNEALING' : 'GREEDY';
-    const subsArr = mode === 'sa' ? result.saSubs : result.greedySubs;
-    const metrics = mode === 'sa' ? result.metricsSA : result.metricsGreedy;
-    const lines = [];
-    lines.push(`=== ${title} ===`);
-    lines.push('');
-
-    for (let pi = 0; pi < result.parties.length; pi++) {
-        const p = result.parties[pi];
-        lines.push(`Party ${pi + 1} (${p.members.length} người):`);
-        const subs = subsArr[pi];
-        for (let si = 0; si < subs.length; si++) {
-            const sub = subs[si];
-            if (sub.length === 0) {
-                lines.push(`  Sub ${si + 1}: (trống)`);
-            } else {
-                const names = sub.map(m => getUserDisplayName(m.id, guildId));
-                lines.push(`  Sub ${si + 1}: ${names.join(', ')}`);
-            }
-        }
-        lines.push('');
-    }
-
-    lines.push('— Metrics —');
+function renderMetricsText(result, mode) {
+    const m = mode === 'sa' ? result.metricsSA : result.metricsGreedy;
     const pct = (a, b) => b > 0 ? (100 * a / b).toFixed(1) : '0.0';
-    lines.push(`Kim lan buff (party): ${metrics.partySatisfied}/${metrics.totalKimlanMembers} (${pct(metrics.partySatisfied, metrics.totalKimlanMembers)}%)`);
-    lines.push(`Kim lan buff (sub):   ${metrics.subSatisfied}/${metrics.totalKimlanMembers} (${pct(metrics.subSatisfied, metrics.totalKimlanMembers)}%)`);
-    lines.push(`Sub có Tank: ${metrics.subsWithTank}/${metrics.totalSubs} | Sub có Buff: ${metrics.subsWithBuff}/${metrics.totalSubs} | T hoặc B: ${metrics.subsWithEither}/${metrics.totalSubs}`);
-    lines.push(`Phái TB / sub: ${metrics.avgFactionsPerSub.toFixed(2)} (max lý thuyết 6.0)`);
-    lines.push(`Party có T/B: ${metrics.partiesWithEither}/${metrics.numParties}`);
-
-    if (result.warnings.length > 0) {
-        lines.push('');
-        for (const w of result.warnings) lines.push(`⚠ ${w}`);
+    const lines = [];
+    lines.push(`**Chia party — ${mode === 'sa' ? 'SIMULATED ANNEALING' : 'GREEDY'}**`);
+    lines.push(`Kim lan buff (sub): ${m.subSatisfied}/${m.totalKimlanMembers} (${pct(m.subSatisfied, m.totalKimlanMembers)}%) | Sub có T/B: ${m.subsWithEither}/${m.totalSubs} | Phái TB/sub: ${m.avgFactionsPerSub.toFixed(2)}`);
+    if (result.pushInfo && result.pushInfo.created) {
+        lines.push(`Party đẩy trụ: ${result.pushInfo.clCount} Cửu Linh + ${result.pushInfo.tvCount} Tố Vấn`);
+    } else if (result.pushInfo && result.pushInfo.enabled) {
+        lines.push(`Party đẩy trụ: không tạo được (không đủ Cửu Linh)`);
     }
-
-    return lines.join('\n');
+    if (result.warnings.length > 0) {
+        for (const w of result.warnings.slice(0, 2)) lines.push(`⚠ ${w}`);
+        if (result.warnings.length > 2) lines.push(`⚠ +${result.warnings.length - 2} cảnh báo khác`);
+    }
+    return lines.join('\n').slice(0, 1900);
 }
 
 function buildRow(mode, cacheKey) {
@@ -92,31 +69,38 @@ function buildRow(mode, cacheKey) {
     );
 }
 
-function buildPayload(result, mode, cacheKey, guildId) {
-    const body = renderView(result, mode, guildId);
-    const row = buildRow(mode, cacheKey);
-    if (body.length + 8 <= MAX_CONTENT) {
-        return { content: '```\n' + body + '\n```', components: [row], files: [] };
-    }
-    const attachment = new AttachmentBuilder(Buffer.from(body, 'utf8'), { name: `arrange_${mode}.txt` });
-    const summary = body.split('\n').slice(-10).join('\n');
+async function buildPayload(result, mode, cacheKey, guildId) {
+    const buf = await partyImage.renderArrangement(result, mode, guildId);
+    const attachment = new AttachmentBuilder(buf, { name: `arrange_${mode}.png` });
     return {
-        content: 'Kết quả quá dài, đính kèm file. Tóm tắt:\n```\n' + summary.slice(-1800) + '\n```',
-        components: [row],
-        files: [attachment]
+        content: renderMetricsText(result, mode),
+        files: [attachment],
+        components: [buildRow(mode, cacheKey)]
     };
 }
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('arrange')
-        .setDescription('Chia party bang chiến (greedy + simulated annealing)'),
+        .setDescription('Chia party bang chiến (greedy + simulated annealing)')
+        .addBooleanOption(o => o.setName('day_tru')
+            .setDescription('Dồn Cửu Linh + 2 Tố Vấn vào 1 party đẩy trụ (default: true)')
+            .setRequired(false)),
     async execute(interaction) {
         const fail = reason => ({ content: `Lệnh không thành công vì ${reason}`, flags: MessageFlags.Ephemeral });
-        if (!canManageKimlan(interaction)) {
-            await interaction.reply(fail('bạn không có quyền quản lý kim lan'));
-            return;
+        // if (!canManageKimlan(interaction)) {
+        //     await interaction.reply(fail('bạn không có quyền quản lý kim lan'));
+        //     return;
+        // }
+        if (!isSuperAdmin(interaction.member.id)) {
+            const last = lastUseByGuild.get(interaction.guildId) || 0;
+            const remaining = RATE_LIMIT_MS - (Date.now() - last);
+            if (remaining > 0) {
+                await interaction.reply(fail(`/arrange vừa được dùng, vui lòng chờ ${Math.ceil(remaining / 1000)} giây`));
+                return;
+            }
         }
+        lastUseByGuild.set(interaction.guildId, Date.now());
         await interaction.deferReply();
 
         const warnings = [];
@@ -125,16 +109,17 @@ module.exports = {
             await interaction.editReply({ content: 'Không có ai đăng ký bang chiến (hoặc đều thiếu phái).' });
             return;
         }
+        const dayTru = interaction.options.getBoolean('day_tru') ?? true;
         const kimlanGroups = kimlan.getKimlanGroupsForGuild(interaction.guildId);
         const t0 = Date.now();
-        const result = partyAssignment.arrange(members, kimlanGroups);
-        log.info(`/arrange: ${members.length} thành viên, ${kimlanGroups.length} nhóm kim lan, ${Date.now() - t0}ms`);
+        const result = partyAssignment.arrange(members, kimlanGroups, { dayTru });
+        log.info(`/arrange: ${members.length} thành viên, ${kimlanGroups.length} kim lan, day_tru=${dayTru}, ${Date.now() - t0}ms`);
         result.warnings = warnings.concat(result.warnings);
 
         const cacheKey = newCacheKey();
-        cache.set(cacheKey, { result, generatedAt: Date.now(), guildId: interaction.guildId });
+        cache.set(cacheKey, { result, generatedAt: Date.now(), guildId: interaction.guildId, dayTru });
 
-        const payload = buildPayload(result, 'greedy', cacheKey, interaction.guildId);
+        const payload = await buildPayload(result, 'greedy', cacheKey, interaction.guildId);
         await interaction.editReply(payload);
     },
     async handleButton(interaction) {
@@ -142,16 +127,16 @@ module.exports = {
         if (!id.startsWith('arrange_')) return false;
         const parts = id.split('_');
         if (parts.length !== 3) return false;
-        const modeChar = parts[1];
+        const mode = parts[1] === 's' ? 'sa' : 'greedy';
         const cacheKey = parts[2];
-        const mode = modeChar === 's' ? 'sa' : 'greedy';
         const entry = cache.get(cacheKey);
         if (!entry) {
             await interaction.reply({ content: 'Kết quả đã hết hạn, chạy lại /arrange.', flags: MessageFlags.Ephemeral });
             return true;
         }
-        const payload = buildPayload(entry.result, mode, cacheKey, entry.guildId);
-        await interaction.update(payload);
+        await interaction.deferUpdate();
+        const payload = await buildPayload(entry.result, mode, cacheKey, entry.guildId);
+        await interaction.editReply(payload);
         return true;
     }
 };

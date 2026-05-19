@@ -8,6 +8,12 @@ const PARTY_SIZE = 30;
 const SUB_SIZE = 6;
 const NUM_SUBS = 5;
 
+const PUSH_TOWER_MAX_CL = 16;
+const PUSH_TOWER_BUFFS = 2;
+const PUSH_TOWER_MIN_CL = 6;
+const PUSH_TOWER_SUBS = 3;
+const PUSH_TOWER_CAPACITY = PUSH_TOWER_MAX_CL + PUSH_TOWER_BUFFS;
+
 const SA_ITERATIONS = 8000;
 const SA_T0 = 1.0;
 const SA_T_MIN = 0.01;
@@ -185,7 +191,28 @@ function assignToParties(members, kimlanGroups, warnings) {
     return parties.filter(p => p.members.length > 0);
 }
 
+function splitPushTowerSubs(party) {
+    const subs = [];
+    for (let i = 0; i < PUSH_TOWER_SUBS; i++) subs.push([]);
+    const buffs = party.members.filter(m => m.faction === 'Tố Vấn');
+    const dps = party.members.filter(m => m.faction !== 'Tố Vấn');
+    for (let i = 0; i < buffs.length && i < subs.length; i++) subs[i].push(buffs[i]);
+    let si = 0;
+    for (const m of dps) {
+        let tries = 0;
+        while (subs[si].length >= SUB_SIZE && tries < subs.length) {
+            si = (si + 1) % subs.length;
+            tries++;
+        }
+        if (subs[si].length >= SUB_SIZE) break;
+        subs[si].push(m);
+        si = (si + 1) % subs.length;
+    }
+    return subs;
+}
+
 function splitIntoSubparties(party, kimlanGroups) {
+    if (party.isDayTru) return splitPushTowerSubs(party);
     const memberIds = new Set(party.members.map(m => m.id));
     const localGroups = kimlanGroups
         .map(g => g.filter(i => memberIds.has(i)))
@@ -383,13 +410,50 @@ function evaluate(parties, subResults, kimlanGroups) {
     };
 }
 
-function arrange(members, kimlanGroups) {
-    const warnings = [];
+function selectPushTowerMembers(members, kimlanGroups) {
+    const memberToKimlan = buildMemberToKimlan(kimlanGroups);
+    const isInKL = m => memberToKimlan.has(m.id);
+    const pickN = (pool, n) => {
+        const free = pool.filter(m => !isInKL(m));
+        const inKL = pool.filter(m => isInKL(m));
+        return [...free, ...inKL].slice(0, n);
+    };
+    const cl = members.filter(m => m.faction === 'Cửu Linh');
+    const tv = members.filter(m => m.faction === 'Tố Vấn');
+    return { cl: pickN(cl, PUSH_TOWER_MAX_CL), tv: pickN(tv, PUSH_TOWER_BUFFS) };
+}
 
-    const parties = assignToParties(members, kimlanGroups, warnings);
+function arrange(members, kimlanGroups, opts) {
+    const warnings = [];
+    const dayTru = opts && opts.dayTru === true;
+    let pushParty = null;
+    let remaining = members;
+    let pushInfo = { enabled: dayTru, created: false, clCount: 0, tvCount: 0 };
+
+    if (dayTru) {
+        const picked = selectPushTowerMembers(members, kimlanGroups);
+        if (picked.cl.length < PUSH_TOWER_MIN_CL) {
+            warnings.push(`Không đủ Cửu Linh (${picked.cl.length} < ${PUSH_TOWER_MIN_CL}) để tạo party đẩy trụ, đã bỏ qua.`);
+        } else {
+            const pushMembers = [...picked.cl, ...picked.tv];
+            pushParty = { members: pushMembers, capacity: PUSH_TOWER_CAPACITY, isDayTru: true };
+            const pickedIds = new Set(pushMembers.map(m => m.id));
+            remaining = members.filter(m => !pickedIds.has(m.id));
+            pushInfo = { enabled: true, created: true, clCount: picked.cl.length, tvCount: picked.tv.length };
+            if (picked.tv.length < PUSH_TOWER_BUFFS) {
+                warnings.push(`Party đẩy trụ chỉ có ${picked.tv.length} Tố Vấn (cần ${PUSH_TOWER_BUFFS}).`);
+            }
+        }
+    }
+
+    const normalParties = assignToParties(remaining, kimlanGroups, warnings);
+    const parties = pushParty ? [pushParty, ...normalParties] : normalParties;
 
     const greedySubs = parties.map(p => splitIntoSubparties(p, kimlanGroups));
-    const saSubs = greedySubs.map(subs => annealSubparties(subs, kimlanGroups));
+    const saSubs = parties.map((p, i) => {
+        if (p.isDayTru) return greedySubs[i].map(s => [...s]);
+        return annealSubparties(greedySubs[i], kimlanGroups);
+    });
 
     const totalTB = members.filter(m => {
         const r = roleOf(m.faction);
@@ -409,7 +473,8 @@ function arrange(members, kimlanGroups) {
         saSubs,
         metricsGreedy,
         metricsSA,
-        warnings
+        warnings,
+        pushInfo
     };
 }
 
