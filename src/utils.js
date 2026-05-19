@@ -1,5 +1,6 @@
 const { data } = require('./state');
 const { CLASS_SHORT, MANAGER_ID } = require('./constants');
+const kimlan = require('./services/kimlan');
 
 function isSuperAdmin(userId) {
     return userId === MANAGER_ID;
@@ -7,6 +8,23 @@ function isSuperAdmin(userId) {
 
 function isManager(guildId, userId) {
     return !!(data.managerId && data.managerId[guildId] && data.managerId[guildId].indexOf(userId) !== -1);
+}
+
+function isOwner(interaction) {
+    return interaction.member.id === interaction.guild.ownerId;
+}
+
+function canManageKimlan(interaction) {
+    const uid = interaction.member.id;
+    return isOwner(interaction) || isSuperAdmin(uid) || kimlan.isMod(interaction.guildId, uid);
+}
+
+function sanitizeKimlanName(name) {
+    if (typeof name !== 'string') throw new Error('Tên kim lan không hợp lệ');
+    const cleaned = name.replace(/[\x00-\x1F\x7F]/g, '').trim();
+    if (cleaned.length < 1 || cleaned.length > 32) throw new Error('Tên kim lan phải dài 1-32 ký tự');
+    if (!/^[\p{L}\p{N} _-]+$/u.test(cleaned)) throw new Error('Tên kim lan chỉ chấp nhận chữ, số, dấu cách, _ và -');
+    return cleaned;
 }
 
 function isAbsent(guildId, uid) {
@@ -51,6 +69,9 @@ function getNextSaturday() {
 module.exports = {
     isSuperAdmin,
     isManager,
+    isOwner,
+    canManageKimlan,
+    sanitizeKimlanName,
     isAbsent,
     isParticipant,
     isValidTimeToRegister,
