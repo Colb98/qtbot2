@@ -19,17 +19,18 @@ const SA_T0 = 1.0;
 const SA_T_MIN = 0.01;
 
 const W_ROLE_MARGINAL = 1.5;
-const W_ROLE_FIRST = 50;
 const IDEAL_TANK_PER_PARTY = 3;
 const IDEAL_BUFF_PER_PARTY = 2;
 const W_FACTION_OVER_PENALTY = 5;
 const FACTION_OVER_RATIO = 0.35;
 const W_FILL_FIRST = 1.5;
+const W_PARTY_HAS_BUFF = 60;
+const W_PARTY_HAS_TANK = 25;
 
 const W_KIMLAN_SATISFIED = 1.5;
 const W_SUB_ENTROPY = 2.0;
-const W_SUB_HAS_TANK = 8.0;
-const W_SUB_HAS_BUFF = 8.0;
+const W_SUB_HAS_TANK = 25.0;
+const W_SUB_HAS_BUFF = 60.0;
 const W_SUB_NEITHER = -10.0;
 const W_SUB_EXCESS_TB = -2.0;
 
@@ -121,21 +122,29 @@ function partyGain(party, cluster) {
     const curRoles = counter(party.members, m => roleOf(m.faction));
     const curTank = curRoles.get('TANK') || 0;
     const curBuff = curRoles.get('BUFF') || 0;
-    let addTank = 0, addBuff = 0;
+    const curDps = curRoles.get('DPS') || 0;
+    let addTank = 0, addBuff = 0, addDps = 0;
     for (const m of cluster) {
         const r = roleOf(m.faction);
         if (r === 'TANK') addTank++;
         else if (r === 'BUFF') addBuff++;
+        else addDps++;
     }
     const newTank = curTank + addTank;
     const newBuff = curBuff + addBuff;
-    const roleValue = (count, ideal) => {
-        if (count === 0) return W_ROLE_FIRST;
-        if (count >= ideal) return 0;
-        return (ideal - count) * W_ROLE_MARGINAL;
-    };
+    const newDps = curDps + addDps;
+    const roleValue = (count, ideal) => count >= ideal ? 0 : (ideal - count) * W_ROLE_MARGINAL;
     const roleGain = (roleValue(curTank, IDEAL_TANK_PER_PARTY) - roleValue(newTank, IDEAL_TANK_PER_PARTY))
         + (roleValue(curBuff, IDEAL_BUFF_PER_PARTY) - roleValue(newBuff, IDEAL_BUFF_PER_PARTY));
+
+    // Hard bonus: party đã có DPS mà chuyển từ 0 → có buff/tank.
+    // Chỉ kích hoạt khi party đã (hoặc sắp) có DPS, tránh hút T/B về party rỗng.
+    const curHasBuff = (curBuff > 0 && curDps > 0) ? 1 : 0;
+    const newHasBuff = (newBuff > 0 && newDps > 0) ? 1 : 0;
+    const curHasTank = (curTank > 0 && curDps > 0) ? 1 : 0;
+    const newHasTank = (newTank > 0 && newDps > 0) ? 1 : 0;
+    const hasRoleBonus = (newHasBuff - curHasBuff) * W_PARTY_HAS_BUFF
+        + (newHasTank - curHasTank) * W_PARTY_HAS_TANK;
 
     const newCounts = counter(party.members, m => m.faction);
     for (const m of cluster) newCounts.set(m.faction, (newCounts.get(m.faction) || 0) + 1);
@@ -153,7 +162,7 @@ function partyGain(party, cluster) {
     const overPenalty = Math.max(0, maxRatio - FACTION_OVER_RATIO) * W_FACTION_OVER_PENALTY;
     const fillBonus = (party.members.length / party.capacity) * W_FILL_FIRST;
 
-    return entropy - overPenalty + roleGain + fillBonus;
+    return entropy - overPenalty + roleGain + fillBonus + hasRoleBonus;
 }
 
 function assignToParties(members, kimlanGroups, warnings) {
@@ -161,41 +170,6 @@ function assignToParties(members, kimlanGroups, warnings) {
     const numParties = Math.max(1, Math.ceil(members.length / PARTY_SIZE));
     const parties = [];
     for (let i = 0; i < numParties; i++) parties.push({ members: [], capacity: PARTY_SIZE });
-
-    // Phase 1: round-robin distribute singleton tank/buff TRƯỚC khi greedy DPS,
-    // tránh party đầu nhồi DPS chiếm hết slot rồi T/B dồn về party cuối.
-    const singletonBuffs = [];
-    const singletonTanks = [];
-    const rest = [];
-    for (const c of clusters) {
-        if (c.length === 1) {
-            const r = roleOf(c[0].faction);
-            if (r === 'BUFF') { singletonBuffs.push(c[0]); continue; }
-            if (r === 'TANK') { singletonTanks.push(c[0]); continue; }
-        }
-        rest.push(c);
-    }
-    let bi = 0;
-    for (const m of singletonBuffs) {
-        let tries = 0;
-        while (parties[bi].members.length >= parties[bi].capacity && tries < parties.length) {
-            bi = (bi + 1) % parties.length; tries++;
-        }
-        if (parties[bi].members.length >= parties[bi].capacity) break;
-        parties[bi].members.push(m);
-        bi = (bi + 1) % parties.length;
-    }
-    let ti = 0;
-    for (const m of singletonTanks) {
-        let tries = 0;
-        while (parties[ti].members.length >= parties[ti].capacity && tries < parties.length) {
-            ti = (ti + 1) % parties.length; tries++;
-        }
-        if (parties[ti].members.length >= parties[ti].capacity) break;
-        parties[ti].members.push(m);
-        ti = (ti + 1) % parties.length;
-    }
-    const remainingClusters = rest.sort((a, b) => b.length - a.length);
 
     const bestFor = (cluster) => {
         let best = parties[0];
@@ -207,7 +181,7 @@ function assignToParties(members, kimlanGroups, warnings) {
         return { best, bestScore };
     };
 
-    for (const cluster of remainingClusters) {
+    for (const cluster of clusters) {
         if (cluster.length > PARTY_SIZE) {
             warnings.push(`Cluster kim lan có ${cluster.length} người > party size ${PARTY_SIZE}, sẽ bị tách.`);
             for (let i = 0; i < cluster.length; i += PARTY_SIZE) {
@@ -450,6 +424,28 @@ function evaluate(parties, subResults, kimlanGroups) {
     };
 }
 
+function balanceRoleAcrossParties(parties, role, donorMinCount) {
+    const countRole = (p, r) => p.members.filter(m => roleOf(m.faction) === r).length;
+    for (const target of parties) {
+        if (target.isDayTru || target.members.length === 0) continue;
+        if (countRole(target, role) > 0) continue;
+        if (countRole(target, 'DPS') === 0) continue;
+        let donor = null;
+        for (const p of parties) {
+            if (p === target || p.isDayTru) continue;
+            if (countRole(p, role) >= donorMinCount) { donor = p; break; }
+        }
+        if (!donor) continue;
+        const donorIdx = donor.members.findIndex(m => roleOf(m.faction) === role);
+        const targetDpsIdx = target.members.findIndex(m => roleOf(m.faction) === 'DPS');
+        if (donorIdx === -1 || targetDpsIdx === -1) continue;
+        const give = donor.members[donorIdx];
+        const take = target.members[targetDpsIdx];
+        donor.members[donorIdx] = take;
+        target.members[targetDpsIdx] = give;
+    }
+}
+
 function selectPushTowerMembers(members, kimlanGroups) {
     const memberToKimlan = buildMemberToKimlan(kimlanGroups);
     const isInKL = m => memberToKimlan.has(m.id);
@@ -487,6 +483,8 @@ function arrange(members, kimlanGroups, opts) {
     }
 
     const normalParties = assignToParties(remaining, kimlanGroups, warnings);
+    balanceRoleAcrossParties(normalParties, 'BUFF', 2);
+    balanceRoleAcrossParties(normalParties, 'TANK', 2);
     const parties = pushParty ? [pushParty, ...normalParties] : normalParties;
 
     const greedySubs = parties.map(p => splitIntoSubparties(p, kimlanGroups));
