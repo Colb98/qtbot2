@@ -119,7 +119,7 @@ module.exports = {
         const cacheKey = newCacheKey();
         cache.set(cacheKey, { result, generatedAt: Date.now(), guildId: interaction.guildId, dayTru });
 
-        const payload = await buildPayload(result, 'greedy', cacheKey, interaction.guildId);
+        const payload = await buildPayload(result, 'sa', cacheKey, interaction.guildId);
         await interaction.editReply(payload);
     },
     async handleButton(interaction) {

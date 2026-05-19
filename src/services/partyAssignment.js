@@ -19,6 +19,7 @@ const SA_T0 = 1.0;
 const SA_T_MIN = 0.01;
 
 const W_ROLE_MARGINAL = 1.5;
+const W_ROLE_FIRST = 50;
 const IDEAL_TANK_PER_PARTY = 3;
 const IDEAL_BUFF_PER_PARTY = 2;
 const W_FACTION_OVER_PENALTY = 5;
@@ -128,7 +129,11 @@ function partyGain(party, cluster) {
     }
     const newTank = curTank + addTank;
     const newBuff = curBuff + addBuff;
-    const roleValue = (count, ideal) => count >= ideal ? 0 : (ideal - count) * W_ROLE_MARGINAL;
+    const roleValue = (count, ideal) => {
+        if (count === 0) return W_ROLE_FIRST;
+        if (count >= ideal) return 0;
+        return (ideal - count) * W_ROLE_MARGINAL;
+    };
     const roleGain = (roleValue(curTank, IDEAL_TANK_PER_PARTY) - roleValue(newTank, IDEAL_TANK_PER_PARTY))
         + (roleValue(curBuff, IDEAL_BUFF_PER_PARTY) - roleValue(newBuff, IDEAL_BUFF_PER_PARTY));
 
@@ -157,6 +162,41 @@ function assignToParties(members, kimlanGroups, warnings) {
     const parties = [];
     for (let i = 0; i < numParties; i++) parties.push({ members: [], capacity: PARTY_SIZE });
 
+    // Phase 1: round-robin distribute singleton tank/buff TRƯỚC khi greedy DPS,
+    // tránh party đầu nhồi DPS chiếm hết slot rồi T/B dồn về party cuối.
+    const singletonBuffs = [];
+    const singletonTanks = [];
+    const rest = [];
+    for (const c of clusters) {
+        if (c.length === 1) {
+            const r = roleOf(c[0].faction);
+            if (r === 'BUFF') { singletonBuffs.push(c[0]); continue; }
+            if (r === 'TANK') { singletonTanks.push(c[0]); continue; }
+        }
+        rest.push(c);
+    }
+    let bi = 0;
+    for (const m of singletonBuffs) {
+        let tries = 0;
+        while (parties[bi].members.length >= parties[bi].capacity && tries < parties.length) {
+            bi = (bi + 1) % parties.length; tries++;
+        }
+        if (parties[bi].members.length >= parties[bi].capacity) break;
+        parties[bi].members.push(m);
+        bi = (bi + 1) % parties.length;
+    }
+    let ti = 0;
+    for (const m of singletonTanks) {
+        let tries = 0;
+        while (parties[ti].members.length >= parties[ti].capacity && tries < parties.length) {
+            ti = (ti + 1) % parties.length; tries++;
+        }
+        if (parties[ti].members.length >= parties[ti].capacity) break;
+        parties[ti].members.push(m);
+        ti = (ti + 1) % parties.length;
+    }
+    const remainingClusters = rest.sort((a, b) => b.length - a.length);
+
     const bestFor = (cluster) => {
         let best = parties[0];
         let bestScore = partyGain(parties[0], cluster);
@@ -167,7 +207,7 @@ function assignToParties(members, kimlanGroups, warnings) {
         return { best, bestScore };
     };
 
-    for (const cluster of clusters) {
+    for (const cluster of remainingClusters) {
         if (cluster.length > PARTY_SIZE) {
             warnings.push(`Cluster kim lan có ${cluster.length} người > party size ${PARTY_SIZE}, sẽ bị tách.`);
             for (let i = 0; i < cluster.length; i += PARTY_SIZE) {
