@@ -137,29 +137,34 @@ async function handleMessageCommand(msg) {
         if (msg.guildId !== EMOTE_GUILD_ID) {
             return msg.reply(`Lệnh này phải chạy trong emote guild. Current = ${msg.guildId}`);
         }
-        try {
-            const ids = {};
-            for (const name of INGAME_EMOTE_NAMES) {
-                const ext = name === 'shake_tt' ? 'gif' : 'png';
-                const filePath = path.resolve(`emotes/ingame/${name}.${ext}`);
-                if (!fs.existsSync(filePath)) {
-                    log.warn(`Missing emote file: ${filePath}`);
-                    continue;
-                }
+        const ids = data.ingameEmoteIds || {};
+        const failures = [];
+        for (const name of INGAME_EMOTE_NAMES) {
+            const ext = name === 'shake_tt' ? 'gif' : 'png';
+            const filePath = path.resolve(`emotes/ingame/${name}.${ext}`);
+            if (!fs.existsSync(filePath)) {
+                failures.push(`${name}: file missing`);
+                continue;
+            }
+            try {
                 const buffer = fs.readFileSync(filePath);
                 const emoteName = `ig_${name}`;
                 const existing = msg.guild.emojis.cache.find(e => e.name === emoteName);
                 if (existing) await existing.delete('Recreate ingame emote').catch(() => {});
                 const created = await msg.guild.emojis.create({ attachment: buffer, name: emoteName });
                 ids[name] = created.id;
+            } catch (e) {
+                const detail = e.rawError ? JSON.stringify(e.rawError.errors) : (e.message || String(e));
+                log.error(`upload_ingame_emotes error for ${name}`, e);
+                failures.push(`${name} (${(fs.statSync(filePath).size/1024).toFixed(1)}KB): ${detail}`);
             }
-            data.ingameEmoteIds = ids;
-            saveData();
-            return msg.reply(`Đã upload ${Object.keys(ids).length} emote ingame. IDs đã lưu.`);
-        } catch (e) {
-            log.error('upload_ingame_emotes error', e);
-            return msg.reply('Lỗi: ' + (e.message || e));
         }
+        data.ingameEmoteIds = ids;
+        saveData();
+        const okCount = Object.keys(ids).length;
+        let reply = `Đã upload ${okCount}/${INGAME_EMOTE_NAMES.length} emote.`;
+        if (failures.length) reply += `\nLỗi:\n\`\`\`${failures.join('\n')}\`\`\``;
+        return msg.reply(reply);
     }
 
     if (!msg.member.permissions.has('ManageGuild') && !isManager(guildId, msg.author.id)) return;
