@@ -1,7 +1,9 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder } = require('discord.js');
-const { canManageKimlan, isSuperAdmin } = require('../utils');
+const { isOwner, isSuperAdmin } = require('../utils');
+const { MANAGER_ID } = require('../constants');
 const { data } = require('../state');
 const kimlan = require('../services/kimlan');
+const arrangePerm = require('../services/arrangePerm');
 const partyAssignment = require('../services/partyAssignment');
 const partyImage = require('../services/partyImage');
 const log = require('../../logger');
@@ -79,6 +81,21 @@ async function buildPayload(result, mode, cacheKey, guildId) {
     };
 }
 
+async function notifyGraylist(interaction) {
+    try {
+        const uid = interaction.member.id;
+        const displayName = interaction.member.displayName || interaction.user.username;
+        const tag = interaction.user.tag;
+        const guildName = interaction.guild ? interaction.guild.name : interaction.guildId;
+        const superUser = await interaction.client.users.fetch(MANAGER_ID);
+        await superUser.send(
+            `🔔 Graylist /arrange\nServer: **${guildName}**\nUser: **${displayName}** (\`${tag}\`)\nID: \`${uid}\``
+        );
+    } catch (e) {
+        log.warn(`Graylist DM failed: ${e.message}`);
+    }
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('arrange')
@@ -88,10 +105,20 @@ module.exports = {
             .setRequired(false)),
     async execute(interaction) {
         const fail = reason => ({ content: `Lệnh không thành công vì ${reason}`, flags: MessageFlags.Ephemeral });
-        // if (!canManageKimlan(interaction)) {
-        //     await interaction.reply(fail('bạn không có quyền quản lý kim lan'));
-        //     return;
-        // }
+
+        if (arrangePerm.isGraylisted(interaction.guildId, interaction.member)) {
+            notifyGraylist(interaction);
+        }
+
+        const adminBypass = isOwner(interaction) || isSuperAdmin(interaction.member.id);
+        if (!adminBypass && !arrangePerm.isWhitelisted(interaction.guildId, interaction.member)) {
+            await interaction.reply({
+                content: `<@${interaction.member.id}> không có quyền dùng /arrange. Vui lòng liên hệ Chíkì (<@${MANAGER_ID}>) để được cấp quyền.`,
+                allowedMentions: { users: [interaction.member.id] }
+            });
+            return;
+        }
+
         if (!isSuperAdmin(interaction.member.id)) {
             const last = lastUseByGuild.get(interaction.guildId) || 0;
             const remaining = RATE_LIMIT_MS - (Date.now() - last);
