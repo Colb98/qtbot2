@@ -41,6 +41,39 @@ async function handleMessageCommand(msg) {
         return;
     }
 
+    if (cmd === '!help') {
+        const userHelp = `
+            **Tiền tệ & Gacha:**
+            • \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
+            • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
+            • \`!doingoc <n>\` — Đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu → 1 ngọc (đổi n ngọc tốn ${fmt(economy.NGAN_PHIEU_PER_NGOC)}n ngân phiếu).
+            • \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo (đổi n cáo tốn ${economy.TT_PER_CAO}n thiên thưởng).
+            • \`!gacha\` / \`!gacha 10\` / \`!gacha 50\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Có pity sau 20 / 180 lượt.
+            • \`!tangngoc @user <n>\` — Tặng ngọc cho người khác.
+            • \`!tangthienthuong @user [n]\` — Tặng thiên thưởng cho người khác.
+            • Chat trong server: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)} tin/ngày).
+            • Daily: +${fmt(economy.DAILY_REWARD.nganphieuMin)}-${fmt(economy.DAILY_REWARD.nganphieuMax)} ngân phiếu (random).
+            • Báo danh bang chiến: +${fmt(economy.BANG_CHIEN_REWARD)} ngọc/lần, huỷ -${fmt(economy.BANG_CHIEN_REWARD)} ngọc.
+        `;
+        const devHelp = `
+
+            **Admin / Dev Commands:**
+            • \`!setup channel #channel\` — Set the channel for weekly signup posts.
+            • \`!setmanager @user\` — Set a user as manager to receive participant lists.
+            • \`!postnow\` — Post the weekly signup message immediately.
+            • \`!remindnow\` — Send reminders to participants immediately.
+            • \`!testreminders <day> <hour> <minute>\` — Schedule a one-time test reminder.
+            • \`!sendlist\` — Send the current participant list to the manager.
+            • \`!voteclass\` — Post a message for users to vote their class via reactions.
+            • \`!uploademotes\` — Upload class emotes to the guild (requires Manage Emojis permission).
+            • \`!upload_ingame_emotes\` — Upload ingame item emotes.
+            • \`!gangoc <n>\` — Post a ngọc giveaway, users react to claim.
+        `;
+        const helpText = isSuperAdmin(msg.author.id) ? (userHelp + devHelp) : userHelp;
+        await msg.reply(helpText);
+        return;
+    }
+
     if (cmd === '!khodo') {
         const w = getWallet(guildId, msg.author.id);
         const lines = [
@@ -387,35 +420,6 @@ async function handleMessageCommand(msg) {
         return;
     }
 
-    if (cmd === '!help') {
-        const helpText = `
-            **Tiền tệ & Gacha:**
-            • \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
-            • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
-            • \`!doingoc <n>\` — Đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu → 1 ngọc (đổi n ngọc tốn ${fmt(economy.NGAN_PHIEU_PER_NGOC)}n ngân phiếu).
-            • \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo (đổi n cáo tốn ${economy.TT_PER_CAO}n thiên thưởng).
-            • \`!gacha\` / \`!gacha 10\` / \`!gacha 50\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Có pity sau 20 / 180 lượt.
-            • \`!tangngoc @user <n>\` — Tặng ngọc cho người khác.
-            • \`!tangthienthuong @user [n]\` — Tặng thiên thưởng cho người khác.
-            • Chat trong server: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)} tin/ngày).
-            • Daily: +${fmt(economy.DAILY_REWARD.nganphieuMin)}-${fmt(economy.DAILY_REWARD.nganphieuMax)} ngân phiếu (random).
-            • Báo danh bang chiến: +${fmt(economy.BANG_CHIEN_REWARD)} ngọc/lần, huỷ -${fmt(economy.BANG_CHIEN_REWARD)} ngọc.
-
-            **Admin Commands:**
-            • \`!setup channel #channel\` — Set the channel for weekly signup posts.
-            • \`!setmanager @user\` — Set a user as manager to receive participant lists.
-            • \`!postnow\` — DEV ONLY — Post the weekly signup message immediately.
-            • \`!remindnow\` — DEV ONLY — Send reminders to participants immediately.
-            • \`!testreminders <day> <hour> <minute>\` — DEV ONLY — Schedule a one-time test reminder.
-            • \`!sendlist\` — Send the current participant list to the manager.
-            • \`!voteclass\` — Post a message for users to vote their class via reactions.
-            • \`!uploademotes\` — DEV ONLY — Upload class emotes to the guild (requires Manage Emojis permission).
-            • \`!upload_ingame_emotes\` — DEV ONLY — Upload ingame item emotes.
-            • \`!gangoc <n>\` — DEV ONLY — Post a ngọc giveaway, users react to claim.
-        `;
-        await msg.reply(helpText);
-        return;
-    }
 }
 
 module.exports = { handleMessageCommand };
