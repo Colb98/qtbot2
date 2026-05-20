@@ -5,6 +5,7 @@ const { CLASS_NAMES } = require('../constants');
 const { isValidTimeToRegister } = require('../utils');
 const { removeUserRole } = require('../services/roles');
 const { editMessage, validateGuildMember } = require('../services/guildWar');
+const { revoke } = require('../services/bangChienReward');
 
 module.exports = {
     name: Events.MessageReactionRemove,
@@ -51,6 +52,7 @@ module.exports = {
                     validateGuildMember(reaction.message.guild);
                     if (data.participants && data.participants[guildId] && data.participants[guildId][uid]) {
                         delete data.participants[guildId][uid];
+                        revoke(guildId, uid, data.lastPostMessageId[guildId]);
                         saveData();
                         await editMessage(guildId, reaction.message);
                     }

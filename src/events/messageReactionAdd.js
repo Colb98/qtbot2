@@ -5,6 +5,8 @@ const { CLASS_NAMES } = require('../constants');
 const { isAbsent, isParticipant, isValidTimeToRegister } = require('../utils');
 const { setUserRole } = require('../services/roles');
 const { editMessage, validateGuildMember } = require('../services/guildWar');
+const { grantIfNeeded } = require('../services/bangChienReward');
+const { addNgoc } = require('../services/currency');
 
 module.exports = {
     name: Events.MessageReactionAdd,
@@ -34,6 +36,20 @@ module.exports = {
             const member = await reaction.message.guild.members.fetch(user.id);
 
             log.info(`Reaction added by ${user.id} on message ${reaction.message.id}: ${reaction.emoji.name}`);
+
+            const giveaway = data.gaNgocGiveaway && data.gaNgocGiveaway[reaction.message.id];
+            if (giveaway) {
+                const ngocId = data.ingameEmoteIds && data.ingameEmoteIds.ngoc;
+                if (ngocId && reaction.emoji.id === ngocId) {
+                    giveaway.claimed = giveaway.claimed || {};
+                    if (!giveaway.claimed[user.id]) {
+                        giveaway.claimed[user.id] = true;
+                        addNgoc(giveaway.guildId, user.id, giveaway.amount);
+                        log.info(`User ${user.id} claimed ${giveaway.amount} ngọc from giveaway ${reaction.message.id}`);
+                    }
+                }
+                return;
+            }
 
             if (data.registrations && data.classVoteMessages && data.classVoteMessages.indexOf(reaction.message.id) !== -1) {
                 let classIndex = -1;
@@ -77,6 +93,7 @@ module.exports = {
                 data.participants = data.participants || {};
                 data.participants[guildId] = data.participants[guildId] || {};
                 data.participants[guildId][uid] = true;
+                grantIfNeeded(guildId, uid, data.lastPostMessageId[guildId]);
             } else if (reaction.emoji.name === '❌') {
                 if (isParticipant(guildId, uid)) return;
                 if (!data.registrations[guildId] || !data.registrations[guildId][uid]) {

@@ -40,6 +40,9 @@ async function sendMessageToChannels(channels, saturday) {
         data.lastPostMessageId[guildId] = msg.id;
         data.participants[guildId] = {};
         data.absents[guildId] = {};
+        data.bangChienGrant = data.bangChienGrant || {};
+        data.bangChienGrant[guildId] = data.bangChienGrant[guildId] || {};
+        data.bangChienGrant[guildId][msg.id] = {};
 
         if (!data.postValidUntil) data.postValidUntil = {};
         data.postValidUntil[guildId] = saturday.getTime();

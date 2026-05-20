@@ -1,13 +1,16 @@
 const fs = require('fs');
 const path = require('path');
+const { AttachmentBuilder } = require('discord.js');
 const log = require('../logger');
 const client = require('./client');
 const { data, saveData } = require('./state');
 const { CLASS_NAMES, MANAGER_ID, EMOTE_GUILD_ID, EMOTE_FILES } = require('./constants');
-const { sanitizeIngame, isManager, isAbsent, isParticipant } = require('./utils');
+const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin } = require('./utils');
 const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require('./services/guildWar');
 const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
+const { getWallet, addNganphieu, addNgoc, addItem, renderEmote, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
+const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS } = require('./services/gacha');
 
 async function handleMessageCommand(msg) {
     const parts = msg.content.trim().split(/\s+/);
@@ -35,6 +38,128 @@ async function handleMessageCommand(msg) {
 
         await msg.reply(`Đã đăng ký: **${name}** — **${data.registrations[guildId][msg.author.id].class}**. Bạn sẽ được thêm vào danh sách khi react ✅ vào tin bang chiến tuần.`);
         return;
+    }
+
+    if (cmd === '!kho_do') {
+        const w = getWallet(guildId, msg.author.id);
+        const lines = [
+            `**Kho đồ của ${member.displayName}**`,
+            `${renderEmote('nganphieu')} Ngân phiếu: **${w.nganphieu}**`,
+            `${renderEmote('ngoc')} Ngọc: **${w.ngoc}**`
+        ];
+        for (const k of ITEM_KEYS) {
+            lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${w.items[k]}**`);
+        }
+        return msg.reply(lines.join('\n'));
+    }
+
+    if (cmd === '!doi_ngoc') {
+        const n = parseInt(parts[1], 10);
+        if (!Number.isInteger(n) || n <= 0) return msg.reply('Cú pháp: `!doi_ngoc <số lượng>` — đổi 100 ngân phiếu thành 1 ngọc.');
+        const cost = n * 100;
+        const w = getWallet(guildId, msg.author.id);
+        if (w.nganphieu < cost) return msg.reply(`Bạn cần ${cost} ngân phiếu nhưng chỉ có ${w.nganphieu}.`);
+        addNganphieu(guildId, msg.author.id, -cost);
+        addNgoc(guildId, msg.author.id, n);
+        const w2 = getWallet(guildId, msg.author.id);
+        return msg.reply(`Đã đổi ${cost} ${renderEmote('nganphieu')} → ${n} ${renderEmote('ngoc')}. Số dư: ${w2.nganphieu} ngân phiếu, ${w2.ngoc} ngọc.`);
+    }
+
+    if (cmd === '!gacha') {
+        const n = parts[1] ? parseInt(parts[1], 10) : 1;
+        if (!SUPPORTED_COUNTS.includes(n)) return msg.reply(`Chỉ hỗ trợ \`!gacha\`, \`!gacha 10\`, \`!gacha 50\`.`);
+        const cost = n * ROLL_COST;
+        const w = getWallet(guildId, msg.author.id);
+        if (w.ngoc < cost) return msg.reply(`Cần ${cost} ngọc để quay ${n} lần, bạn có ${w.ngoc}.`);
+        addNgoc(guildId, msg.author.id, -cost);
+
+        let shakeMsg;
+        const shakeEmoteId = data.ingameEmoteIds && data.ingameEmoteIds.shake_tt;
+        if (shakeEmoteId) {
+            shakeMsg = await msg.reply({ content: renderEmote('shake_tt').repeat(Math.min(n, 5)) });
+        } else {
+            const gifPath = path.resolve('emotes/ingame/shake_tt.gif');
+            shakeMsg = await msg.reply({ files: [new AttachmentBuilder(gifPath)] });
+        }
+
+        await new Promise(r => setTimeout(r, 5000));
+
+        const counts = rollMany(n);
+        for (const k of ITEM_KEYS) {
+            if (counts[k] > 0) addItem(guildId, msg.author.id, k, counts[k]);
+        }
+        const result = formatRollResult(counts);
+        await shakeMsg.edit({ content: `**${member.displayName}** quay ${n} lần (-${cost} ${renderEmote('ngoc')}):\n${result}`, attachments: [] }).catch(e => log.error('gacha edit error', e));
+        return;
+    }
+
+    if (cmd === '!tang_ngoc') {
+        const mention = parts[1];
+        const amount = parseInt(parts[2], 10);
+        if (!mention || !Number.isInteger(amount) || amount <= 0) {
+            return msg.reply('Cú pháp: `!tang_ngoc @user <số lượng>`');
+        }
+        const targetId = mention.replace(/[^0-9]/g, '');
+        if (!targetId) return msg.reply('Vui lòng mention user hợp lệ.');
+        if (targetId === msg.author.id) return msg.reply('Không thể tự tặng chính mình.');
+        const targetMember = await msg.guild.members.fetch(targetId).catch(() => null);
+        if (!targetMember) return msg.reply('Không tìm thấy user trong server.');
+        if (targetMember.user.bot) return msg.reply('Không tặng cho bot được.');
+        const w = getWallet(guildId, msg.author.id);
+        if (w.ngoc < amount) return msg.reply(`Bạn chỉ có ${w.ngoc} ngọc, không đủ tặng ${amount}.`);
+        addNgoc(guildId, msg.author.id, -amount);
+        addNgoc(guildId, targetId, amount);
+        return msg.reply(`${member.displayName} đã tặng **${amount}** ${renderEmote('ngoc')} cho ${targetMember.displayName}.`);
+    }
+
+    if (cmd === '!ga_ngoc') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const amount = parseInt(parts[1], 10);
+        if (!Number.isInteger(amount) || amount <= 0) return msg.reply('Cú pháp: `!ga_ngoc <số lượng>`');
+        const ngocId = data.ingameEmoteIds && data.ingameEmoteIds.ngoc;
+        if (!ngocId) return msg.reply('Chưa upload emote ngọc. Chạy `!upload_ingame_emotes` trước.');
+        const emoji = client.emojis.cache.get(ngocId);
+        const sent = await msg.channel.send({ content: `🎉 Super-admin tặng ${renderEmote('ngoc')} **${amount} ngọc**! React ${renderEmote('ngoc')} để nhận (1 lần/user).` });
+        try {
+            if (emoji) await sent.react(emoji);
+            else await sent.react(ngocId);
+        } catch (e) {
+            log.warn('ga_ngoc react failed', e);
+        }
+        data.gaNgocGiveaway = data.gaNgocGiveaway || {};
+        data.gaNgocGiveaway[sent.id] = { guildId, amount, claimed: {} };
+        saveData();
+        return;
+    }
+
+    if (cmd === '!upload_ingame_emotes') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        if (msg.guildId !== EMOTE_GUILD_ID) {
+            return msg.reply(`Lệnh này phải chạy trong emote guild. Current = ${msg.guildId}`);
+        }
+        try {
+            const ids = {};
+            for (const name of INGAME_EMOTE_NAMES) {
+                const ext = name === 'shake_tt' ? 'gif' : 'png';
+                const filePath = path.resolve(`emotes/ingame/${name}.${ext}`);
+                if (!fs.existsSync(filePath)) {
+                    log.warn(`Missing emote file: ${filePath}`);
+                    continue;
+                }
+                const buffer = fs.readFileSync(filePath);
+                const emoteName = `ig_${name}`;
+                const existing = msg.guild.emojis.cache.find(e => e.name === emoteName);
+                if (existing) await existing.delete('Recreate ingame emote').catch(() => {});
+                const created = await msg.guild.emojis.create({ attachment: buffer, name: emoteName });
+                ids[name] = created.id;
+            }
+            data.ingameEmoteIds = ids;
+            saveData();
+            return msg.reply(`Đã upload ${Object.keys(ids).length} emote ingame. IDs đã lưu.`);
+        } catch (e) {
+            log.error('upload_ingame_emotes error', e);
+            return msg.reply('Lỗi: ' + (e.message || e));
+        }
     }
 
     if (!msg.member.permissions.has('ManageGuild') && !isManager(guildId, msg.author.id)) return;
@@ -218,6 +343,14 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!help') {
         const helpText = `
+            **Tiền tệ & Gacha:**
+            • \`!kho_do\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
+            • \`!doi_ngoc <n>\` — Đổi 100 ngân phiếu → 1 ngọc (đổi n ngọc tốn 100n ngân phiếu).
+            • \`!gacha\` / \`!gacha 10\` / \`!gacha 50\` — Quay gacha, 100 ngọc/lần.
+            • \`!tang_ngoc @user <n>\` — Tặng ngọc cho người khác.
+            • Chat trong server: +1000 ngân phiếu/tin (cap 1000 tin/ngày).
+            • Báo danh bang chiến: +100 ngọc/lần, huỷ -100 ngọc.
+
             **Admin Commands:**
             • \`!setup channel #channel\` — Set the channel for weekly signup posts.
             • \`!setmanager @user\` — Set a user as manager to receive participant lists.
@@ -227,6 +360,8 @@ async function handleMessageCommand(msg) {
             • \`!sendlist\` — Send the current participant list to the manager.
             • \`!voteclass\` — Post a message for users to vote their class via reactions.
             • \`!uploademotes\` — DEV ONLY — Upload class emotes to the guild (requires Manage Emojis permission).
+            • \`!upload_ingame_emotes\` — DEV ONLY — Upload ingame item emotes.
+            • \`!ga_ngoc <n>\` — DEV ONLY — Post a ngọc giveaway, users react to claim.
         `;
         await msg.reply(helpText);
         return;
