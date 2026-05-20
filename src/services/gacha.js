@@ -1,24 +1,60 @@
-const { renderEmote, ITEM_LABELS } = require('./currency');
+const { renderEmote, ITEM_LABELS, fmt } = require('./currency');
+const economy = require('../config/economy');
 
-const ROLL_COST = 100;
-const SUPPORTED_COUNTS = [1, 10, 50];
+const GACHA = economy.GACHA;
 
-const P_CAO = 0.0004;
-const P_THIENTHUONG = 0.0036;
-const P_KYTHUONG = 0.04;
-
-function roll() {
-    const r = Math.random();
-    if (r < P_CAO) return 'cao';
-    if (r < P_CAO + P_THIENTHUONG) return 'thienthuong';
-    if (r < P_CAO + P_THIENTHUONG + P_KYTHUONG) return 'kythuong';
-    return Math.random() < 0.5 ? 'dieu' : 'nhuom';
+function lerp(a, b, t) {
+    return a + (b - a) * t;
 }
 
-function rollMany(n) {
+function computeRates(pity) {
+    const base = GACHA.BASE_RATES;
+    const pkt = GACHA.PITY_KT_RATES;
+    const ptt = GACHA.PITY_TT_END_RATES;
+
+    if (pity.tt >= GACHA.PITY_TT_END) {
+        return { cao: ptt.cao, thienthuong: ptt.thienthuong, kythuong: ptt.kythuong };
+    }
+    if (pity.tt >= GACHA.PITY_TT_START) {
+        const t = (pity.tt - GACHA.PITY_TT_START) / (GACHA.PITY_TT_END - GACHA.PITY_TT_START);
+        const start = pity.kt >= GACHA.PITY_KT_THRESHOLD ? pkt : base;
+        return {
+            cao: lerp(start.cao, ptt.cao, t),
+            thienthuong: lerp(start.thienthuong, ptt.thienthuong, t),
+            kythuong: lerp(start.kythuong, ptt.kythuong, t)
+        };
+    }
+    if (pity.kt >= GACHA.PITY_KT_THRESHOLD) {
+        return { cao: pkt.cao, thienthuong: pkt.thienthuong, kythuong: pkt.kythuong };
+    }
+    return { cao: base.cao, thienthuong: base.thienthuong, kythuong: base.kythuong };
+}
+
+function rollOne(pity) {
+    pity.kt += 1;
+    pity.tt += 1;
+
+    const rates = computeRates(pity);
+    const r = Math.random();
+    let result;
+    if (r < rates.cao) result = 'cao';
+    else if (r < rates.cao + rates.thienthuong) result = 'thienthuong';
+    else if (r < rates.cao + rates.thienthuong + rates.kythuong) result = 'kythuong';
+    else result = Math.random() < 0.5 ? 'dieu' : 'nhuom';
+
+    if (result === 'cao' || result === 'thienthuong' || result === 'kythuong') {
+        pity.kt = 0;
+    }
+    if (result === 'thienthuong') {
+        pity.tt = 0;
+    }
+    return result;
+}
+
+function rollMany(n, pity) {
     const counts = { nhuom: 0, dieu: 0, cao: 0, kythuong: 0, thienthuong: 0 };
     for (let i = 0; i < n; i++) {
-        counts[roll()] += 1;
+        counts[rollOne(pity)] += 1;
     }
     return counts;
 }
@@ -27,15 +63,16 @@ function formatRollResult(counts) {
     const order = ['cao', 'thienthuong', 'kythuong', 'dieu', 'nhuom'];
     const parts = [];
     for (const k of order) {
-        if (counts[k] > 0) parts.push(`${renderEmote(k)} ${ITEM_LABELS[k]} x${counts[k]}`);
+        if (counts[k] > 0) parts.push(`${renderEmote(k)} ${ITEM_LABELS[k]} x${fmt(counts[k])}`);
     }
     return parts.join(', ');
 }
 
 module.exports = {
-    ROLL_COST,
-    SUPPORTED_COUNTS,
-    roll,
+    ROLL_COST: GACHA.ROLL_COST,
+    SUPPORTED_COUNTS: GACHA.SUPPORTED_COUNTS,
+    rollOne,
     rollMany,
-    formatRollResult
+    formatRollResult,
+    computeRates
 };

@@ -1,4 +1,5 @@
 const { data, saveData } = require('../state');
+const economy = require('../config/economy');
 
 const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'dieu', 'kythuong', 'thienthuong', 'shake_tt'];
 const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'kythuong', 'thienthuong'];
@@ -9,8 +10,6 @@ const ITEM_LABELS = {
     kythuong: 'Kỳ Thưởng',
     thienthuong: 'Thiên Thưởng'
 };
-const CHAT_REWARD = 1000;
-const CHAT_DAILY_CAP = 1000;
 
 function todayStr() {
     const d = new Date();
@@ -27,7 +26,8 @@ function getWallet(guildId, userId) {
         data.wallet[guildId][userId] = {
             nganphieu: 0,
             ngoc: 0,
-            items: { nhuom: 0, dieu: 0, cao: 0, kythuong: 0, thienthuong: 0 }
+            items: { nhuom: 0, dieu: 0, cao: 0, kythuong: 0, thienthuong: 0 },
+            pity: { kt: 0, tt: 0 }
         };
     }
     const w = data.wallet[guildId][userId];
@@ -35,6 +35,9 @@ function getWallet(guildId, userId) {
     for (const k of ITEM_KEYS) if (typeof w.items[k] !== 'number') w.items[k] = 0;
     if (typeof w.nganphieu !== 'number') w.nganphieu = 0;
     if (typeof w.ngoc !== 'number') w.ngoc = 0;
+    if (!w.pity) w.pity = { kt: 0, tt: 0 };
+    if (typeof w.pity.kt !== 'number') w.pity.kt = 0;
+    if (typeof w.pity.tt !== 'number') w.pity.tt = 0;
     return w;
 }
 
@@ -69,14 +72,34 @@ function tryEarnFromChat(guildId, userId) {
         data.chatEarn[guildId][userId] = { date: today, count: 0 };
     }
     const e = data.chatEarn[guildId][userId];
-    if (e.count >= CHAT_DAILY_CAP) {
+    if (e.count >= economy.CHAT_DAILY_CAP) {
         return false;
     }
     e.count += 1;
     const w = getWallet(guildId, userId);
-    w.nganphieu += CHAT_REWARD;
+    w.nganphieu += economy.CHAT_REWARD;
     saveData();
     return true;
+}
+
+function tryClaimDaily(guildId, userId) {
+    data.dailyClaim = data.dailyClaim || {};
+    data.dailyClaim[guildId] = data.dailyClaim[guildId] || {};
+    const today = todayStr();
+    if (data.dailyClaim[guildId][userId] === today) {
+        return { claimed: false, reward: null };
+    }
+    data.dailyClaim[guildId][userId] = today;
+    const { nganphieuMin, nganphieuMax } = economy.DAILY_REWARD;
+    const nganphieu = Math.floor(nganphieuMin + Math.random() * (nganphieuMax - nganphieuMin + 1));
+    const w = getWallet(guildId, userId);
+    w.nganphieu += nganphieu;
+    saveData();
+    return { claimed: true, reward: { nganphieu } };
+}
+
+function fmt(n) {
+    return Number(n).toLocaleString('en-US');
 }
 
 function renderEmote(key) {
@@ -90,12 +113,13 @@ module.exports = {
     INGAME_EMOTE_NAMES,
     ITEM_KEYS,
     ITEM_LABELS,
-    CHAT_REWARD,
-    CHAT_DAILY_CAP,
     getWallet,
     addNganphieu,
     addNgoc,
     addItem,
     tryEarnFromChat,
-    renderEmote
+    tryClaimDaily,
+    renderEmote,
+    todayStr,
+    fmt
 };

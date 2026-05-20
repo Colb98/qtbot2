@@ -1,7 +1,8 @@
 const { data, saveData } = require('../state');
 const { addNgoc } = require('./currency');
+const economy = require('../config/economy');
 
-const BANG_CHIEN_REWARD = 100;
+const BANG_CHIEN_REWARD = economy.BANG_CHIEN_REWARD;
 
 function ensurePath(guildId, postMessageId) {
     data.bangChienGrant = data.bangChienGrant || {};
