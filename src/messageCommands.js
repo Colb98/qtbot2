@@ -54,9 +54,9 @@ async function handleMessageCommand(msg) {
         return msg.reply(lines.join('\n'));
     }
 
-    if (cmd === '!doi_ngoc') {
+    if (cmd === '!doingoc') {
         const n = parseInt(parts[1], 10);
-        if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`!doi_ngoc <số lượng>\` — đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu thành 1 ngọc.`);
+        if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`!doingoc <số lượng>\` — đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu thành 1 ngọc.`);
         const cost = n * economy.NGAN_PHIEU_PER_NGOC;
         const w = getWallet(guildId, msg.author.id);
         if (w.nganphieu < cost) return msg.reply(`Bạn cần ${fmt(cost)} ngân phiếu nhưng chỉ có ${fmt(w.nganphieu)}.`);
@@ -134,11 +134,11 @@ async function handleMessageCommand(msg) {
         return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('thienthuong')} cho ${targetMember.displayName}.`);
     }
 
-    if (cmd === '!tang_ngoc') {
+    if (cmd === '!tangngoc') {
         const mention = parts[1];
         const amount = parseInt(parts[2], 10);
         if (!mention || !Number.isInteger(amount) || amount <= 0) {
-            return msg.reply('Cú pháp: `!tang_ngoc @user <số lượng>`');
+            return msg.reply('Cú pháp: `!tangngoc @user <số lượng>`');
         }
         const targetId = mention.replace(/[^0-9]/g, '');
         if (!targetId) return msg.reply('Vui lòng mention user hợp lệ.');
@@ -392,10 +392,10 @@ async function handleMessageCommand(msg) {
             **Tiền tệ & Gacha:**
             • \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
             • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
-            • \`!doi_ngoc <n>\` — Đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu → 1 ngọc (đổi n ngọc tốn ${fmt(economy.NGAN_PHIEU_PER_NGOC)}n ngân phiếu).
+            • \`!doingoc <n>\` — Đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu → 1 ngọc (đổi n ngọc tốn ${fmt(economy.NGAN_PHIEU_PER_NGOC)}n ngân phiếu).
             • \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo (đổi n cáo tốn ${economy.TT_PER_CAO}n thiên thưởng).
             • \`!gacha\` / \`!gacha 10\` / \`!gacha 50\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Có pity sau 20 / 180 lượt.
-            • \`!tang_ngoc @user <n>\` — Tặng ngọc cho người khác.
+            • \`!tangngoc @user <n>\` — Tặng ngọc cho người khác.
             • \`!tangthienthuong @user [n]\` — Tặng thiên thưởng cho người khác.
             • Chat trong server: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)} tin/ngày).
             • Daily: +${fmt(economy.DAILY_REWARD.nganphieuMin)}-${fmt(economy.DAILY_REWARD.nganphieuMax)} ngân phiếu (random).
