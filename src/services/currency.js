@@ -11,11 +11,13 @@ const ITEM_LABELS = {
     thienthuong: 'Thiên Thưởng'
 };
 
+const DAILY_RESET_OFFSET_HOURS = 7;
+
 function todayStr() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
+    const shifted = new Date(Date.now() + DAILY_RESET_OFFSET_HOURS * 3600 * 1000);
+    const y = shifted.getUTCFullYear();
+    const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(shifted.getUTCDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
 }
 
