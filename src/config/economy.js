@@ -1,6 +1,6 @@
 module.exports = {
     CHAT_REWARD: 2500,
-    CHAT_DAILY_CAP: 100,
+    CHAT_DAILY_CAP: 200,
 
     NGAN_PHIEU_PER_NGOC: 100,
     TT_PER_CAO: 3,

@@ -72,7 +72,7 @@ async function handleMessageCommand(msg) {
             • \`!voteclass\` — Post a message for users to vote their class via reactions.
             • \`!uploademotes\` — Upload class emotes to the guild (requires Manage Emojis permission).
             • \`!upload_ingame_emotes\` — Upload ingame item emotes.
-            • \`!gangoc <n>\` — Post a ngọc giveaway, users react to claim.
+            • \`!gangoc <n> [#kênh]\` — Post a ngọc giveaway, users react to claim. Dùng #kênh để chỉ định kênh gửi.
         `;
         const helpText = isSuperAdmin(msg.author.id) ? (userHelp + devHelp) : userHelp;
         await msg.reply(helpText);
@@ -218,12 +218,29 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!gangoc') {
         if (!isSuperAdmin(msg.author.id)) return;
-        const amount = parseInt(parts[1], 10);
-        if (!Number.isInteger(amount) || amount <= 0) return msg.reply('Cú pháp: `!gangoc <số lượng>`');
+        let amount = null;
+        let targetChannel = msg.channel;
+        let channelMention = null;
+        for (let i = 1; i < parts.length; i++) {
+            const part = parts[i];
+            if (part.startsWith('<#') && part.endsWith('>')) {
+                channelMention = part.replace(/[^0-9]/g, '');
+            } else {
+                const parsed = parseInt(part, 10);
+                if (Number.isInteger(parsed) && parsed > 0) {
+                    amount = parsed;
+                }
+            }
+        }
+        if (!Number.isInteger(amount) || amount <= 0) return msg.reply('Cú pháp: `!gangoc <số lượng> [#kênal]`');
+        if (channelMention) {
+            targetChannel = await msg.guild.channels.fetch(channelMention).catch(() => null);
+            if (!targetChannel) return msg.reply('Không tìm thấy kênh được chỉ định.');
+        }
         const ngocId = data.ingameEmoteIds && data.ingameEmoteIds.ngoc;
         if (!ngocId) return msg.reply('Chưa upload emote ngọc. Chạy `!upload_ingame_emotes` trước.');
         const emoji = client.emojis.cache.get(ngocId);
-        const sent = await msg.channel.send({ content: `🎉 Server tặng ${renderEmote('ngoc')} **${fmt(amount)} ngọc**! React ${renderEmote('ngoc')} để nhận (1 lần/user).` });
+        const sent = await targetChannel.send({ content: `🎉 Server tặng ${renderEmote('ngoc')} **${fmt(amount)} ngọc**! React ${renderEmote('ngoc')} để nhận (1 lần/user).` });
         try {
             if (emoji) await sent.react(emoji);
             else await sent.react(ngocId);
@@ -233,7 +250,7 @@ async function handleMessageCommand(msg) {
         data.gaNgocGiveaway = data.gaNgocGiveaway || {};
         data.gaNgocGiveaway[sent.id] = { guildId, amount, claimed: {} };
         saveData();
-        return;
+        return msg.reply(`✅ GA ngọc **${fmt(amount)}** đã được đăng lên ${targetChannel}`);
     }
 
     if (cmd === '!pity') {
