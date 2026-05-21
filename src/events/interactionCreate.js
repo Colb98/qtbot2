@@ -44,30 +44,64 @@ module.exports = {
                         try {
                             log.info('gacha_all: confirm clicked, starting roll');
                             const guildId = interaction.guildId;
+                            log.info(`gacha_all: guildId=${guildId}`);
+
+                            log.info('gacha_all: fetching member');
                             const member = await interaction.guild.members.fetch(userId);
+                            log.info(`gacha_all: member=${member.displayName}`);
+
+                            log.info('gacha_all: getting wallet');
                             const w = getWallet(guildId, userId);
+                            log.info(`gacha_all: wallet ngoc=${w.ngoc}, pity=${JSON.stringify(w.pity)}`);
+
                             const n = Math.floor(w.ngoc / ROLL_COST);
-                            log.info(`gacha_all: user has ${w.ngoc} ngoc, can roll ${n} times`);
+                            log.info(`gacha_all: user has ${w.ngoc} ngoc, can roll ${n} times (ROLL_COST=${ROLL_COST})`);
                             if (n <= 0) {
+                                log.info('gacha_all: not enough ngoc, returning');
                                 return interaction.editReply({ content: '❌ Không đủ ngọc để quay.', components: [disabledRow] });
                             }
+
                             const cost = n * ROLL_COST;
+                            log.info(`gacha_all: deducting ${cost} ngoc`);
                             addNgoc(guildId, userId, -cost);
+
+                            log.info('gacha_all: getting fresh wallet');
                             const wallet = getWallet(guildId, userId);
+                            log.info(`gacha_all: starting rollMany with n=${n}`);
+
                             const counts = rollMany(n, wallet.pity);
+                            log.info(`gacha_all: rollMany done, counts=${JSON.stringify(counts)}`);
+
+                            log.info('gacha_all: adding items');
                             for (const k of ITEM_KEYS) {
-                                if (counts[k] > 0) addItem(guildId, userId, k, counts[k]);
+                                if (counts[k] > 0) {
+                                    log.info(`gacha_all: adding ${counts[k]} ${k}`);
+                                    addItem(guildId, userId, k, counts[k]);
+                                }
                             }
+
+                            log.info('gacha_all: saving data');
                             saveData();
+
+                            log.info('gacha_all: formatting result');
                             const result = formatRollResult(counts);
                             log.info(`gacha_all: roll complete, result=${result}`);
-                            return interaction.editReply({
+
+                            log.info('gacha_all: editReply');
+                            const reply = await interaction.editReply({
                                 content: `**${member.displayName}** quay ${fmt(n)} lần (-${fmt(cost)} ${renderEmote('ngoc')}):\n${result}`,
                                 components: [disabledRow]
                             });
+                            log.info('gacha_all: editReply done');
+                            return reply;
                         } catch (e) {
                             log.error('gacha_all confirm error:', e);
-                            return interaction.editReply({ content: '❌ Lỗi khi quay gacha.', components: [disabledRow] }).catch(() => {});
+                            log.error('error stack:', e.stack);
+                            try {
+                                return interaction.editReply({ content: '❌ Lỗi khi quay gacha: ' + e.message, components: [disabledRow] });
+                            } catch (e2) {
+                                log.error('error editing reply:', e2);
+                            }
                         }
                     }
                 } else {

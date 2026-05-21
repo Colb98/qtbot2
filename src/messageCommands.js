@@ -327,13 +327,21 @@ async function handleMessageCommand(msg) {
         const w = getWallet(guildId, msg.author.id);
         if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
         const result = Math.random() < 0.5 ? 'sap' : 'ngua';
-        const won = !side || side === result;
+        const won = side ? (side === result) : (Math.random() < 0.5);
         if (won) {
             addNgoc(guildId, msg.author.id, amount);
-            return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\n${side ? `Bạn đoán: **${side === 'sap' ? 'Sấp' : 'Ngửa'}**\n` : ''}🎉 Thắng! +${fmt(amount)} ${renderEmote('ngoc')}`);
+            if (side) {
+                return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\nBạn đoán: **${side === 'sap' ? 'Sấp' : 'Ngửa'}**\n🎉 Thắng! +${fmt(amount)} ${renderEmote('ngoc')}`);
+            } else {
+                return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\n🎉 Thắng! +${fmt(amount)} ${renderEmote('ngoc')}`);
+            }
         } else {
             addNgoc(guildId, msg.author.id, -amount);
-            return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\nBạn đoán: **${side === 'sap' ? 'Sấp' : 'Ngửa'}**\n😢 Thua! -${fmt(amount)} ${renderEmote('ngoc')}`);
+            if (side) {
+                return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\nBạn đoán: **${side === 'sap' ? 'Sấp' : 'Ngửa'}**\n😢 Thua! -${fmt(amount)} ${renderEmote('ngoc')}`);
+            } else {
+                return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\n😢 Thua! -${fmt(amount)} ${renderEmote('ngoc')}`);
+            }
         }
     }
 
