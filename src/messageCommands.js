@@ -13,6 +13,7 @@ const { getWallet, addNganphieu, addNgoc, addItem, renderEmote, tryClaimDaily, f
 const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('./config/economy');
+const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
 
 async function handleMessageCommand(msg) {
     const parts = msg.content.trim().split(/\s+/);
@@ -44,6 +45,8 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!help') {
         const userHelp = `
+            **Bot v${CURRENT_VERSION}** — Dùng \`!changelog\` để xem các tính năng mới.
+
             **Tiền tệ & Gacha:**
             • \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
             • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
@@ -79,6 +82,27 @@ async function handleMessageCommand(msg) {
         const helpText = isSuperAdmin(msg.author.id) ? (userHelp + devHelp) : userHelp;
         await msg.reply(helpText);
         return;
+    }
+
+    if (cmd === '!changelog') {
+        const arg = parts[1];
+        let versions;
+        if (!arg) {
+            versions = [CURRENT_VERSION];
+        } else if (arg === 'all') {
+            versions = Object.keys(CHANGELOG).sort((a, b) => parseFloat(b) - parseFloat(a));
+        } else if (CHANGELOG[arg]) {
+            versions = [arg];
+        } else {
+            return msg.reply(`Không tìm thấy version \`${arg}\`. Dùng \`!changelog\`, \`!changelog all\`, hoặc \`!changelog <version>\`.`);
+        }
+        const sections = versions.map(v => {
+            const entry = CHANGELOG[v];
+            const header = `**Version ${v}** — ${entry.date} — *${entry.title}*`;
+            const body = entry.changes.map(c => `• ${c}`).join('\n');
+            return `${header}\n${body}`;
+        });
+        return msg.reply(`📋 **Changelog** (current: v${CURRENT_VERSION})\n\n${sections.join('\n\n')}`);
     }
 
     if (cmd === '!khodo') {
