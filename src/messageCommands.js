@@ -470,8 +470,8 @@ async function handleMessageCommand(msg) {
         }
         addNgoc(guildId, msg.author.id, -amount);
 
-        const { result: spinResult, mult } = slotSpin();
-        const payout = amount * mult;
+        const { result: spinResult, mult, name: outcomeName } = slotSpin();
+        const payout = Math.round(amount * mult);
         const anim = renderEmote('slotanim');
         const sym = [
             renderEmote(SLOT_SYMBOLS[spinResult[0]].emote),
@@ -486,15 +486,19 @@ async function handleMessageCommand(msg) {
         await slotMsg.edit(render(sym[0], anim, anim)).catch(e => log.error('slot edit r1', e));
         await new Promise(r => setTimeout(r, 1000));
         await slotMsg.edit(render(sym[0], anim, sym[2])).catch(e => log.error('slot edit r3', e));
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1500));
 
         let resultLine;
-        if (payout > 0) {
-            addNgoc(guildId, msg.author.id, payout);
-            const net = payout - amount;
-            resultLine = `🎉 Thắng x${mult}! Nhận ${fmt(payout)} ${renderEmote('ngoc')} (net ${net >= 0 ? '+' : ''}${fmt(net)}).`;
+        if (payout > 0) addNgoc(guildId, msg.author.id, payout);
+        const net = payout - amount;
+        if (mult > 1) {
+            resultLine = `🎉 **${outcomeName}** (x${mult})! Nhận ${fmt(payout)} ${renderEmote('ngoc')} (net +${fmt(net)}).`;
+        } else if (mult === 1) {
+            resultLine = `💰 **${outcomeName}**! Hoàn lại ${fmt(payout)} ${renderEmote('ngoc')} (net 0).`;
+        } else if (mult > 0) {
+            resultLine = `😬 **${outcomeName}** (x${mult}). Hoàn lại ${fmt(payout)} ${renderEmote('ngoc')} (net ${fmt(net)}).`;
         } else {
-            resultLine = `😢 Thua! -${fmt(amount)} ${renderEmote('ngoc')}.`;
+            resultLine = `😢 **${outcomeName}**! -${fmt(amount)} ${renderEmote('ngoc')}.`;
         }
         await slotMsg.edit(`${render(sym[0], sym[1], sym[2])}\n${resultLine}`).catch(e => log.error('slot edit final', e));
         return;

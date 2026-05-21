@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '1.2.0';
+const CURRENT_VERSION = '1.2.1';
 
 const CHANGELOG = {
+    '1.2.1': {
+        date: '2026-05-21',
+        title: 'Slot — đổi cách random',
+        changes: [
+            'Đổi cách quay slot: random theo trọng số kết quả (outcome pool) thay vì random từng reel. Cảm giác chơi mượt hơn, EV giữ ~1.020.',
+            'Thêm 11 mẫu kết quả: MEGA Jackpot (x150), Jackpot Cao (x40), Jackpot Vua (x18), Mini Jackpot (x10), 2x Cáo (x6), 2x Vua (x3), An Ủi To (x2), Hoàn Vốn (x1), Nhỏ x0.5, Nhỏ x0.25, Thua.',
+            'Với mẫu 2x: vật phẩm thứ 3 + thứ tự reel được random để mỗi lần quay khác nhau.',
+            'Hiện tên outcome trong tin nhắn kết quả (vd: "🎉 MEGA Jackpot (x150)!").'
+        ]
+    },
     '1.2.0': {
         date: '2026-05-21',
         title: 'Slot machine & giới hạn cược',
