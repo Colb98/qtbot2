@@ -66,7 +66,7 @@ function getNextSaturday() {
     return saturday;
 }
 
-const GAME_COOLDOWN_MS = 5000;
+const GAME_COOLDOWN_MS = 3000;
 const gameCooldowns = new Map();
 
 function checkGameCooldown(userId) {

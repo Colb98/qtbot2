@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '1.1.0';
+const CURRENT_VERSION = '1.1.1';
 
 const CHANGELOG = {
+    '1.1.1': {
+        date: '2026-05-21',
+        title: 'Tinh chỉnh cooldown',
+        changes: [
+            'Giảm cooldown lệnh chơi game từ 5s → 3s.'
+        ]
+    },
     '1.1.0': {
         date: '2026-05-21',
         title: 'Chế độ bảo trì',
