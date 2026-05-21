@@ -4,6 +4,7 @@ module.exports = {
 
     NGAN_PHIEU_PER_NGOC: 100,
     TT_PER_CAO: 3,
+    ROLLS_PER_THIENTHUONG: 50,
 
     BANG_CHIEN_REWARD: 1000,
 

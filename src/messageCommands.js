@@ -54,8 +54,10 @@ async function handleMessageCommand(msg) {
             • \`!toptt\` — Top 10 người có nhiều thiên thưởng (cáo tính 3 thiên thưởng).
             • \`!topngoc\` — Top 10 người có nhiều ngọc.
             • \`!coinflip <x>\` / \`!coinflip <sap|ngua> <x>\` — Cược x ngọc, 50/50 win/lose.
-            • \`!tangngoc @user <n>\` — Tặng ngọc cho người khác.
-            • \`!tangthienthuong @user [n]\` — Tặng thiên thưởng cho người khác.
+            • \`!tangngoc @user <n|all>\` — Tặng ngọc cho người khác.
+            • \`!tangthienthuong @user [n|all]\` — Tặng thiên thưởng cho người khác.
+            • \`!banthienthuong <n|all>\` — Bán thiên thưởng → ${fmt(economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST)} ngọc/cái.
+            • \`!bancao <n|all>\` — Bán cáo → ${fmt(economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST * economy.TT_PER_CAO)} ngọc/cái.
             • Chat trong server: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)} tin/ngày).
             • Daily: +${fmt(economy.DAILY_REWARD.nganphieuMin)}-${fmt(economy.DAILY_REWARD.nganphieuMax)} ngân phiếu (random).
             • Báo danh bang chiến: +${fmt(economy.BANG_CHIEN_REWARD)} ngọc/lần, huỷ -${fmt(economy.BANG_CHIEN_REWARD)} ngọc.
@@ -180,10 +182,7 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!tangthienthuong') {
         const mention = parts[1];
-        const amount = parts[2] ? parseInt(parts[2], 10) : 1;
-        if (!mention || !Number.isInteger(amount) || amount <= 0) {
-            return msg.reply('Cú pháp: `!tangthienthuong @user [số lượng]` (mặc định 1)');
-        }
+        if (!mention) return msg.reply('Cú pháp: `!tangthienthuong @user [số lượng|all]` (mặc định 1)');
         const targetId = mention.replace(/[^0-9]/g, '');
         if (!targetId) return msg.reply('Vui lòng mention user hợp lệ.');
         if (targetId === msg.author.id) return msg.reply('Không thể tự tặng chính mình.');
@@ -191,7 +190,15 @@ async function handleMessageCommand(msg) {
         if (!targetMember) return msg.reply('Không tìm thấy user trong server.');
         if (targetMember.user.bot) return msg.reply('Không tặng cho bot được.');
         const w = getWallet(guildId, msg.author.id);
-        if (w.items.thienthuong < amount) return msg.reply(`Bạn chỉ có ${fmt(w.items.thienthuong)} thiên thưởng, không đủ tặng ${fmt(amount)}.`);
+        let amount;
+        if (parts[2] === 'all') {
+            amount = w.items.thienthuong;
+            if (amount <= 0) return msg.reply('Bạn không có thiên thưởng để tặng.');
+        } else {
+            amount = parts[2] ? parseInt(parts[2], 10) : 1;
+            if (!Number.isInteger(amount) || amount <= 0) return msg.reply('Cú pháp: `!tangthienthuong @user [số lượng|all]`');
+            if (w.items.thienthuong < amount) return msg.reply(`Bạn chỉ có ${fmt(w.items.thienthuong)} thiên thưởng, không đủ tặng ${fmt(amount)}.`);
+        }
         addItem(guildId, msg.author.id, 'thienthuong', -amount);
         addItem(guildId, targetId, 'thienthuong', amount);
         return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('thienthuong')} cho ${targetMember.displayName}.`);
@@ -199,10 +206,7 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!tangngoc') {
         const mention = parts[1];
-        const amount = parseInt(parts[2], 10);
-        if (!mention || !Number.isInteger(amount) || amount <= 0) {
-            return msg.reply('Cú pháp: `!tangngoc @user <số lượng>`');
-        }
+        if (!mention) return msg.reply('Cú pháp: `!tangngoc @user <số lượng|all>`');
         const targetId = mention.replace(/[^0-9]/g, '');
         if (!targetId) return msg.reply('Vui lòng mention user hợp lệ.');
         if (targetId === msg.author.id) return msg.reply('Không thể tự tặng chính mình.');
@@ -210,10 +214,42 @@ async function handleMessageCommand(msg) {
         if (!targetMember) return msg.reply('Không tìm thấy user trong server.');
         if (targetMember.user.bot) return msg.reply('Không tặng cho bot được.');
         const w = getWallet(guildId, msg.author.id);
-        if (w.ngoc < amount) return msg.reply(`Bạn chỉ có ${fmt(w.ngoc)} ngọc, không đủ tặng ${fmt(amount)}.`);
+        let amount;
+        if (parts[2] === 'all') {
+            amount = w.ngoc;
+            if (amount <= 0) return msg.reply('Bạn không có ngọc để tặng.');
+        } else {
+            amount = parseInt(parts[2], 10);
+            if (!Number.isInteger(amount) || amount <= 0) return msg.reply('Cú pháp: `!tangngoc @user <số lượng|all>`');
+            if (w.ngoc < amount) return msg.reply(`Bạn chỉ có ${fmt(w.ngoc)} ngọc, không đủ tặng ${fmt(amount)}.`);
+        }
         addNgoc(guildId, msg.author.id, -amount);
         addNgoc(guildId, targetId, amount);
         return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('ngoc')} cho ${targetMember.displayName}.`);
+    }
+
+    if (cmd === '!banthienthuong' || cmd === '!bancao') {
+        const isCao = cmd === '!bancao';
+        const itemKey = isCao ? 'cao' : 'thienthuong';
+        const itemLabel = isCao ? 'cáo' : 'thiên thưởng';
+        const pricePerUnit = isCao
+            ? economy.ROLLS_PER_THIENTHUONG * ROLL_COST * economy.TT_PER_CAO
+            : economy.ROLLS_PER_THIENTHUONG * ROLL_COST;
+        const w = getWallet(guildId, msg.author.id);
+        let n;
+        if (parts[1] === 'all') {
+            n = w.items[itemKey];
+            if (n <= 0) return msg.reply(`Bạn không có ${itemLabel} để bán.`);
+        } else {
+            n = parseInt(parts[1], 10);
+            if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — bán 1 ${itemLabel} = ${fmt(pricePerUnit)} ngọc.`);
+            if (w.items[itemKey] < n) return msg.reply(`Bạn chỉ có ${fmt(w.items[itemKey])} ${itemLabel}, không đủ bán ${fmt(n)}.`);
+        }
+        const gained = n * pricePerUnit;
+        addItem(guildId, msg.author.id, itemKey, -n);
+        addNgoc(guildId, msg.author.id, gained);
+        const w2 = getWallet(guildId, msg.author.id);
+        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey])} ${itemLabel}, ${fmt(w2.ngoc)} ngọc.`);
     }
 
     if (cmd === '!gangoc') {
