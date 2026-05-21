@@ -20,11 +20,10 @@ module.exports = {
                     if (interaction.user.id !== userId) {
                         return interaction.reply({ content: 'Không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
                     }
-                    const oldRow = interaction.message.components[0];
                     const disabledRow = new ActionRowBuilder();
-                    if (oldRow && oldRow.components) {
-                        for (const btn of oldRow.components) {
-                            const newBtn = ButtonBuilder.from(btn.data);
+                    if (interaction.message.components[0]) {
+                        for (const btn of interaction.message.components[0].components) {
+                            const newBtn = ButtonBuilder.from(btn.toJSON());
                             newBtn.setDisabled(true);
                             disabledRow.addComponents(newBtn);
                         }
