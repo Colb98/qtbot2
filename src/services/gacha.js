@@ -68,11 +68,18 @@ function formatRollResult(counts) {
     return parts.join(', ');
 }
 
+function getPityStatus(pity) {
+    const ttLeft = GACHA.PITY_TT_END - pity.tt;
+    const ktLeft = Math.max(0, GACHA.PITY_KT_THRESHOLD - pity.kt);
+    return { ttLeft, ktLeft };
+}
+
 module.exports = {
     ROLL_COST: GACHA.ROLL_COST,
     SUPPORTED_COUNTS: GACHA.SUPPORTED_COUNTS,
     rollOne,
     rollMany,
     formatRollResult,
-    computeRates
+    computeRates,
+    getPityStatus
 };

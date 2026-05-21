@@ -10,7 +10,8 @@ const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require(
 const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
 const { getWallet, addNganphieu, addNgoc, addItem, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
-const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS } = require('./services/gacha');
+const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('./config/economy');
 
 async function handleMessageCommand(msg) {
@@ -46,9 +47,13 @@ async function handleMessageCommand(msg) {
             **Tiền tệ & Gacha:**
             • \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
             • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
-            • \`!doingoc <n>\` — Đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu → 1 ngọc (đổi n ngọc tốn ${fmt(economy.NGAN_PHIEU_PER_NGOC)}n ngân phiếu).
-            • \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo (đổi n cáo tốn ${economy.TT_PER_CAO}n thiên thưởng).
-            • \`!gacha\` / \`!gacha 10\` / \`!gacha 50\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Có pity sau 20 / 180 lượt.
+            • \`!doingoc <n>\` / \`!doingoc all\` — Đổi ngân phiếu → 1 ngọc. Dùng \`all\` để đổi hết.
+            • \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo.
+            • \`!gacha\` / \`!gacha <1-50>\` / \`!gacha all\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Có pity ở lượt 20 (KT+) / 200 (TT).
+            • \`!pity\` — Xem số lượt còn lại đến pity đảm bảo.
+            • \`!toptt\` — Top 10 người có nhiều thiên thưởng (cáo tính 3 thiên thưởng).
+            • \`!topngoc\` — Top 10 người có nhiều ngọc.
+            • \`!coinflip <x>\` / \`!coinflip <sap|ngua> <x>\` — Cược x ngọc, 50/50 win/lose.
             • \`!tangngoc @user <n>\` — Tặng ngọc cho người khác.
             • \`!tangthienthuong @user [n]\` — Tặng thiên thưởng cho người khác.
             • Chat trong server: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)} tin/ngày).
@@ -88,10 +93,16 @@ async function handleMessageCommand(msg) {
     }
 
     if (cmd === '!doingoc') {
-        const n = parseInt(parts[1], 10);
-        if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`!doingoc <số lượng>\` — đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu thành 1 ngọc.`);
-        const cost = n * economy.NGAN_PHIEU_PER_NGOC;
+        let n;
         const w = getWallet(guildId, msg.author.id);
+        if (parts[1] === 'all') {
+            n = Math.floor(w.nganphieu / economy.NGAN_PHIEU_PER_NGOC);
+            if (n <= 0) return msg.reply(`Bạn không có đủ ngân phiếu để đổi. Cần ít nhất ${fmt(economy.NGAN_PHIEU_PER_NGOC)}.`);
+        } else {
+            n = parseInt(parts[1], 10);
+            if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`!doingoc <số lượng>\` hoặc \`!doingoc all\` — đổi ${fmt(economy.NGAN_PHIEU_PER_NGOC)} ngân phiếu thành 1 ngọc.`);
+        }
+        const cost = n * economy.NGAN_PHIEU_PER_NGOC;
         if (w.nganphieu < cost) return msg.reply(`Bạn cần ${fmt(cost)} ngân phiếu nhưng chỉ có ${fmt(w.nganphieu)}.`);
         addNganphieu(guildId, msg.author.id, -cost);
         addNgoc(guildId, msg.author.id, n);
@@ -100,8 +111,27 @@ async function handleMessageCommand(msg) {
     }
 
     if (cmd === '!gacha') {
-        const n = parts[1] ? parseInt(parts[1], 10) : 1;
-        if (!SUPPORTED_COUNTS.includes(n)) return msg.reply(`Chỉ hỗ trợ \`!gacha\`, \`!gacha 10\`, \`!gacha 50\`.`);
+        let n;
+        if (parts[1] === 'all') {
+            const w = getWallet(guildId, msg.author.id);
+            n = Math.floor(w.ngoc / ROLL_COST);
+            if (n <= 0) return msg.reply(`Bạn không có đủ ngọc để quay. Cần ít nhất ${fmt(ROLL_COST)} ngọc.`);
+            const cost = n * ROLL_COST;
+            const confirmRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`gacha_all_confirm:${msg.author.id}`)
+                    .setLabel('Xác nhận')
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`gacha_all_cancel:${msg.author.id}`)
+                    .setLabel('Huỷ')
+                    .setStyle(ButtonStyle.Danger)
+            );
+            return msg.reply({ content: `Bạn sắp quay **${fmt(n)}** lần (-${fmt(cost)} ${renderEmote('ngoc')}). Xác nhận?`, components: [confirmRow] });
+        } else {
+            n = parts[1] ? parseInt(parts[1], 10) : 1;
+            if (!Number.isInteger(n) || n < 1 || n > 50) return msg.reply(`Chỉ hỗ trợ từ 1 đến 50 lần. Dùng \`!gacha all\` để quay hết ngọc.`);
+        }
         const cost = n * ROLL_COST;
         const w = getWallet(guildId, msg.author.id);
         if (w.ngoc < cost) return msg.reply(`Cần ${fmt(cost)} ngọc để quay ${fmt(n)} lần, bạn có ${fmt(w.ngoc)}.`);
@@ -204,6 +234,90 @@ async function handleMessageCommand(msg) {
         data.gaNgocGiveaway[sent.id] = { guildId, amount, claimed: {} };
         saveData();
         return;
+    }
+
+    if (cmd === '!pity') {
+        const w = getWallet(guildId, msg.author.id);
+        const { ttLeft, ktLeft } = getPityStatus(w.pity);
+        const lines = [
+            `**Pity của ${member.displayName}**`,
+            `Kỳ Thưởng: còn **${fmt(ktLeft)}** lượt (lượt thứ 20 đảm bảo Kỳ Thưởng+)`,
+            `Thiên Thưởng: còn **${fmt(ttLeft)}** lượt (lượt thứ 200 đảm bảo Thiên Thưởng)`
+        ];
+        return msg.reply(lines.join('\n'));
+    }
+
+    if (cmd === '!toptt') {
+        const wallets = data.wallet && data.wallet[guildId];
+        if (!wallets) return msg.reply('Chưa có người nào đăng ký.');
+        const rankings = [];
+        for (const [userId, w] of Object.entries(wallets)) {
+            if (!w.items) continue;
+            const score = w.items.thienthuong + (w.items.cao * economy.TT_PER_CAO);
+            if (score > 0) rankings.push({ userId, score, cao: w.items.cao, tt: w.items.thienthuong });
+        }
+        rankings.sort((a, b) => b.score - a.score);
+        const top = rankings.slice(0, 10);
+        if (top.length === 0) return msg.reply('Chưa có ai có thiên thưởng.');
+        const lines = ['**Top 10 Thiên Thưởng**'];
+        for (let i = 0; i < top.length; i++) {
+            const { userId, score, cao, tt } = top[i];
+            let name = userId;
+            try {
+                const member = await msg.guild.members.fetch(userId).catch(() => null);
+                if (member) name = member.displayName;
+            } catch (e) {}
+            lines.push(`${i + 1}. **${name}**: ${fmt(tt)} ${renderEmote('thienthuong')} + ${fmt(cao)} ${renderEmote('cao')} = **${fmt(score)}** điểm`);
+        }
+        return msg.reply(lines.join('\n'));
+    }
+
+    if (cmd === '!topngoc') {
+        const wallets = data.wallet && data.wallet[guildId];
+        if (!wallets) return msg.reply('Chưa có người nào đăng ký.');
+        const rankings = [];
+        for (const [userId, w] of Object.entries(wallets)) {
+            if (w.ngoc && w.ngoc > 0) rankings.push({ userId, ngoc: w.ngoc });
+        }
+        rankings.sort((a, b) => b.ngoc - a.ngoc);
+        const top = rankings.slice(0, 10);
+        if (top.length === 0) return msg.reply('Chưa có ai có ngọc.');
+        const lines = ['**Top 10 Ngọc**'];
+        for (let i = 0; i < top.length; i++) {
+            const { userId, ngoc } = top[i];
+            let name = userId;
+            try {
+                const member = await msg.guild.members.fetch(userId).catch(() => null);
+                if (member) name = member.displayName;
+            } catch (e) {}
+            lines.push(`${i + 1}. **${name}**: ${fmt(ngoc)} ${renderEmote('ngoc')}`);
+        }
+        return msg.reply(lines.join('\n'));
+    }
+
+    if (cmd === '!coinflip') {
+        let side = null;
+        let amount = null;
+        if (parts[1] === 'sap' || parts[1] === 'ngua') {
+            side = parts[1];
+            amount = parseInt(parts[2], 10);
+        } else {
+            amount = parseInt(parts[1], 10);
+        }
+        if (!Number.isInteger(amount) || amount <= 0) {
+            return msg.reply(`Cú pháp: \`!coinflip <số ngọc>\` hoặc \`!coinflip <sap|ngua> <số ngọc>\``);
+        }
+        const w = getWallet(guildId, msg.author.id);
+        if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
+        const result = Math.random() < 0.5 ? 'sap' : 'ngua';
+        const won = !side || side === result;
+        if (won) {
+            addNgoc(guildId, msg.author.id, amount);
+            return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\n${side ? `Bạn đoán: **${side === 'sap' ? 'Sấp' : 'Ngửa'}**\n` : ''}🎉 Thắng! +${fmt(amount)} ${renderEmote('ngoc')}`);
+        } else {
+            addNgoc(guildId, msg.author.id, -amount);
+            return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\nBạn đoán: **${side === 'sap' ? 'Sấp' : 'Ngửa'}**\n😢 Thua! -${fmt(amount)} ${renderEmote('ngoc')}`);
+        }
     }
 
     if (cmd === '!upload_ingame_emotes') {
