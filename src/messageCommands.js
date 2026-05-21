@@ -5,7 +5,8 @@ const log = require('../logger');
 const client = require('./client');
 const { data, saveData } = require('./state');
 const { CLASS_NAMES, MANAGER_ID, EMOTE_GUILD_ID, EMOTE_FILES } = require('./constants');
-const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin } = require('./utils');
+const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin, checkGameCooldown, replyEphemeral } = require('./utils');
+const { isMaintenance, setMaintenance } = require('./services/maintenance');
 const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require('./services/guildWar');
 const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
@@ -20,6 +21,25 @@ async function handleMessageCommand(msg) {
     const cmd = parts[0].toLowerCase();
     const guildId = msg.guildId;
     const member = await msg.guild.members.fetch(msg.author.id);
+
+    if (cmd === '!maintenance') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const arg = (parts[1] || '').toLowerCase();
+        if (arg === 'on') {
+            setMaintenance(true);
+            return msg.reply('🔧 Đã BẬT chế độ bảo trì. Bot sẽ từ chối yêu cầu mới cho đến khi tắt hoặc restart.');
+        }
+        if (arg === 'off') {
+            setMaintenance(false);
+            return msg.reply('✅ Đã TẮT chế độ bảo trì. Bot hoạt động bình thường.');
+        }
+        const status = isMaintenance() ? 'BẬT 🔧' : 'TẮT ✅';
+        return msg.reply(`Trạng thái bảo trì: **${status}**.\nCú pháp: \`!maintenance on|off\`.`);
+    }
+
+    if (isMaintenance()) {
+        return replyEphemeral(msg, '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.');
+    }
 
     if (cmd === '!register') {
         let name = parts.slice(1).join(' ');
@@ -78,6 +98,7 @@ async function handleMessageCommand(msg) {
             • \`!uploademotes\` — Upload class emotes to the guild (requires Manage Emojis permission).
             • \`!upload_ingame_emotes\` — Upload ingame item emotes.
             • \`!gangoc <n> [#kênh]\` — Post a ngọc giveaway, users react to claim. Dùng #kênh để chỉ định kênh gửi.
+            • \`!maintenance on|off\` — Bật/tắt chế độ bảo trì (chặn input mới trước khi restart). Tự reset sau restart.
         `;
         const helpText = isSuperAdmin(msg.author.id) ? (userHelp + devHelp) : userHelp;
         await msg.reply(helpText);
@@ -383,6 +404,11 @@ async function handleMessageCommand(msg) {
         }
         if (!Number.isInteger(amount) || amount <= 0) {
             return msg.reply(`Cú pháp: \`!coinflip <số ngọc>\` hoặc \`!coinflip <sap|ngua> <số ngọc>\``);
+        }
+        const cd = checkGameCooldown(msg.author.id);
+        if (cd.onCooldown) {
+            const secLeft = Math.ceil(cd.msLeft / 1000);
+            return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
         }
         const w = getWallet(guildId, msg.author.id);
         if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);

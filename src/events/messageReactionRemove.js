@@ -6,12 +6,14 @@ const { isValidTimeToRegister } = require('../utils');
 const { removeUserRole } = require('../services/roles');
 const { editMessage, validateGuildMember } = require('../services/guildWar');
 const { revoke } = require('../services/bangChienReward');
+const { isMaintenance } = require('../services/maintenance');
 
 module.exports = {
     name: Events.MessageReactionRemove,
     async execute(reaction, user) {
         try {
             if (user.bot) return;
+            if (isMaintenance()) return;
             if (reaction.partial) await reaction.fetch();
             if (reaction.message.partial) await reaction.message.fetch();
 

@@ -7,12 +7,14 @@ const { setUserRole } = require('../services/roles');
 const { editMessage, validateGuildMember } = require('../services/guildWar');
 const { grantIfNeeded } = require('../services/bangChienReward');
 const { addNgoc } = require('../services/currency');
+const { isMaintenance } = require('../services/maintenance');
 
 module.exports = {
     name: Events.MessageReactionAdd,
     async execute(reaction, user) {
         try {
             if (user.bot) return;
+            if (isMaintenance()) return;
             if (reaction.partial) await reaction.fetch();
             if (reaction.message.partial) await reaction.message.fetch();
 

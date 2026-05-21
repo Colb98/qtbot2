@@ -1,6 +1,23 @@
-const CURRENT_VERSION = '1.0';
+const CURRENT_VERSION = '1.1.0';
 
 const CHANGELOG = {
+    '1.1.0': {
+        date: '2026-05-21',
+        title: 'Chế độ bảo trì',
+        changes: [
+            'Thêm `!maintenance on|off` — admin bật trước khi restart để bot tạm dừng nhận yêu cầu mới.',
+            'Khi đang bảo trì: chặn message command, slash command, button, reaction, và chat reward.',
+            'Trạng thái bảo trì tự reset sau khi bot restart (in-memory, không lưu vào DB).'
+        ]
+    },
+    '1.0.1': {
+        date: '2026-05-21',
+        title: 'Anti-spam cooldown',
+        changes: [
+            'Thêm cooldown 5s giữa các lệnh chơi game nhận ngọc (hiện tại: `!coinflip`) để tránh spam đọc/ghi DB.',
+            'Tin thông báo cooldown sẽ tự xoá sau 3s để không làm rối kênh chat.'
+        ]
+    },
     '1.0': {
         date: '2026-05-21',
         title: 'Tiền tệ & Gacha update',

@@ -6,10 +6,17 @@ const arrangeCmd = require('../commands/arrange');
 const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { data, saveData } = require('../state');
+const { isMaintenance } = require('../services/maintenance');
 
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
+        if (isMaintenance()) {
+            if (interaction.isRepliable && interaction.isRepliable()) {
+                await interaction.reply({ content: '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.', flags: MessageFlags.Ephemeral }).catch(() => {});
+            }
+            return;
+        }
         if (interaction.isButton()) {
             try {
                 if (interaction.customId.startsWith('arrange_')) {

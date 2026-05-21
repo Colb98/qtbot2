@@ -66,6 +66,29 @@ function getNextSaturday() {
     return saturday;
 }
 
+const GAME_COOLDOWN_MS = 5000;
+const gameCooldowns = new Map();
+
+function checkGameCooldown(userId) {
+    const now = Date.now();
+    const last = gameCooldowns.get(userId);
+    if (last && (now - last) < GAME_COOLDOWN_MS) {
+        return { onCooldown: true, msLeft: GAME_COOLDOWN_MS - (now - last) };
+    }
+    gameCooldowns.set(userId, now);
+    return { onCooldown: false, msLeft: 0 };
+}
+
+async function replyEphemeral(msg, content, ttlMs = 3000) {
+    try {
+        const reply = await msg.reply(content);
+        setTimeout(() => { reply.delete().catch(() => {}); }, ttlMs);
+        return reply;
+    } catch (e) {
+        return null;
+    }
+}
+
 module.exports = {
     isSuperAdmin,
     isManager,
@@ -78,5 +101,8 @@ module.exports = {
     getUserDisplayName,
     getClassEmoji,
     sanitizeIngame,
-    getNextSaturday
+    getNextSaturday,
+    checkGameCooldown,
+    replyEphemeral,
+    GAME_COOLDOWN_MS
 };
