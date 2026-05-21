@@ -15,9 +15,10 @@ module.exports = {
                     await arrangeCmd.handleButton(interaction);
                 } else if (interaction.customId.startsWith('gacha_all_')) {
                     const parts = interaction.customId.split(':');
-                    const action = interaction.customId.split('_')[2];
+                    const actionPart = interaction.customId.split('_')[2];
+                    const action = actionPart.split(':')[0];
                     const userId = parts[1];
-                    log.info(`gacha_all button: action=${action}, userId=${userId}, clickerId=${interaction.user.id}`);
+                    log.info(`gacha_all button: customId=${interaction.customId}, action=${action}, userId=${userId}, clickerId=${interaction.user.id}`);
 
                     if (interaction.user.id !== userId) {
                         return interaction.reply({ content: 'Không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
