@@ -1,6 +1,18 @@
-const CURRENT_VERSION = '1.1.1';
+const CURRENT_VERSION = '1.2.0';
 
 const CHANGELOG = {
+    '1.2.0': {
+        date: '2026-05-21',
+        title: 'Slot machine & giới hạn cược',
+        changes: [
+            'Thêm `!slot <x|all>` — Quay slot 3 reels với 6 biểu tượng (cáo, thiên thưởng, ngọc, kỳ thưởng, diều, nhuộm).',
+            'UI slot: 3 reels animate (slotanim.gif), reveal lần lượt reel 1 → reel 3 → reel 2.',
+            'Tỉ lệ trả: 3 cáo x200, 3 thiên thưởng x67, 3 ngọc x55, 3 kỳ thưởng x20, 3 diều/nhuộm x8. 2 giống nhau chỉ tính cho cáo (x10), thiên thưởng (x3), ngọc (x2).',
+            'Giới hạn cược slot: 2,000 ngọc/lượt. Giới hạn cược coinflip: 10,000 ngọc/lượt (auto clamp nếu cược cao hơn).',
+            '`!coinflip` và `!slot` hỗ trợ `all` — tự cược tối đa theo giới hạn, không hỏi xác nhận.',
+            'Cần chạy `!upload_ingame_emotes` để upload emote `slotanim` mới.'
+        ]
+    },
     '1.1.1': {
         date: '2026-05-21',
         title: 'Tinh chỉnh cooldown',

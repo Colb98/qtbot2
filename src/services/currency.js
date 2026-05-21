@@ -1,7 +1,8 @@
 const { data, saveData } = require('../state');
 const economy = require('../config/economy');
 
-const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'dieu', 'kythuong', 'thienthuong', 'shake_tt'];
+const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'dieu', 'kythuong', 'thienthuong', 'shake_tt', 'slotanim'];
+const ANIMATED_EMOTES = new Set(['shake_tt', 'slotanim']);
 const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'kythuong', 'thienthuong'];
 const ITEM_LABELS = {
     nhuom: 'Nhuộm',
@@ -107,8 +108,8 @@ function fmt(n) {
 function renderEmote(key) {
     const id = data.ingameEmoteIds && data.ingameEmoteIds[key];
     if (!id) return `:${key}:`;
-    const ext = key === 'shake_tt' ? 'a' : '';
-    return `<${ext}:ig_${key}:${id}>`;
+    const prefix = ANIMATED_EMOTES.has(key) ? 'a' : '';
+    return `<${prefix}:ig_${key}:${id}>`;
 }
 
 module.exports = {

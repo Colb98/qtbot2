@@ -8,6 +8,9 @@ module.exports = {
 
     BANG_CHIEN_REWARD: 1000,
 
+    COINFLIP_MAX_BET: 10000,
+    SLOT_MAX_BET: 2000,
+
     DAILY_REWARD: {
         nganphieuMin: 50000,
         nganphieuMax: 100000

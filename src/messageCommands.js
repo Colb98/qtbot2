@@ -12,6 +12,7 @@ const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
 const { getWallet, addNganphieu, addNgoc, addItem, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
 const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
+const { SYMBOLS: SLOT_SYMBOLS, spin: slotSpin } = require('./services/slot');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
@@ -76,7 +77,8 @@ async function handleMessageCommand(msg) {
             • \`!pity\` — Xem số lượt còn lại đến pity đảm bảo.
             • \`!toptt\` — Top 10 người có nhiều thiên thưởng (cáo tính 3 thiên thưởng).
             • \`!topngoc\` — Top 10 người có nhiều ngọc.
-            • \`!coinflip <x>\` / \`!coinflip <sap|ngua> <x>\` — Cược x ngọc, 50/50 win/lose.
+            • \`!coinflip <x|all>\` / \`!coinflip <sap|ngua> <x|all>\` — Cược ngọc, 50/50 win/lose. Tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
+            • \`!slot <x|all>\` — Quay slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Cao nhất x200 (3 ${renderEmote('cao')}).
             • \`!tangngoc @user <n|all>\` — Tặng ngọc cho người khác.
             • \`!tangthienthuong @user [n|all]\` — Tặng thiên thưởng cho người khác.
             • \`!banthienthuong <n|all>\` — Bán thiên thưởng → ${fmt(economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST)} ngọc/cái.
@@ -395,15 +397,20 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!coinflip') {
         let side = null;
-        let amount = null;
+        let amountStr;
         if (parts[1] === 'sap' || parts[1] === 'ngua') {
             side = parts[1];
-            amount = parseInt(parts[2], 10);
+            amountStr = parts[2];
         } else {
-            amount = parseInt(parts[1], 10);
+            amountStr = parts[1];
         }
-        if (!Number.isInteger(amount) || amount <= 0) {
-            return msg.reply(`Cú pháp: \`!coinflip <số ngọc>\` hoặc \`!coinflip <sap|ngua> <số ngọc>\``);
+        const isAll = amountStr === 'all';
+        let rawAmount = null;
+        if (!isAll) {
+            rawAmount = parseInt(amountStr, 10);
+            if (!Number.isInteger(rawAmount) || rawAmount <= 0) {
+                return msg.reply(`Cú pháp: \`!coinflip <số ngọc|all>\` hoặc \`!coinflip <sap|ngua> <số ngọc|all>\` (tối đa ${fmt(economy.COINFLIP_MAX_BET)} ngọc).`);
+            }
         }
         const cd = checkGameCooldown(msg.author.id);
         if (cd.onCooldown) {
@@ -411,7 +418,14 @@ async function handleMessageCommand(msg) {
             return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
         }
         const w = getWallet(guildId, msg.author.id);
-        if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
+        let amount;
+        if (isAll) {
+            amount = Math.min(w.ngoc, economy.COINFLIP_MAX_BET);
+            if (amount <= 0) return msg.reply('Bạn không có ngọc để chơi.');
+        } else {
+            amount = Math.min(rawAmount, economy.COINFLIP_MAX_BET);
+            if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
+        }
         const result = Math.random() < 0.5 ? 'sap' : 'ngua';
         const won = side ? (side === result) : (Math.random() < 0.5);
         if (won) {
@@ -431,6 +445,61 @@ async function handleMessageCommand(msg) {
         }
     }
 
+    if (cmd === '!slot') {
+        const isAll = parts[1] === 'all';
+        let rawAmount = null;
+        if (!isAll) {
+            rawAmount = parseInt(parts[1], 10);
+            if (!Number.isInteger(rawAmount) || rawAmount <= 0) {
+                return msg.reply(`Cú pháp: \`!slot <số ngọc|all>\` (tối đa ${fmt(economy.SLOT_MAX_BET)} ngọc/lượt).`);
+            }
+        }
+        const cd = checkGameCooldown(msg.author.id);
+        if (cd.onCooldown) {
+            const secLeft = Math.ceil(cd.msLeft / 1000);
+            return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
+        }
+        const w = getWallet(guildId, msg.author.id);
+        let amount;
+        if (isAll) {
+            amount = Math.min(w.ngoc, economy.SLOT_MAX_BET);
+            if (amount <= 0) return msg.reply('Bạn không có ngọc để chơi slot.');
+        } else {
+            amount = Math.min(rawAmount, economy.SLOT_MAX_BET);
+            if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
+        }
+        addNgoc(guildId, msg.author.id, -amount);
+
+        const { result: spinResult, mult } = slotSpin();
+        const payout = amount * mult;
+        const anim = renderEmote('slotanim');
+        const sym = [
+            renderEmote(SLOT_SYMBOLS[spinResult[0]].emote),
+            renderEmote(SLOT_SYMBOLS[spinResult[1]].emote),
+            renderEmote(SLOT_SYMBOLS[spinResult[2]].emote)
+        ];
+        const header = `🎰 **${member.displayName}** quay slot (-${fmt(amount)} ${renderEmote('ngoc')})`;
+        const render = (a, b, c) => `${header}\n[ ${a} | ${b} | ${c} ]`;
+
+        const slotMsg = await msg.reply(render(anim, anim, anim));
+        await new Promise(r => setTimeout(r, 1000));
+        await slotMsg.edit(render(sym[0], anim, anim)).catch(e => log.error('slot edit r1', e));
+        await new Promise(r => setTimeout(r, 1000));
+        await slotMsg.edit(render(sym[0], anim, sym[2])).catch(e => log.error('slot edit r3', e));
+        await new Promise(r => setTimeout(r, 2000));
+
+        let resultLine;
+        if (payout > 0) {
+            addNgoc(guildId, msg.author.id, payout);
+            const net = payout - amount;
+            resultLine = `🎉 Thắng x${mult}! Nhận ${fmt(payout)} ${renderEmote('ngoc')} (net ${net >= 0 ? '+' : ''}${fmt(net)}).`;
+        } else {
+            resultLine = `😢 Thua! -${fmt(amount)} ${renderEmote('ngoc')}.`;
+        }
+        await slotMsg.edit(`${render(sym[0], sym[1], sym[2])}\n${resultLine}`).catch(e => log.error('slot edit final', e));
+        return;
+    }
+
     if (cmd === '!upload_ingame_emotes') {
         if (!isSuperAdmin(msg.author.id)) return;
         if (msg.guildId !== EMOTE_GUILD_ID) {
@@ -438,8 +507,9 @@ async function handleMessageCommand(msg) {
         }
         const ids = data.ingameEmoteIds || {};
         const failures = [];
+        const GIF_EMOTES = new Set(['shake_tt', 'slotanim']);
         for (const name of INGAME_EMOTE_NAMES) {
-            const ext = name === 'shake_tt' ? 'gif' : 'png';
+            const ext = GIF_EMOTES.has(name) ? 'gif' : 'png';
             const filePath = path.resolve(`emotes/ingame/${name}.${ext}`);
             if (!fs.existsSync(filePath)) {
                 failures.push(`${name}: file missing`);
