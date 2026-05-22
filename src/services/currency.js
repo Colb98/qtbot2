@@ -41,6 +41,7 @@ function getWallet(guildId, userId) {
     if (!w.pity) w.pity = { kt: 0, tt: 0 };
     if (typeof w.pity.kt !== 'number') w.pity.kt = 0;
     if (typeof w.pity.tt !== 'number') w.pity.tt = 0;
+    if (typeof w.slotPity !== 'number') w.slotPity = 0;
     return w;
 }
 

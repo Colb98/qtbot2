@@ -1,6 +1,31 @@
-const CURRENT_VERSION = '1.2.1';
+const CURRENT_VERSION = '1.3.2';
 
 const CHANGELOG = {
+    '1.3.2': {
+        date: '2026-05-22',
+        title: 'Coinflip — nút bỏ qua cooldown',
+        changes: [
+            'Coinflip: nút Tiếp / x0.5 / x2 / ALL IN bỏ qua cooldown 3s (chỉ áp dụng cho lệnh `!coinflip` gốc).'
+        ]
+    },
+    '1.3.1': {
+        date: '2026-05-22',
+        title: 'Coinflip — thông báo thắng lớn',
+        changes: [
+            'Coinflip: khi thắng ALL IN hoặc thắng ≥ 5000 ngọc, hiện thông báo nổi bật (header `##` + chữ HOA "ALL IN THẮNG" / "THẮNG LỚN").'
+        ]
+    },
+    '1.3.0': {
+        date: '2026-05-22',
+        title: 'Slot tinh chỉnh & Coinflip nút tiếp',
+        changes: [
+            'Slot: bỏ "(net xxx)" trong tin kết quả, chỉ hiện số ngọc "thắng" (kể cả x0.5/x0.25 vẫn ghi là thắng).',
+            'Slot: thưởng từ **x6 trở lên** hiện to hơn (header `##` cho x6/x10, header `#` cho x18+, tên outcome viết HOA).',
+            'Slot: rút ngắn thời gian reveal reel xuống 0.5s / 0.5s / 0.75s (tổng 1.75s thay vì 3.5s).',
+            'Slot: thêm **pity x3+** — sau 10 lượt liên tiếp thua hoặc ≤ x1 (x1 không reset đếm), lượt tiếp theo được đảm bảo x3 trở lên.',
+            'Coinflip: thêm nút **Tiếp (cùng cược)**, **x0.5**, **x2**, **ALL IN** để chơi tiếp không cần gõ lệnh. Nút x2 bị disable nếu không đủ tiền. Giữ nguyên side (sấp/ngửa) đã đoán.'
+        ]
+    },
     '1.2.1': {
         date: '2026-05-21',
         title: 'Slot — đổi cách random',

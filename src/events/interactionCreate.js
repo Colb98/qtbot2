@@ -5,6 +5,8 @@ const wordchain = require('../services/wordchain');
 const arrangeCmd = require('../commands/arrange');
 const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
+const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult, tokenToSide } = require('../services/coinflip');
+const economy = require('../config/economy');
 const { data, saveData } = require('../state');
 const { isMaintenance } = require('../services/maintenance');
 
@@ -21,6 +23,8 @@ module.exports = {
             try {
                 if (interaction.customId.startsWith('arrange_')) {
                     await arrangeCmd.handleButton(interaction);
+                } else if (interaction.customId.startsWith('cf:')) {
+                    await handleCoinflipButton(interaction);
                 } else if (interaction.customId.startsWith('gacha_all_')) {
                     const parts = interaction.customId.split(':');
                     const actionPart = interaction.customId.split('_')[2];
@@ -112,3 +116,49 @@ module.exports = {
         }
     }
 };
+
+async function handleCoinflipButton(interaction) {
+    const [, action, ownerUserId, amountStr, sideToken] = interaction.customId.split(':');
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    const side = tokenToSide(sideToken);
+    const guildId = interaction.guildId;
+    const wallet = getWallet(guildId, ownerUserId);
+
+    let amount;
+    if (action === 'allin') {
+        amount = Math.min(wallet.ngoc, economy.COINFLIP_MAX_BET);
+    } else {
+        amount = Math.min(parseInt(amountStr, 10), economy.COINFLIP_MAX_BET);
+    }
+    if (!Number.isInteger(amount) || amount <= 0) {
+        return interaction.reply({ content: 'Bạn không có ngọc để chơi.', flags: MessageFlags.Ephemeral });
+    }
+    if (wallet.ngoc < amount) {
+        return interaction.reply({ content: `Bạn chỉ có ${fmt(wallet.ngoc)} ngọc, không đủ cược ${fmt(amount)}.`, flags: MessageFlags.Ephemeral });
+    }
+
+    await interaction.deferUpdate().catch(e => log.error('cf defer error:', e));
+
+    const disabledRow = new ActionRowBuilder();
+    if (interaction.message.components[0]) {
+        for (const btn of interaction.message.components[0].components) {
+            const newBtn = ButtonBuilder.from(btn.toJSON());
+            newBtn.setDisabled(true);
+            disabledRow.addComponents(newBtn);
+        }
+        await interaction.editReply({ components: [disabledRow] }).catch(e => log.error('cf disable error:', e));
+    }
+
+    const result = Math.random() < 0.5 ? 'sap' : 'ngua';
+    const won = side ? (side === result) : (Math.random() < 0.5);
+    addNgoc(guildId, ownerUserId, won ? amount : -amount);
+
+    const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
+    const displayName = member ? member.displayName : interaction.user.username;
+    const newWallet = getWallet(guildId, ownerUserId);
+    const content = formatCoinflipResult({ displayName, side, result, won, amount, wasAllIn: action === 'allin' });
+    const components = newWallet.ngoc > 0 ? [buildCoinflipButtons(ownerUserId, amount, side, newWallet.ngoc)] : [];
+    await interaction.followUp({ content, components }).catch(e => log.error('cf followUp error:', e));
+}

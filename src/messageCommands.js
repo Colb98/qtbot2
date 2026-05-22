@@ -13,6 +13,7 @@ const { testSendReminders } = require('./services/scheduler');
 const { getWallet, addNganphieu, addNgoc, addItem, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
 const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
 const { SYMBOLS: SLOT_SYMBOLS, spin: slotSpin } = require('./services/slot');
+const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
@@ -428,21 +429,11 @@ async function handleMessageCommand(msg) {
         }
         const result = Math.random() < 0.5 ? 'sap' : 'ngua';
         const won = side ? (side === result) : (Math.random() < 0.5);
-        if (won) {
-            addNgoc(guildId, msg.author.id, amount);
-            if (side) {
-                return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\nBạn đoán: **${side === 'sap' ? 'Sấp' : 'Ngửa'}**\n🎉 Thắng! +${fmt(amount)} ${renderEmote('ngoc')}`);
-            } else {
-                return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\n🎉 Thắng! +${fmt(amount)} ${renderEmote('ngoc')}`);
-            }
-        } else {
-            addNgoc(guildId, msg.author.id, -amount);
-            if (side) {
-                return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\nBạn đoán: **${side === 'sap' ? 'Sấp' : 'Ngửa'}**\n😢 Thua! -${fmt(amount)} ${renderEmote('ngoc')}`);
-            } else {
-                return msg.reply(`🪙 Kết quả: **${result === 'sap' ? 'Sấp' : 'Ngửa'}**\n😢 Thua! -${fmt(amount)} ${renderEmote('ngoc')}`);
-            }
-        }
+        addNgoc(guildId, msg.author.id, won ? amount : -amount);
+        const newW = getWallet(guildId, msg.author.id);
+        const content = formatCoinflipResult({ displayName: member.displayName, side, result, won, amount, wasAllIn: isAll });
+        const components = newW.ngoc > 0 ? [buildCoinflipButtons(msg.author.id, amount, side, newW.ngoc)] : [];
+        return msg.reply({ content, components });
     }
 
     if (cmd === '!slot') {
@@ -468,9 +459,11 @@ async function handleMessageCommand(msg) {
             amount = Math.min(rawAmount, economy.SLOT_MAX_BET);
             if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
         }
+        const walletBefore = getWallet(guildId, msg.author.id);
+        const slotPityBefore = walletBefore.slotPity || 0;
         addNgoc(guildId, msg.author.id, -amount);
 
-        const { result: spinResult, mult, name: outcomeName } = slotSpin();
+        const { result: spinResult, mult, name: outcomeName } = slotSpin(slotPityBefore);
         const payout = Math.round(amount * mult);
         const anim = renderEmote('slotanim');
         const sym = [
@@ -482,24 +475,33 @@ async function handleMessageCommand(msg) {
         const render = (a, b, c) => `${header}\n[ ${a} | ${b} | ${c} ]`;
 
         const slotMsg = await msg.reply(render(anim, anim, anim));
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 500));
         await slotMsg.edit(render(sym[0], anim, anim)).catch(e => log.error('slot edit r1', e));
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 500));
         await slotMsg.edit(render(sym[0], anim, sym[2])).catch(e => log.error('slot edit r3', e));
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 750));
 
-        let resultLine;
         if (payout > 0) addNgoc(guildId, msg.author.id, payout);
-        const net = payout - amount;
-        if (mult > 1) {
-            resultLine = `🎉 **${outcomeName}** (x${mult})! Nhận ${fmt(payout)} ${renderEmote('ngoc')} (net +${fmt(net)}).`;
+        const ngocEmote = renderEmote('ngoc');
+        let resultLine;
+        if (mult >= 18) {
+            resultLine = `# 🌟 ${outcomeName.toUpperCase()} — x${mult} 🌟\n**Bạn thắng ${fmt(payout)} ${ngocEmote}!**`;
+        } else if (mult >= 6) {
+            resultLine = `## 🎉 ${outcomeName.toUpperCase()} — x${mult} 🎉\n**Bạn thắng ${fmt(payout)} ${ngocEmote}!**`;
+        } else if (mult > 1) {
+            resultLine = `🎉 **${outcomeName}** (x${mult})! Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
         } else if (mult === 1) {
-            resultLine = `💰 **${outcomeName}**! Hoàn lại ${fmt(payout)} ${renderEmote('ngoc')} (net 0).`;
+            resultLine = `💰 **${outcomeName}**! Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
         } else if (mult > 0) {
-            resultLine = `😬 **${outcomeName}** (x${mult}). Hoàn lại ${fmt(payout)} ${renderEmote('ngoc')} (net ${fmt(net)}).`;
+            resultLine = `😬 **${outcomeName}** (x${mult}). Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
         } else {
-            resultLine = `😢 **${outcomeName}**! -${fmt(amount)} ${renderEmote('ngoc')}.`;
+            resultLine = `😢 **${outcomeName}**! Tiếc quá, không trúng gì.`;
         }
+
+        const walletAfter = getWallet(guildId, msg.author.id);
+        walletAfter.slotPity = mult <= 1 ? slotPityBefore + 1 : 0;
+        saveData();
+
         await slotMsg.edit(`${render(sym[0], sym[1], sym[2])}\n${resultLine}`).catch(e => log.error('slot edit final', e));
         return;
     }

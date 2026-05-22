@@ -66,10 +66,29 @@ function buildReels(outcome) {
     return pool;
 }
 
-function spin() {
-    const outcome = pickOutcome();
-    const result = buildReels(outcome);
-    return { result, mult: outcome.mult, name: outcome.name };
+const PITY_THRESHOLD = 10;
+
+function pickFromPool(pool) {
+    const totalW = pool.reduce((a, p) => a + p.weight, 0);
+    let r = Math.random() * totalW;
+    for (const p of pool) {
+        r -= p.weight;
+        if (r < 0) return p;
+    }
+    return pool[pool.length - 1];
 }
 
-module.exports = { SYMBOLS, REELS, POOL, spin };
+function spin(pityCount = 0) {
+    let outcome;
+    let pityTriggered = false;
+    if (pityCount >= PITY_THRESHOLD) {
+        outcome = pickFromPool(POOL.filter(p => p.mult >= 3));
+        pityTriggered = true;
+    } else {
+        outcome = pickOutcome();
+    }
+    const result = buildReels(outcome);
+    return { result, mult: outcome.mult, name: outcome.name, pityTriggered };
+}
+
+module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD };
