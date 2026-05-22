@@ -15,6 +15,7 @@ const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus }
 const { SYMBOLS: SLOT_SYMBOLS, spin: slotSpin } = require('./services/slot');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
 const dice = require('./services/dice');
+const metrics = require('./services/metrics');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
@@ -67,48 +68,80 @@ async function handleMessageCommand(msg) {
     }
 
     if (cmd === '!help') {
-        const userHelp = `
-            **Bot v${CURRENT_VERSION}** — Dùng \`!changelog\` để xem các tính năng mới.
+        const userHelp = `**Bot v${CURRENT_VERSION}** — Dùng \`!changelog\` để xem các tính năng mới.
 
-            **Tiền tệ & Gacha:**
-            • \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
-            • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
-            • \`!doingoc <n>\` / \`!doingoc all\` — Đổi ngân phiếu → 1 ngọc. Dùng \`all\` để đổi hết.
-            • \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo.
-            • \`!gacha\` / \`!gacha <1-50>\` / \`!gacha all\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Có pity ở lượt 20 (KT+) / 200 (TT).
-            • \`!pity\` — Xem số lượt còn lại đến pity đảm bảo.
-            • \`!toptt\` — Top 10 người có nhiều thiên thưởng (cáo tính 3 thiên thưởng).
-            • \`!topngoc\` — Top 10 người có nhiều ngọc.
-            • \`!coinflip <x|all>\` / \`!coinflip <sap|ngua> <x|all>\` — Cược ngọc, 50/50 win/lose. Tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
-            • \`!slot <x|all>\` — Quay slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Cao nhất x200 (3 ${renderEmote('cao')}).
-            • \`!tong <x|all> <3-18>\` / \`!tong allin <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
-            • \`!mat <x|all> <1-6>\` / \`!mat allin <1-6>\` — Đoán mặt nào xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6 theo số viên.
-            • \`!tangngoc @user <n|all>\` — Tặng ngọc cho người khác.
-            • \`!tangthienthuong @user [n|all]\` — Tặng thiên thưởng cho người khác.
-            • \`!banthienthuong <n|all>\` — Bán thiên thưởng → ${fmt(economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST)} ngọc/cái.
-            • \`!bancao <n|all>\` — Bán cáo → ${fmt(economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST * economy.TT_PER_CAO)} ngọc/cái.
-            • Chat trong server: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)} tin/ngày).
-            • Daily: +${fmt(economy.DAILY_REWARD.nganphieuMin)}-${fmt(economy.DAILY_REWARD.nganphieuMax)} ngân phiếu (random).
-            • Báo danh bang chiến: +${fmt(economy.BANG_CHIEN_REWARD)} ngọc/lần, huỷ -${fmt(economy.BANG_CHIEN_REWARD)} ngọc.
-        `;
-        const devHelp = `
+**Tiền tệ & Gacha:**
+• \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
+• \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
+• \`!doingoc <n|all>\` — Đổi ngân phiếu → ngọc.
+• \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo.
+• \`!gacha [1-50|all]\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Pity lượt 20 (KT+) / 200 (TT).
+• \`!pity\` — Xem lượt còn lại đến pity.
+• \`!toptt\` / \`!topngoc\` — Bảng xếp hạng.
+• \`!tangngoc @user <n|all>\` / \`!tangthienthuong @user [n|all]\` — Tặng ngọc/thiên thưởng.
+• \`!banthienthuong <n|all>\` / \`!bancao <n|all>\` — Bán đổi ngọc.
 
-            **Admin / Dev Commands:**
-            • \`!setup channel #channel\` — Set the channel for weekly signup posts.
-            • \`!setmanager @user\` — Set a user as manager to receive participant lists.
-            • \`!postnow\` — Post the weekly signup message immediately.
-            • \`!remindnow\` — Send reminders to participants immediately.
-            • \`!testreminders <day> <hour> <minute>\` — Schedule a one-time test reminder.
-            • \`!sendlist\` — Send the current participant list to the manager.
-            • \`!voteclass\` — Post a message for users to vote their class via reactions.
-            • \`!uploademotes\` — Upload class emotes to the guild (requires Manage Emojis permission).
-            • \`!upload_ingame_emotes\` — Upload ingame item emotes.
-            • \`!gangoc <n> [#kênh]\` — Post a ngọc giveaway, users react to claim. Dùng #kênh để chỉ định kênh gửi.
-            • \`!maintenance on|off\` — Bật/tắt chế độ bảo trì (chặn input mới trước khi restart). Tự reset sau restart.
-        `;
-        const helpText = isSuperAdmin(msg.author.id) ? (userHelp + devHelp) : userHelp;
-        await msg.reply(helpText);
+**Mini Games:**
+• \`!coinflip [sap|ngua] <x|all>\` — Cược ngọc 50/50, tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
+• \`!slot <x|all>\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200.
+• \`!tong <x|all|allin> <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
+• \`!mat <x|all|allin> <1-6>\` — Đoán mặt xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6.
+
+**Khác:**
+• Chat: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)}/ngày).
+• Báo danh bang chiến: +${fmt(economy.BANG_CHIEN_REWARD)} ngọc/lần.`;
+        await msg.reply(userHelp);
         return;
+    }
+
+    if (cmd === '!devhelp') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const devHelp = `**Dev / Admin Commands — Bot v${CURRENT_VERSION}**
+
+**Quản lý bot:**
+• \`!maintenance on|off\` — Bật/tắt bảo trì (chặn input mới trước restart).
+• \`!upload_ingame_emotes\` — Upload emote ingame (slot, dice...).
+• \`!uploademotes\` — Upload emote class.
+• \`!gangoc <n> [#kênh]\` — GA ngọc, user react để nhận.
+
+**Metrics & Debug:**
+• \`!metrics [slot|coinflip|tong|mat] [YYYY-MM-DD]\` — Xem thống kê trò chơi (mặc định hôm nay).
+• \`!metrics list\` — Liệt kê các file metrics đã lưu.
+
+**Guild War:**
+• \`!setup channel #channel\` — Set kênh đăng ký bang chiến.
+• \`!setmanager @user\` — Set manager nhận danh sách.
+• \`!postnow\` — Đăng tin bang chiến ngay.
+• \`!remindnow\` — Gửi nhắc nhở ngay.
+• \`!testreminders <day> <hour> <minute>\` — Lên lịch nhắc nhở test.
+• \`!sendlist\` — Gửi danh sách cho manager.
+• \`!voteclass\` — Đăng bình chọn class.`;
+        await msg.reply(devHelp);
+        return;
+    }
+
+    if (cmd === '!metrics') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        // !metrics [slot|coinflip|tong|mat] [YYYY-MM-DD]
+        // !metrics list
+        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat']);
+        const arg1 = (parts[1] || '').toLowerCase();
+        const arg2 = (parts[2] || '').toLowerCase();
+
+        if (arg1 === 'list') {
+            const buckets = metrics.listBuckets();
+            if (!buckets.length) return msg.reply('Chưa có file metrics nào.');
+            return msg.reply(`📂 **Metrics files** (${buckets.length}):\n${buckets.join('\n')}`);
+        }
+
+        // Detect which arg is game and which is date
+        const game = GAMES.has(arg1) ? arg1 : (GAMES.has(arg2) ? arg2 : null);
+        const dateArg = /^\d{4}-\d{2}-\d{2}$/.test(arg1) ? arg1 : (/^\d{4}-\d{2}-\d{2}$/.test(arg2) ? arg2 : null);
+
+        let text;
+        if (game) text = metrics.formatGame(game);
+        else text = metrics.formatAll(dateArg || undefined);
+        return msg.reply(`\`\`\`\n${text}\n\`\`\``);
     }
 
     if (cmd === '!changelog') {
@@ -434,6 +467,8 @@ async function handleMessageCommand(msg) {
         const won = side ? (side === result) : (Math.random() < 0.5);
         addNgoc(guildId, msg.author.id, won ? amount : -amount);
         const newW = getWallet(guildId, msg.author.id);
+        const bigWin = won && (isAll || amount >= 5000);
+        metrics.recordCoinflip({ amount, won, side, viaButton: false, wasAllIn: isAll, bigWin });
         const content = formatCoinflipResult({ displayName: member.displayName, side, result, won, amount, wasAllIn: isAll });
         const components = newW.ngoc > 0 ? [buildCoinflipButtons(msg.author.id, amount, side, newW.ngoc)] : [];
         return msg.reply({ content, components });
@@ -464,6 +499,7 @@ async function handleMessageCommand(msg) {
         }
         const slotPityBefore = w.slotPity || 0;
         const slotStreakMaxBet = w.slotStreakMaxBet || 0;
+        const pityCapApplied = slotPityBefore >= 10 && slotStreakMaxBet > 0 && amount > slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT;
         if (slotPityBefore >= 10 && slotStreakMaxBet > 0) {
             amount = Math.min(amount, slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT);
             if (amount <= 0) amount = 1;
@@ -513,6 +549,7 @@ async function handleMessageCommand(msg) {
             walletAfter.slotPity = 0;
             walletAfter.slotStreakMaxBet = 0;
         }
+        metrics.recordSlot({ amount, payout, outcomeName, pityTriggered: slotPityBefore >= 10, pityCapApplied });
         saveData();
 
         await slotMsg.edit(`${render(sym[0], sym[1], sym[2])}\n${resultLine}`).catch(e => log.error('slot edit final', e));
@@ -563,6 +600,12 @@ async function handleMessageCommand(msg) {
         const delta = play.won ? amount * (play.mult - 1) : -amount;
         addNgoc(guildId, msg.author.id, delta);
         const newW = getWallet(guildId, msg.author.id);
+
+        if (isTong) {
+            metrics.recordTong({ amount, won: play.won, mult: play.mult, guess, viaButton: false, wasAllIn: isAll });
+        } else {
+            metrics.recordMat({ amount, won: play.won, mult: play.mult, face: guess, matches: play.matches, viaButton: false, wasAllIn: isAll });
+        }
 
         const content = isTong
             ? dice.formatTongResult({ displayName: member.displayName, guess, roll, sum: play.sum, won: play.won, amount, mult: play.mult })

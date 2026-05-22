@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '1.4.2';
+const CURRENT_VERSION = '1.5.0';
 
 const CHANGELOG = {
+    '1.5.0': {
+        date: '2026-05-22',
+        title: 'Metrics & tách !help / !devhelp',
+        changes: [
+            '`!metrics [slot|coinflip|tong|mat]` (admin) — Xem thống kê tổng hợp: số lượt, wagered/payout/edge, win rate, biggest win, pity stats (slot), button vs command ratio, all-in count, outcome/sum/face/match distribution.',
+            '`!help` giờ chỉ hiện lệnh của người chơi thông thường.',
+            '`!devhelp` (super admin) — lệnh dev/admin riêng, bao gồm `!metrics`.',
+            'Metric được ghi nhận từ cả lệnh text lẫn nút bấm (coinflip, tong, mat).'
+        ]
+    },
     '1.4.2': {
         date: '2026-05-22',
         title: 'Slot — chặn lạm dụng bảo hiểm pity',

@@ -7,6 +7,7 @@ const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS } = require('..
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult, tokenToSide } = require('../services/coinflip');
 const dice = require('../services/dice');
+const metrics = require('../services/metrics');
 const economy = require('../config/economy');
 const { data, saveData } = require('../state');
 const { isMaintenance } = require('../services/maintenance');
@@ -160,10 +161,14 @@ async function handleCoinflipButton(interaction) {
     const won = side ? (side === result) : (Math.random() < 0.5);
     addNgoc(guildId, ownerUserId, won ? amount : -amount);
 
+    const wasAllIn = action === 'allin';
+    const bigWin = won && (wasAllIn || amount >= 5000);
+    metrics.recordCoinflip({ amount, won, side, viaButton: true, wasAllIn, bigWin });
+
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
     const newWallet = getWallet(guildId, ownerUserId);
-    const content = formatCoinflipResult({ displayName, side, result, won, amount, wasAllIn: action === 'allin' });
+    const content = formatCoinflipResult({ displayName, side, result, won, amount, wasAllIn });
     const components = newWallet.ngoc > 0 ? [buildCoinflipButtons(ownerUserId, amount, side, newWallet.ngoc)] : [];
     await interaction.followUp({ content, components }).catch(e => log.error('cf followUp error:', e));
 }
@@ -210,15 +215,18 @@ async function handleDiceButton(interaction, game) {
 
     let content;
     let components;
+    const wasAllIn = action === 'allin';
     if (game === 'tong') {
         const { sum, won, mult } = dice.playTong(roll, guess);
         addNgoc(guildId, ownerUserId, won ? amount * (mult - 1) : -amount);
+        metrics.recordTong({ amount, won, mult, guess, viaButton: true, wasAllIn });
         const newWallet = getWallet(guildId, ownerUserId);
         content = dice.formatTongResult({ displayName, guess, roll, sum, won, amount, mult });
         components = newWallet.ngoc > 0 ? dice.buildTongButtons(ownerUserId, amount, guess, newWallet.ngoc) : [];
     } else {
         const { matches, won, mult } = dice.playMat(roll, guess);
         addNgoc(guildId, ownerUserId, won ? amount * (mult - 1) : -amount);
+        metrics.recordMat({ amount, won, mult, face: guess, matches, viaButton: true, wasAllIn });
         const newWallet = getWallet(guildId, ownerUserId);
         content = dice.formatMatResult({ displayName, face: guess, roll, matches, won, amount, mult });
         components = newWallet.ngoc > 0 ? dice.buildMatButtons(ownerUserId, amount, guess, newWallet.ngoc) : [];
