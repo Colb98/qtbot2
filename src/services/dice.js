@@ -117,9 +117,9 @@ function formatTongResult({ displayName, guess, roll, sum, won, amount, mult }) 
     const payout = amount * mult;
     let resultLine;
     if (won && mult >= TONG_BIG_WIN_MULT) {
-        resultLine = `# 🎉 THẮNG x${mult} 🎉\n# **+${fmt(payout - amount)} ${ngoc}** (nhận ${fmt(payout)})`;
+        resultLine = `# 🎉 THẮNG x${mult} 🎉\n# **${fmt(payout)} ${ngoc}**`;
     } else if (won) {
-        resultLine = `🎉 **THẮNG x${mult}** → +${fmt(payout - amount)} ${ngoc} (nhận ${fmt(payout)})`;
+        resultLine = `🎉 **THẮNG x${mult}** → ${fmt(payout)} ${ngoc}`;
     } else {
         resultLine = `💀 **THUA** -${fmt(amount)} ${ngoc} (bạn đoán ${guess})`;
     }
@@ -134,9 +134,9 @@ function formatMatResult({ displayName, face, roll, matches, won, amount, mult }
     const payout = amount * mult;
     let resultLine;
     if (won && mult >= MAT_BIG_WIN_MULT) {
-        resultLine = `# 🎉 THẮNG x${mult} 🎉\n# **+${fmt(payout - amount)} ${ngoc}** (nhận ${fmt(payout)})`;
+        resultLine = `# 🎉 THẮNG x${mult} 🎉\n# **${fmt(payout)} ${ngoc}**`;
     } else if (won) {
-        resultLine = `🎉 **THẮNG x${mult}** → +${fmt(payout - amount)} ${ngoc} (nhận ${fmt(payout)})`;
+        resultLine = `🎉 **THẮNG x${mult}** → ${fmt(payout)} ${ngoc}`;
     } else {
         resultLine = `💀 **THUA** -${fmt(amount)} ${ngoc} (mặt ${face} không ra)`;
     }

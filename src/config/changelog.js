@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '1.4.0';
+const CURRENT_VERSION = '1.4.1';
 
 const CHANGELOG = {
+    '1.4.1': {
+        date: '2026-05-22',
+        title: 'Sic Bo — gọn dòng kết quả',
+        changes: [
+            '`!tong` / `!mat`: bỏ "+yyy (nhận xxx)" trong tin thắng, chỉ hiện số ngọc thắng (vd: `THẮNG x2 → 200 ngọc`).'
+        ]
+    },
     '1.4.0': {
         date: '2026-05-22',
         title: 'Sic Bo — 2 trò 3 xúc xắc',
