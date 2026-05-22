@@ -42,6 +42,7 @@ function getWallet(guildId, userId) {
     if (typeof w.pity.kt !== 'number') w.pity.kt = 0;
     if (typeof w.pity.tt !== 'number') w.pity.tt = 0;
     if (typeof w.slotPity !== 'number') w.slotPity = 0;
+    if (typeof w.slotStreakMaxBet !== 'number') w.slotStreakMaxBet = 0;
     return w;
 }
 

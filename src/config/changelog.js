@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '1.4.1';
+const CURRENT_VERSION = '1.4.2';
 
 const CHANGELOG = {
+    '1.4.2': {
+        date: '2026-05-22',
+        title: 'Slot — chặn lạm dụng bảo hiểm pity',
+        changes: [
+            'Slot pity (x3+ đảm bảo sau 10 lần thua/≤x1): cược tối đa lúc bảo hiểm bị cap ở `max_cược_trong_streak × 2`. Ví dụ thua 9 lần cược 50 ngọc → lần pity chỉ được cược tối đa 100 ngọc.',
+            'Cơ chế công bằng với mọi mức cược: người cược nhỏ vẫn tích pity bình thường, chỉ bị giới hạn bởi chính các lần cược của họ.'
+        ]
+    },
     '1.4.1': {
         date: '2026-05-22',
         title: 'Sic Bo — gọn dòng kết quả',

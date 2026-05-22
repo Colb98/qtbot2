@@ -462,8 +462,12 @@ async function handleMessageCommand(msg) {
             amount = Math.min(rawAmount, economy.SLOT_MAX_BET);
             if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
         }
-        const walletBefore = getWallet(guildId, msg.author.id);
-        const slotPityBefore = walletBefore.slotPity || 0;
+        const slotPityBefore = w.slotPity || 0;
+        const slotStreakMaxBet = w.slotStreakMaxBet || 0;
+        if (slotPityBefore >= 10 && slotStreakMaxBet > 0) {
+            amount = Math.min(amount, slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT);
+            if (amount <= 0) amount = 1;
+        }
         addNgoc(guildId, msg.author.id, -amount);
 
         const { result: spinResult, mult, name: outcomeName } = slotSpin(slotPityBefore);
@@ -502,7 +506,13 @@ async function handleMessageCommand(msg) {
         }
 
         const walletAfter = getWallet(guildId, msg.author.id);
-        walletAfter.slotPity = mult <= 1 ? slotPityBefore + 1 : 0;
+        if (mult <= 1) {
+            walletAfter.slotPity = slotPityBefore + 1;
+            walletAfter.slotStreakMaxBet = Math.max(slotStreakMaxBet, amount);
+        } else {
+            walletAfter.slotPity = 0;
+            walletAfter.slotStreakMaxBet = 0;
+        }
         saveData();
 
         await slotMsg.edit(`${render(sym[0], sym[1], sym[2])}\n${resultLine}`).catch(e => log.error('slot edit final', e));

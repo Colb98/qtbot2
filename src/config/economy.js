@@ -10,6 +10,7 @@ module.exports = {
 
     COINFLIP_MAX_BET: 50000,
     SLOT_MAX_BET: 5000,
+    SLOT_PITY_CAP_MULT: 2,
     TONG_MAX_BET: 10000,
     MAT_MAX_BET: 50000,
 
