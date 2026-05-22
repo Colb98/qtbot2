@@ -1,7 +1,7 @@
 const { data, saveData } = require('../state');
 const economy = require('../config/economy');
 
-const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'dieu', 'kythuong', 'thienthuong', 'shake_tt', 'slotanim'];
+const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'dieu', 'kythuong', 'thienthuong', 'shake_tt', 'slotanim', 'dice1', 'dice2', 'dice3', 'dice4', 'dice5', 'dice6'];
 const ANIMATED_EMOTES = new Set(['shake_tt', 'slotanim']);
 const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'kythuong', 'thienthuong'];
 const ITEM_LABELS = {

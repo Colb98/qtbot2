@@ -6,6 +6,7 @@ const arrangeCmd = require('../commands/arrange');
 const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult, tokenToSide } = require('../services/coinflip');
+const dice = require('../services/dice');
 const economy = require('../config/economy');
 const { data, saveData } = require('../state');
 const { isMaintenance } = require('../services/maintenance');
@@ -25,6 +26,10 @@ module.exports = {
                     await arrangeCmd.handleButton(interaction);
                 } else if (interaction.customId.startsWith('cf:')) {
                     await handleCoinflipButton(interaction);
+                } else if (interaction.customId.startsWith('tong:')) {
+                    await handleDiceButton(interaction, 'tong');
+                } else if (interaction.customId.startsWith('mat:')) {
+                    await handleDiceButton(interaction, 'mat');
                 } else if (interaction.customId.startsWith('gacha_all_')) {
                     const parts = interaction.customId.split(':');
                     const actionPart = interaction.customId.split('_')[2];
@@ -161,4 +166,63 @@ async function handleCoinflipButton(interaction) {
     const content = formatCoinflipResult({ displayName, side, result, won, amount, wasAllIn: action === 'allin' });
     const components = newWallet.ngoc > 0 ? [buildCoinflipButtons(ownerUserId, amount, side, newWallet.ngoc)] : [];
     await interaction.followUp({ content, components }).catch(e => log.error('cf followUp error:', e));
+}
+
+async function handleDiceButton(interaction, game) {
+    const [, action, ownerUserId, amountStr, guessStr] = interaction.customId.split(':');
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    const guess = parseInt(guessStr, 10);
+    const guildId = interaction.guildId;
+    const wallet = getWallet(guildId, ownerUserId);
+    const maxBet = game === 'tong' ? economy.TONG_MAX_BET : economy.MAT_MAX_BET;
+
+    let amount;
+    if (action === 'allin') {
+        amount = Math.min(wallet.ngoc, maxBet);
+    } else {
+        amount = Math.min(parseInt(amountStr, 10), maxBet);
+    }
+    if (!Number.isInteger(amount) || amount <= 0) {
+        return interaction.reply({ content: 'Bạn không có ngọc để chơi.', flags: MessageFlags.Ephemeral });
+    }
+    if (wallet.ngoc < amount) {
+        return interaction.reply({ content: `Bạn chỉ có ${fmt(wallet.ngoc)} ngọc, không đủ cược ${fmt(amount)}.`, flags: MessageFlags.Ephemeral });
+    }
+
+    await interaction.deferUpdate().catch(e => log.error('dice defer error:', e));
+
+    const disabledRows = (interaction.message.components || []).map(rowComp => {
+        const ar = new ActionRowBuilder();
+        for (const btn of rowComp.components) {
+            ar.addComponents(ButtonBuilder.from(btn.toJSON()).setDisabled(true));
+        }
+        return ar;
+    });
+    if (disabledRows.length) {
+        await interaction.editReply({ components: disabledRows }).catch(e => log.error('dice disable error:', e));
+    }
+
+    const roll = dice.rollDice();
+    const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
+    const displayName = member ? member.displayName : interaction.user.username;
+
+    let content;
+    let components;
+    if (game === 'tong') {
+        const { sum, won, mult } = dice.playTong(roll, guess);
+        addNgoc(guildId, ownerUserId, won ? amount * (mult - 1) : -amount);
+        const newWallet = getWallet(guildId, ownerUserId);
+        content = dice.formatTongResult({ displayName, guess, roll, sum, won, amount, mult });
+        components = newWallet.ngoc > 0 ? dice.buildTongButtons(ownerUserId, amount, guess, newWallet.ngoc) : [];
+    } else {
+        const { matches, won, mult } = dice.playMat(roll, guess);
+        addNgoc(guildId, ownerUserId, won ? amount * (mult - 1) : -amount);
+        const newWallet = getWallet(guildId, ownerUserId);
+        content = dice.formatMatResult({ displayName, face: guess, roll, matches, won, amount, mult });
+        components = newWallet.ngoc > 0 ? dice.buildMatButtons(ownerUserId, amount, guess, newWallet.ngoc) : [];
+    }
+
+    await interaction.followUp({ content, components }).catch(e => log.error('dice followUp error:', e));
 }

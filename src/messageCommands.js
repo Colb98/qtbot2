@@ -14,6 +14,7 @@ const { getWallet, addNganphieu, addNgoc, addItem, renderEmote, tryClaimDaily, f
 const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
 const { SYMBOLS: SLOT_SYMBOLS, spin: slotSpin } = require('./services/slot');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
+const dice = require('./services/dice');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
@@ -80,6 +81,8 @@ async function handleMessageCommand(msg) {
             • \`!topngoc\` — Top 10 người có nhiều ngọc.
             • \`!coinflip <x|all>\` / \`!coinflip <sap|ngua> <x|all>\` — Cược ngọc, 50/50 win/lose. Tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
             • \`!slot <x|all>\` — Quay slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Cao nhất x200 (3 ${renderEmote('cao')}).
+            • \`!tong <x|all> <3-18>\` / \`!tong allin <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
+            • \`!mat <x|all> <1-6>\` / \`!mat allin <1-6>\` — Đoán mặt nào xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6 theo số viên.
             • \`!tangngoc @user <n|all>\` — Tặng ngọc cho người khác.
             • \`!tangthienthuong @user [n|all]\` — Tặng thiên thưởng cho người khác.
             • \`!banthienthuong <n|all>\` — Bán thiên thưởng → ${fmt(economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST)} ngọc/cái.
@@ -504,6 +507,59 @@ async function handleMessageCommand(msg) {
 
         await slotMsg.edit(`${render(sym[0], sym[1], sym[2])}\n${resultLine}`).catch(e => log.error('slot edit final', e));
         return;
+    }
+
+    if (cmd === '!tong' || cmd === '!sum' || cmd === '!mat' || cmd === '!face') {
+        const isTong = (cmd === '!tong' || cmd === '!sum');
+        const game = isTong ? 'tong' : 'mat';
+        const maxBet = isTong ? economy.TONG_MAX_BET : economy.MAT_MAX_BET;
+        const guessMin = isTong ? 3 : 1;
+        const guessMax = isTong ? 18 : 6;
+        const cmdLabel = isTong ? '!tong' : '!mat';
+        const guessLabel = isTong ? 'tổng (3-18)' : 'mặt (1-6)';
+        const syntax = `Cú pháp: \`${cmdLabel} <số ngọc|all> <${guessLabel}>\` hoặc \`${cmdLabel} allin <${guessLabel}>\` (tối đa ${fmt(maxBet)} ngọc/lượt).`;
+
+        if (parts.length < 3) return msg.reply(syntax);
+        const token1 = parts[1].toLowerCase();
+        const isAll = token1 === 'all' || token1 === 'allin';
+        let rawAmount = null;
+        if (!isAll) {
+            rawAmount = parseInt(token1, 10);
+            if (!Number.isInteger(rawAmount) || rawAmount <= 0) return msg.reply(syntax);
+        }
+        const guess = parseInt(parts[2], 10);
+        if (!Number.isInteger(guess) || guess < guessMin || guess > guessMax) {
+            return msg.reply(`${isTong ? 'Tổng' : 'Mặt'} phải là số nguyên từ ${guessMin} đến ${guessMax}.`);
+        }
+
+        const cd = checkGameCooldown(msg.author.id);
+        if (cd.onCooldown) {
+            const secLeft = Math.ceil(cd.msLeft / 1000);
+            return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
+        }
+
+        const w = getWallet(guildId, msg.author.id);
+        let amount;
+        if (isAll) {
+            amount = Math.min(w.ngoc, maxBet);
+            if (amount <= 0) return msg.reply('Bạn không có ngọc để chơi.');
+        } else {
+            amount = Math.min(rawAmount, maxBet);
+            if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
+        }
+
+        const roll = dice.rollDice();
+        const play = isTong ? dice.playTong(roll, guess) : dice.playMat(roll, guess);
+        const delta = play.won ? amount * (play.mult - 1) : -amount;
+        addNgoc(guildId, msg.author.id, delta);
+        const newW = getWallet(guildId, msg.author.id);
+
+        const content = isTong
+            ? dice.formatTongResult({ displayName: member.displayName, guess, roll, sum: play.sum, won: play.won, amount, mult: play.mult })
+            : dice.formatMatResult({ displayName: member.displayName, face: guess, roll, matches: play.matches, won: play.won, amount, mult: play.mult });
+        const buildBtns = isTong ? dice.buildTongButtons : dice.buildMatButtons;
+        const components = newW.ngoc > 0 ? buildBtns(msg.author.id, amount, guess, newW.ngoc) : [];
+        return msg.reply({ content, components });
     }
 
     if (cmd === '!upload_ingame_emotes') {

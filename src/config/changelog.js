@@ -1,6 +1,17 @@
-const CURRENT_VERSION = '1.3.2';
+const CURRENT_VERSION = '1.4.0';
 
 const CHANGELOG = {
+    '1.4.0': {
+        date: '2026-05-22',
+        title: 'Sic Bo — 2 trò 3 xúc xắc',
+        changes: [
+            '`!tong <x|all> <3-18>` (alias `!sum`) — đoán đúng tổng 3 xúc xắc; payout x8 đến x200 theo độ hiếm. Trần cược 10,000 ngọc/lượt.',
+            '`!mat <x|all> <1-6>` (alias `!face`) — đoán mặt nào sẽ xuất hiện trong 3 viên; 1/2/3 viên trúng = x2/x4/x6. Trần cược 50,000 ngọc/lượt.',
+            'Cả hai trò: nút **bet trực tiếp các cửa khác**, **🎲 Chơi lại** (cùng cược + cùng cửa), **💰 All-in** (đổi sang toàn bộ số dư, giữ cửa). Nút disable nếu không đủ ngọc.',
+            'Thắng x10+ ở `!tong` hoặc x4 ở `!mat` hiện thông báo header lớn.',
+            'Cần chạy `!upload_ingame_emotes` để upload emote `dice1`..`dice6` (đã rename từ `dice-six-faces-*.png`).'
+        ]
+    },
     '1.3.2': {
         date: '2026-05-22',
         title: 'Coinflip — nút bỏ qua cooldown',
