@@ -12,7 +12,7 @@ const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
 const { getWallet, addNganphieu, addNgoc, addItem, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
 const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
-const { SYMBOLS: SLOT_SYMBOLS, spin: slotSpin } = require('./services/slot');
+const { SYMBOLS: SLOT_SYMBOLS, playSlot, formatResultLine: formatSlotResultLine, buildContinueButtons: buildSlotContinueButtons } = require('./services/slot');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
 const dice = require('./services/dice');
 const metrics = require('./services/metrics');
@@ -492,33 +492,22 @@ async function handleMessageCommand(msg) {
             const secLeft = Math.ceil(cd.msLeft / 1000);
             return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
         }
-        const w = getWallet(guildId, msg.author.id);
-        let amount;
-        if (isAll) {
-            amount = Math.min(w.ngoc, economy.SLOT_MAX_BET);
-            if (amount <= 0) return msg.reply('Bạn không có ngọc để chơi slot.');
-        } else {
-            amount = Math.min(rawAmount, economy.SLOT_MAX_BET);
-            if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
-        }
-        const slotPityBefore = w.slotPity || 0;
-        const slotStreakMaxBet = w.slotStreakMaxBet || 0;
-        const pityCapApplied = slotPityBefore >= 10 && slotStreakMaxBet > 0 && amount > slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT;
-        if (slotPityBefore >= 10 && slotStreakMaxBet > 0) {
-            amount = Math.min(amount, slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT);
-            if (amount <= 0) amount = 1;
-        }
-        addNgoc(guildId, msg.author.id, -amount);
+        const play = playSlot({
+            guildId,
+            userId: msg.author.id,
+            requestedAmount: isAll ? null : rawAmount,
+            isAllIn: isAll
+        });
+        if (play.error === 'no_ngoc') return msg.reply('Bạn không có ngọc để chơi slot.');
+        if (play.error === 'insufficient') return msg.reply(`Bạn cần ${fmt(rawAmount)} ngọc nhưng chỉ có ${fmt(play.available)}.`);
 
-        const { result: spinResult, mult, name: outcomeName } = slotSpin(slotPityBefore);
-        const payout = Math.round(amount * mult);
         const anim = renderEmote('slotanim');
         const sym = [
-            renderEmote(SLOT_SYMBOLS[spinResult[0]].emote),
-            renderEmote(SLOT_SYMBOLS[spinResult[1]].emote),
-            renderEmote(SLOT_SYMBOLS[spinResult[2]].emote)
+            renderEmote(SLOT_SYMBOLS[play.spinResult[0]].emote),
+            renderEmote(SLOT_SYMBOLS[play.spinResult[1]].emote),
+            renderEmote(SLOT_SYMBOLS[play.spinResult[2]].emote)
         ];
-        const header = `🎰 **${member.displayName}** quay slot (-${fmt(amount)} ${renderEmote('ngoc')})`;
+        const header = `🎰 **${member.displayName}** quay slot (-${fmt(play.amount)} ${renderEmote('ngoc')})`;
         const render = (a, b, c) => `${header}\n[ ${a} | ${b} | ${c} ]`;
 
         const slotMsg = await msg.reply(render(anim, anim, anim));
@@ -528,35 +517,16 @@ async function handleMessageCommand(msg) {
         await slotMsg.edit(render(sym[0], anim, sym[2])).catch(e => log.error('slot edit r3', e));
         await new Promise(r => setTimeout(r, 750));
 
-        if (payout > 0) addNgoc(guildId, msg.author.id, payout);
-        const ngocEmote = renderEmote('ngoc');
-        let resultLine;
-        if (mult >= 18) {
-            resultLine = `# 🌟 ${outcomeName.toUpperCase()} — x${mult} 🌟\n**Bạn thắng ${fmt(payout)} ${ngocEmote}!**`;
-        } else if (mult >= 6) {
-            resultLine = `## 🎉 ${outcomeName.toUpperCase()} — x${mult} 🎉\n**Bạn thắng ${fmt(payout)} ${ngocEmote}!**`;
-        } else if (mult > 1) {
-            resultLine = `🎉 **${outcomeName}** (x${mult})! Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
-        } else if (mult === 1) {
-            resultLine = `💰 **${outcomeName}**! Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
-        } else if (mult > 0) {
-            resultLine = `😬 **${outcomeName}** (x${mult}). Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
-        } else {
-            resultLine = `😢 **${outcomeName}**! Tiếc quá, không trúng gì.`;
-        }
+        const resultLine = formatSlotResultLine({ mult: play.mult, payout: play.payout, outcomeName: play.outcomeName });
+        metrics.recordSlot({ amount: play.amount, payout: play.payout, outcomeName: play.outcomeName, pityTriggered: play.pityTriggered, pityCapApplied: play.pityCapApplied });
 
-        const walletAfter = getWallet(guildId, msg.author.id);
-        if (mult <= 1) {
-            walletAfter.slotPity = slotPityBefore + 1;
-            walletAfter.slotStreakMaxBet = Math.max(slotStreakMaxBet, amount);
-        } else {
-            walletAfter.slotPity = 0;
-            walletAfter.slotStreakMaxBet = 0;
-        }
-        metrics.recordSlot({ amount, payout, outcomeName, pityTriggered: slotPityBefore >= 10, pityCapApplied });
-        saveData();
-
-        await slotMsg.edit(`${render(sym[0], sym[1], sym[2])}\n${resultLine}`).catch(e => log.error('slot edit final', e));
+        const components = play.walletAfter.ngoc > 0
+            ? [buildSlotContinueButtons(msg.author.id, play.amount, play.walletAfter.ngoc)]
+            : [];
+        await slotMsg.edit({
+            content: `${render(sym[0], sym[1], sym[2])}\n${resultLine}`,
+            components
+        }).catch(e => log.error('slot edit final', e));
         return;
     }
 

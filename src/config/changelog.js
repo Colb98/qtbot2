@@ -3,8 +3,9 @@ const CURRENT_VERSION = '1.7.0';
 const CHANGELOG = {
     '1.7.0': {
         date: '2026-05-23',
-        title: 'Wordchain — bot dict, surrender rules, weekly reward, win bonus',
+        title: 'Wordchain — bot dict, surrender rules, weekly reward, win bonus + slot buttons',
         changes: [
+            'Slot có nút replay: **Tiếp** (cùng cược), **x0.5**, **x2**, **ALL IN** — bấm là quay tiếp luôn (giống coinflip).',
             'Bot chọn từ trả lời từ `word_dict/english_cel.txt` (~68k từ phổ thông) — gọn và tự nhiên hơn. Validation của người chơi vẫn dùng `english_worddict.txt`.',
             'Khi `cel.txt` hết từ cho chữ cái đó (ví dụ pool **x** nhỏ), bot tự fallback sang `english_worddict.txt` để vẫn nối được.',
             'Nếu cả 2 pool đều hết từ → người chơi vừa nối từ cuối **thắng cuộc** + nhận thưởng **10000 ngọc** (`WIN_BONUS`).',

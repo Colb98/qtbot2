@@ -1,3 +1,8 @@
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const economy = require('../config/economy');
+const { getWallet, addNgoc, fmt, renderEmote } = require('./currency');
+const { saveData } = require('../state');
+
 const SYMBOLS = {
     M1: { emote: 'cao' },
     M2: { emote: 'thienthuong' },
@@ -91,4 +96,106 @@ function spin(pityCount = 0) {
     return { result, mult: outcome.mult, name: outcome.name, pityTriggered };
 }
 
-module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD };
+function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
+    const w = getWallet(guildId, userId);
+    let amount;
+    if (isAllIn) {
+        amount = Math.min(w.ngoc, economy.SLOT_MAX_BET);
+    } else {
+        amount = Math.min(requestedAmount, economy.SLOT_MAX_BET);
+    }
+    if (!Number.isInteger(amount) || amount <= 0) {
+        return { error: 'no_ngoc' };
+    }
+    if (w.ngoc < amount) {
+        return { error: 'insufficient', shortBy: amount - w.ngoc, available: w.ngoc };
+    }
+
+    const slotPityBefore = w.slotPity || 0;
+    const slotStreakMaxBet = w.slotStreakMaxBet || 0;
+    const pityCapApplied = slotPityBefore >= 10 && slotStreakMaxBet > 0 && amount > slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT;
+    if (slotPityBefore >= 10 && slotStreakMaxBet > 0) {
+        amount = Math.min(amount, slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT);
+        if (amount <= 0) amount = 1;
+    }
+    addNgoc(guildId, userId, -amount);
+
+    const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore);
+    const payout = Math.round(amount * mult);
+    if (payout > 0) addNgoc(guildId, userId, payout);
+
+    const walletAfter = getWallet(guildId, userId);
+    if (mult <= 1) {
+        walletAfter.slotPity = slotPityBefore + 1;
+        walletAfter.slotStreakMaxBet = Math.max(slotStreakMaxBet, amount);
+    } else {
+        walletAfter.slotPity = 0;
+        walletAfter.slotStreakMaxBet = 0;
+    }
+    saveData();
+
+    return {
+        amount, payout, mult, outcomeName, spinResult,
+        pityTriggered: slotPityBefore >= 10,
+        pityCapApplied,
+        walletAfter
+    };
+}
+
+function formatResultLine({ mult, payout, outcomeName }) {
+    const ngocEmote = renderEmote('ngoc');
+    if (mult >= 18) {
+        return `# 🌟 ${outcomeName.toUpperCase()} — x${mult} 🌟\n**Bạn thắng ${fmt(payout)} ${ngocEmote}!**`;
+    }
+    if (mult >= 6) {
+        return `## 🎉 ${outcomeName.toUpperCase()} — x${mult} 🎉\n**Bạn thắng ${fmt(payout)} ${ngocEmote}!**`;
+    }
+    if (mult > 1) {
+        return `🎉 **${outcomeName}** (x${mult})! Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
+    }
+    if (mult === 1) {
+        return `💰 **${outcomeName}**! Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
+    }
+    if (mult > 0) {
+        return `😬 **${outcomeName}** (x${mult}). Bạn thắng **${fmt(payout)}** ${ngocEmote}.`;
+    }
+    return `😢 **${outcomeName}**! Tiếc quá, không trúng gì.`;
+}
+
+function buildContinueButtons(userId, lastAmount, walletNgoc) {
+    const allInAmount = Math.min(walletNgoc, economy.SLOT_MAX_BET);
+    const halfRaw = Math.floor(lastAmount / 2);
+    const half = Math.max(1, halfRaw);
+    const doubleTarget = lastAmount * 2;
+    const doubleBet = Math.min(doubleTarget, economy.SLOT_MAX_BET);
+
+    const canAgain = walletNgoc >= lastAmount;
+    const canHalf = halfRaw >= 1 && walletNgoc >= half;
+    const canDouble = walletNgoc >= doubleBet && doubleBet > lastAmount;
+    const canAllIn = allInAmount > 0;
+
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`slot:tiep:${userId}:${lastAmount}`)
+            .setLabel(`Tiếp (${fmt(lastAmount)})`)
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(!canAgain),
+        new ButtonBuilder()
+            .setCustomId(`slot:half:${userId}:${half}`)
+            .setLabel(`x0.5 (${fmt(half)})`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(!canHalf),
+        new ButtonBuilder()
+            .setCustomId(`slot:double:${userId}:${doubleBet}`)
+            .setLabel(`x2 (${fmt(doubleBet)})`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(!canDouble),
+        new ButtonBuilder()
+            .setCustomId(`slot:allin:${userId}:${allInAmount}`)
+            .setLabel(`ALL IN (${fmt(allInAmount)})`)
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(!canAllIn)
+    );
+}
+
+module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD, playSlot, formatResultLine, buildContinueButtons };

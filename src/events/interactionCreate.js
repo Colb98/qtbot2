@@ -7,6 +7,7 @@ const arrangeCmd = require('../commands/arrange');
 const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult, tokenToSide } = require('../services/coinflip');
+const { SYMBOLS: SLOT_SYMBOLS, playSlot, formatResultLine: formatSlotResultLine, buildContinueButtons: buildSlotContinueButtons } = require('../services/slot');
 const dice = require('../services/dice');
 const metrics = require('../services/metrics');
 const economy = require('../config/economy');
@@ -32,6 +33,8 @@ module.exports = {
                     await handleDiceButton(interaction, 'tong');
                 } else if (interaction.customId.startsWith('mat:')) {
                     await handleDiceButton(interaction, 'mat');
+                } else if (interaction.customId.startsWith('slot:')) {
+                    await handleSlotButton(interaction);
                 } else if (interaction.customId.startsWith('gacha_all_')) {
                     const parts = interaction.customId.split(':');
                     const actionPart = interaction.customId.split('_')[2];
@@ -236,4 +239,75 @@ async function handleDiceButton(interaction, game) {
     }
 
     await interaction.followUp({ content, components }).catch(e => log.error('dice followUp error:', e));
+}
+
+async function handleSlotButton(interaction) {
+    const [, action, ownerUserId, amountStr] = interaction.customId.split(':');
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
+    }
+
+    const guildId = interaction.guildId;
+    const isAllIn = action === 'allin';
+    const requestedAmount = isAllIn ? null : parseInt(amountStr, 10);
+    if (!isAllIn && (!Number.isInteger(requestedAmount) || requestedAmount <= 0)) {
+        return interaction.reply({ content: 'Số ngọc không hợp lệ.', flags: MessageFlags.Ephemeral });
+    }
+
+    await interaction.deferUpdate().catch(e => log.error('slot defer error:', e));
+
+    const disabledRows = (interaction.message.components || []).map(rowComp => {
+        const ar = new ActionRowBuilder();
+        for (const btn of rowComp.components) {
+            ar.addComponents(ButtonBuilder.from(btn.toJSON()).setDisabled(true));
+        }
+        return ar;
+    });
+    if (disabledRows.length) {
+        await interaction.editReply({ components: disabledRows }).catch(e => log.error('slot disable error:', e));
+    }
+
+    const play = playSlot({ guildId, userId: ownerUserId, requestedAmount, isAllIn });
+    if (play.error === 'no_ngoc') {
+        return interaction.followUp({ content: 'Bạn không có ngọc để chơi slot.', flags: MessageFlags.Ephemeral });
+    }
+    if (play.error === 'insufficient') {
+        return interaction.followUp({
+            content: `Bạn cần ${fmt(requestedAmount)} ngọc nhưng chỉ có ${fmt(play.available)}.`,
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
+    const displayName = member ? member.displayName : interaction.user.username;
+
+    const anim = renderEmote('slotanim');
+    const sym = [
+        renderEmote(SLOT_SYMBOLS[play.spinResult[0]].emote),
+        renderEmote(SLOT_SYMBOLS[play.spinResult[1]].emote),
+        renderEmote(SLOT_SYMBOLS[play.spinResult[2]].emote)
+    ];
+    const header = `🎰 **${displayName}** quay slot (-${fmt(play.amount)} ${renderEmote('ngoc')})`;
+    const render = (a, b, c) => `${header}\n[ ${a} | ${b} | ${c} ]`;
+
+    const slotMsg = await interaction.followUp({ content: render(anim, anim, anim) });
+    await new Promise(r => setTimeout(r, 500));
+    await slotMsg.edit(render(sym[0], anim, anim)).catch(e => log.error('slot edit r1', e));
+    await new Promise(r => setTimeout(r, 500));
+    await slotMsg.edit(render(sym[0], anim, sym[2])).catch(e => log.error('slot edit r3', e));
+    await new Promise(r => setTimeout(r, 750));
+
+    const resultLine = formatSlotResultLine({ mult: play.mult, payout: play.payout, outcomeName: play.outcomeName });
+    metrics.recordSlot({
+        amount: play.amount, payout: play.payout, outcomeName: play.outcomeName,
+        pityTriggered: play.pityTriggered, pityCapApplied: play.pityCapApplied
+    });
+
+    const components = play.walletAfter.ngoc > 0
+        ? [buildSlotContinueButtons(ownerUserId, play.amount, play.walletAfter.ngoc)]
+        : [];
+    await slotMsg.edit({
+        content: `${render(sym[0], sym[1], sym[2])}\n${resultLine}`,
+        components
+    }).catch(e => log.error('slot edit final', e));
 }
