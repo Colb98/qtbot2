@@ -49,7 +49,7 @@ module.exports = {
         NGOC_PER_WORD: 8,
         WORD_THRESHOLD: 25,
         NGOC_PER_WORD_AFTER: 4,
-        REWARD_CAP_PER_POSITION: 10,
+        REWARD_CAP_PER_POSITION: 20,
         TIMER_LADDER: [
             { upTo: 10, seconds: 60 },
             { upTo: 20, seconds: 45 },
@@ -59,8 +59,8 @@ module.exports = {
             { upTo: Infinity, seconds: 5 }
         ],
         RARE_END_LETTERS: ['j', 'q', 'x', 'z'],
-        RARE_END_RATE: 0.05,
-        S_END_RATE: 0.05,
+        RARE_END_RATE: 0.02,
+        S_END_RATE: 0.04,
         SURRENDER_BLOCK_LETTERS: ['e', 's'],
         SURRENDER_MIN_REMAINING_MS: 20 * 1000,
         WIN_BONUS: 10000,
