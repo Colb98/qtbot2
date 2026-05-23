@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '1.6.0';
+const CURRENT_VERSION = '1.6.1';
 
 const CHANGELOG = {
+    '1.6.1': {
+        date: '2026-05-23',
+        title: 'Wordchain timer fix',
+        changes: [
+            'Sửa bug timer English Wordchain: timeout server-side đôi khi nổ trong khi đồng hồ hiển thị vẫn còn 3-4s (do chênh lệch đồng hồ client/server và độ trễ gửi tin).',
+            'Timer giờ được khởi động *sau* khi bot gửi tin nhắn, và có buffer 3 giây ở phía server để hấp thụ chênh lệch đồng hồ.',
+            'Tin nhắn bot ghi rõ số giây (`~60s` ngay cạnh `<t:UNIX:R>`) để không phụ thuộc vào cách Discord làm tròn "trong 1 phút".'
+        ]
+    },
     '1.6.0': {
         date: '2026-05-23',
         title: 'English Wordchain (co-op)',

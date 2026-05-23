@@ -30,6 +30,7 @@ log.info(`wordchainEng: dictionary loaded — ${wordSet.size} words`);
 
 const HARD_CAP_MS = 2 * 24 * 60 * 60 * 1000;
 const SURRENDER_COOLDOWN_MS = 10 * 1000;
+const TIMER_GRACE_MS = 3000;
 
 const sessions = new Map();
 const threads = new Map();
@@ -569,14 +570,15 @@ async function handleThreadMessage(msg) {
     session.requiredFirstLetter = botLast;
 
     const secs = timeoutSecondsFor(session.playerCount);
-    session.nextTimeoutMs = secs * 1000;
     const endUnix = Math.floor(Date.now() / 1000) + secs;
-    armTimer(session);
 
     const replyContent =
         `**${botWord}**\n` +
-        `Trả lời <t:${endUnix}:R> · Words: **${session.playerCount}** · Chữ kế: **${botLast.toUpperCase()}**`;
+        `Trả lời <t:${endUnix}:R> (~${secs}s) · Words: **${session.playerCount}** · Chữ kế: **${botLast.toUpperCase()}**`;
     await msg.channel.send(replyContent).catch(e => log.warn('wordchainEng: send bot reply failed', e));
+
+    session.nextTimeoutMs = secs * 1000 + TIMER_GRACE_MS;
+    armTimer(session);
 }
 
 module.exports = {
