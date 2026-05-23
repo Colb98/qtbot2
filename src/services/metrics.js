@@ -57,6 +57,16 @@ const GAME_DEFAULTS = {
         biggestWin: 0, biggestWinBet: 0,
         viaButton: 0, allInCount: 0, bigWinCount: 0,
         faceCounts: {}, matchCounts: {}
+    },
+    wordchain_eng: {
+        rounds: 0,
+        totalWords: 0,
+        biggestRound: 0,
+        ngocAwarded: 0,
+        participantsTotal: 0,
+        multiplayerRounds: 0,
+        emptyRounds: 0,
+        endReasons: { timeout: 0, dead_end: 0, surrender: 0 }
     }
 };
 
@@ -176,6 +186,23 @@ function recordMat({ amount, won, mult, face, matches, viaButton = false, wasAll
     _dirty = true;
 }
 
+function recordWordchainEng({ totalWords, participants, ngocAwarded, endReason }) {
+    _checkRollover();
+    const m = _get('wordchain_eng');
+    m.rounds++;
+    m.totalWords += totalWords;
+    if (totalWords > m.biggestRound) m.biggestRound = totalWords;
+    m.ngocAwarded += ngocAwarded;
+    m.participantsTotal += participants;
+    if (participants >= 2) m.multiplayerRounds++;
+    if (participants === 0) m.emptyRounds++;
+    if (!m.endReasons) m.endReasons = { timeout: 0, dead_end: 0, surrender: 0 };
+    if (endReason && m.endReasons[endReason] !== undefined) {
+        m.endReasons[endReason]++;
+    }
+    _dirty = true;
+}
+
 // ---- formatters ------------------------------------------------------------
 
 function pct(a, b) {
@@ -238,6 +265,19 @@ function _formatGame(game) {
             `Faces: ${topEntries(m.faceCounts, 6)} | Matches — 0:${mc['0']||0} 1:${mc['1']||0} 2:${mc['2']||0} 3:${mc['3']||0}`
         ].join('\n');
     }
+    if (game === 'wordchain_eng' || game === 'wordchain') {
+        const m = _get('wordchain_eng');
+        const er = m.endReasons || { timeout: 0, dead_end: 0, surrender: 0 };
+        const avgWords = m.rounds ? (m.totalWords / m.rounds).toFixed(1) : '—';
+        const avgPart = m.rounds ? (m.participantsTotal / m.rounds).toFixed(2) : '—';
+        return [
+            `📝 WORDCHAIN_ENG — ${fmt(m.rounds)} ván`,
+            `Total words: ${fmt(m.totalWords)} | Avg/round: ${avgWords} | Biggest round: ${fmt(m.biggestRound)}`,
+            `Ngọc awarded: ${fmt(m.ngocAwarded)} | Participants avg: ${avgPart}`,
+            `Multiplayer rounds (≥2 ng): ${m.multiplayerRounds} (${pct(m.multiplayerRounds, m.rounds)}) | Empty rounds: ${m.emptyRounds}`,
+            `End reasons — timeout: ${er.timeout} | dead_end: ${er.dead_end} | surrender: ${er.surrender}`
+        ].join('\n');
+    }
     return '';
 }
 
@@ -251,7 +291,7 @@ function formatAll(bucket) {
         Object.assign(_store, {});
         Object.keys(store).forEach(k => (_store[k] = store[k]));
     }
-    const out = ['slot', 'coinflip', 'tong', 'mat']
+    const out = ['slot', 'coinflip', 'tong', 'mat', 'wordchain_eng']
         .map(g => _formatGame(g))
         .join('\n\n') + `\n\n📅 Ngày${label}`;
     if (orig) Object.assign(_store, orig);
@@ -275,7 +315,7 @@ function listBuckets() {
 }
 
 module.exports = {
-    recordSlot, recordCoinflip, recordTong, recordMat,
+    recordSlot, recordCoinflip, recordTong, recordMat, recordWordchainEng,
     formatSlot, formatCoinflip, formatTong, formatMat,
     formatAll, formatGame, listBuckets,
     currentBucket: () => _bucket,

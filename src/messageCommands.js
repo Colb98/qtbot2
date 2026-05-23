@@ -87,7 +87,7 @@ async function handleMessageCommand(msg) {
 • \`!slot <x|all>\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200.
 • \`!tong <x|all|allin> <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
 • \`!mat <x|all|allin> <1-6>\` — Đoán mặt xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6.
-• \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh (1 người vs bot). Thưởng Ngọc theo số từ nối được.
+• \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 
 **Khác:**
@@ -108,7 +108,7 @@ async function handleMessageCommand(msg) {
 • \`!gangoc <n> [#kênh]\` — GA ngọc, user react để nhận.
 
 **Metrics & Debug:**
-• \`!metrics [slot|coinflip|tong|mat] [YYYY-MM-DD]\` — Xem thống kê trò chơi (mặc định hôm nay).
+• \`!metrics [slot|coinflip|tong|mat|wordchain] [YYYY-MM-DD]\` — Xem thống kê trò chơi (mặc định hôm nay).
 • \`!metrics list\` — Liệt kê các file metrics đã lưu.
 
 **Guild War:**
@@ -127,7 +127,7 @@ async function handleMessageCommand(msg) {
         if (!isSuperAdmin(msg.author.id)) return;
         // !metrics [slot|coinflip|tong|mat] [YYYY-MM-DD]
         // !metrics list
-        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat']);
+        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'wordchain', 'wordchain_eng']);
         const arg1 = (parts[1] || '').toLowerCase();
         const arg2 = (parts[2] || '').toLowerCase();
 

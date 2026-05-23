@@ -12,6 +12,7 @@ const client = require('../client');
 const { data, saveData } = require('../state');
 const { addNgoc, renderEmote, fmt } = require('./currency');
 const economy = require('../config/economy');
+const metrics = require('./metrics');
 
 const DICT_PATH = path.join(__dirname, '..', '..', 'word_dict', 'english_worddict.txt');
 const rawDict = fs.readFileSync(DICT_PATH, 'utf8')
@@ -98,29 +99,9 @@ function normalize(text) {
     return text.trim().toLowerCase();
 }
 
-function computeReward(guildId, userId, finalCount) {
+function rewardForPosition(i) {
     const cfg = economy.WORDCHAIN_ENG;
-    ensureRoot();
-    const arr = (data.wordchainEng.wordCounts[guildId] && data.wordchainEng.wordCounts[guildId][userId]) || [];
-    let total = 0;
-    for (let i = 1; i <= finalCount; i++) {
-        const prev = arr[i - 1] || 0;
-        if (prev < cfg.REWARD_CAP_PER_POSITION) {
-            total += (i <= cfg.WORD_THRESHOLD) ? cfg.NGOC_PER_WORD : cfg.NGOC_PER_WORD_AFTER;
-        }
-    }
-    return total;
-}
-
-function commitWordCounts(guildId, userId, finalCount) {
-    ensureRoot();
-    if (!data.wordchainEng.wordCounts[guildId]) data.wordchainEng.wordCounts[guildId] = {};
-    const root = data.wordchainEng.wordCounts[guildId];
-    if (!root[userId]) root[userId] = [];
-    const arr = root[userId];
-    for (let i = 1; i <= finalCount; i++) {
-        arr[i - 1] = (arr[i - 1] || 0) + 1;
-    }
+    return (i <= cfg.WORD_THRESHOLD) ? cfg.NGOC_PER_WORD : cfg.NGOC_PER_WORD_AFTER;
 }
 
 function updateLifetime(guildId, userId, value) {
@@ -188,23 +169,26 @@ async function onTimeout(threadId) {
 function getHelpText() {
     return (
         `**English Wordchain — luật chơi**\n` +
-        `• Gõ một từ tiếng Anh để bắt đầu lượt đầu. Bot sẽ trả lời, bạn nối tiếp.\n` +
+        `• Gõ một từ tiếng Anh để bắt đầu lượt đầu. Bot sẽ trả lời, người chơi nối tiếp.\n` +
         `• Từ tiếp theo phải bắt đầu bằng **chữ cái cuối** của từ trước.\n` +
+        `• **Co-op:** bất kỳ ai trong thread đều có thể nối từ tiếp theo. Mỗi từ được tính cho người đã gõ nó.\n` +
         `• Mỗi từ chỉ được dùng 1 lần / ván.\n` +
         `• ✅ hợp lệ — ❌ không có / sai luật nối — ⛔ đã dùng.\n` +
-        `• Đầu hàng: gõ \`end\`, \`surrender\` hoặc \`sur\` (sau ≥ 10s).\n` +
-        `• Thời gian rút dần khi bạn tiến xa: 1-10 = 60s, 11-20 = 45s, 21-30 = 30s, 31-40 = 15s, 41-50 = 10s, 51+ = 5s.\n` +
-        `• Hết ván nhận Ngọc theo số từ nối được (mỗi vị trí từ chỉ thưởng tối đa 10 lần).`
+        `• Đầu hàng: gõ \`end\`, \`surrender\` hoặc \`sur\` (chỉ người đã đóng góp ≥ 1 từ, sau ≥ 10s).\n` +
+        `• Thời gian rút dần theo tiến độ chung: 1-10 = 60s, 11-20 = 45s, 21-30 = 30s, 31-40 = 15s, 41-50 = 10s, 51+ = 5s.\n` +
+        `• Hết ván nhận Ngọc theo các vị trí từ mà mỗi người đóng góp (mỗi vị trí thưởng tối đa 10 lần/người).`
     );
 }
 
-async function beginGame(thread) {
+async function beginGame(thread, invokerId) {
     if (sessions.has(thread.id)) return;
 
     let threadInfo = threads.get(thread.id);
     if (!threadInfo) {
-        threadInfo = { hardCapTimer: null };
+        threadInfo = { hardCapTimer: null, invokerId, lastRoundParticipants: null };
         threads.set(thread.id, threadInfo);
+    } else if (invokerId) {
+        threadInfo.invokerId = invokerId;
     }
     armThreadHardCap(threadInfo, thread.id);
 
@@ -213,7 +197,7 @@ async function beginGame(thread) {
         threadId: thread.id,
         usedWords: new Set(),
         requiredFirstLetter: null,
-        playerId: null,
+        positionOwners: [],
         playerCount: 0,
         lastValidAt: null,
         nextTimeoutMs: 0,
@@ -223,10 +207,10 @@ async function beginGame(thread) {
     sessions.set(thread.id, session);
 
     const intro =
-        `**Ván mới — English Wordchain**\n` +
-        `Gõ một từ tiếng Anh bất kỳ để bắt đầu (≥ 2 chữ cái, chỉ a-z).\n` +
-        `Sau lượt đầu, bạn sẽ có 60s mỗi lượt; thời gian rút dần khi tiến xa.\n` +
-        `Gõ \`help\` để xem luật, \`end\` để đầu hàng, \`close\` để đóng thread.`;
+        `**Ván mới — English Wordchain (co-op)**\n` +
+        `Gõ một từ tiếng Anh bất kỳ để bắt đầu (≥ 2 chữ cái, chỉ a-z, có trong từ điển).\n` +
+        `Bất kỳ ai trong thread đều có thể nối từ tiếp theo. Mỗi từ tính cho người đã gõ nó.\n` +
+        `60s cho lượt đầu; thời gian rút dần khi tiến xa. Gõ \`help\` để xem luật.`;
     await thread.send(intro).catch(e => log.warn('wordchainEng: send intro failed', e));
 }
 
@@ -236,20 +220,67 @@ async function endSession(threadId, { reason }) {
     session.ended = true;
     if (session.timer) clearTimeout(session.timer);
 
+    const threadInfo = threads.get(threadId);
     const thread = await client.channels.fetch(threadId).catch(() => null);
 
-    let lines = [];
-    let reward = 0;
-    let lifetimeBest = 0;
-    let weeklyBest = 0;
+    const ownerPositions = new Map();
+    for (let i = 0; i < session.positionOwners.length; i++) {
+        const uid = session.positionOwners[i];
+        const pos = i + 1;
+        if (!ownerPositions.has(uid)) ownerPositions.set(uid, []);
+        ownerPositions.get(uid).push(pos);
+    }
 
-    if (session.playerId && session.playerCount > 0) {
-        reward = computeReward(session.guildId, session.playerId, session.playerCount);
-        if (reward > 0) addNgoc(session.guildId, session.playerId, reward);
-        commitWordCounts(session.guildId, session.playerId, session.playerCount);
-        lifetimeBest = updateLifetime(session.guildId, session.playerId, session.playerCount);
-        weeklyBest = updateWeekly(session.guildId, session.playerId, session.playerCount);
-        saveData();
+    const perUserSummary = [];
+    let totalNgocAwarded = 0;
+    const cfg = economy.WORDCHAIN_ENG;
+    ensureRoot();
+
+    for (const [uid, positions] of ownerPositions) {
+        if (!data.wordchainEng.wordCounts[session.guildId]) data.wordchainEng.wordCounts[session.guildId] = {};
+        const arrRoot = data.wordchainEng.wordCounts[session.guildId];
+        if (!arrRoot[uid]) arrRoot[uid] = [];
+        const arr = arrRoot[uid];
+
+        let reward = 0;
+        for (const i of positions) {
+            const prev = arr[i - 1] || 0;
+            if (prev < cfg.REWARD_CAP_PER_POSITION) {
+                reward += rewardForPosition(i);
+            }
+            arr[i - 1] = prev + 1;
+        }
+
+        if (reward > 0) addNgoc(session.guildId, uid, reward);
+        const bestPos = positions[positions.length - 1];
+        const lifetimeBest = updateLifetime(session.guildId, uid, bestPos);
+        const weeklyBest = updateWeekly(session.guildId, uid, bestPos);
+        totalNgocAwarded += reward;
+        perUserSummary.push({
+            userId: uid,
+            wordCount: positions.length,
+            reward,
+            bestPosition: bestPos,
+            lifetimeBest,
+            weeklyBest
+        });
+    }
+
+    if (threadInfo) {
+        threadInfo.lastRoundParticipants = new Set(ownerPositions.keys());
+    }
+
+    if (ownerPositions.size > 0) saveData();
+
+    try {
+        metrics.recordWordchainEng({
+            totalWords: session.playerCount,
+            participants: ownerPositions.size,
+            ngocAwarded: totalNgocAwarded,
+            endReason: reason
+        });
+    } catch (e) {
+        log.warn('wordchainEng: metrics record failed', e);
     }
 
     const reasonText =
@@ -259,15 +290,18 @@ async function endSession(threadId, { reason }) {
         : 'kết thúc';
 
     if (thread) {
-        if (!session.playerId || session.playerCount === 0) {
-            lines.push(`🏁 Game over — ${reasonText}.`);
-            lines.push('Bạn chưa nối được từ nào.');
+        const lines = [`🏁 Game over — ${reasonText}.`];
+        if (session.playerCount === 0) {
+            lines.push('Chưa ai nối được từ nào.');
         } else {
-            lines.push(`🏁 Game over — ${reasonText}.`);
-            lines.push(`<@${session.playerId}> nối được **${session.playerCount}** từ.`);
-            if (reward > 0) lines.push(`Nhận **${fmt(reward)}** ${renderEmote('ngoc')}.`);
-            else lines.push(`Không có Ngọc lần này (đã đạt giới hạn ${economy.WORDCHAIN_ENG.REWARD_CAP_PER_POSITION} lần ở mọi vị trí đạt được).`);
-            lines.push(`Lifetime best: **${lifetimeBest}** · Tuần này: **${weeklyBest}**`);
+            lines.push(`Tổng số từ đã nối: **${session.playerCount}**`);
+            perUserSummary.sort((a, b) => b.bestPosition - a.bestPosition);
+            for (const s of perUserSummary) {
+                const rewardPart = s.reward > 0
+                    ? `+${fmt(s.reward)} ${renderEmote('ngoc')}`
+                    : `+0 ${renderEmote('ngoc')} (đã đạt cap)`;
+                lines.push(`<@${s.userId}> — **${s.wordCount}** từ · ${rewardPart} · best **${s.bestPosition}** (life **${s.lifetimeBest}** · tuần **${s.weeklyBest}**)`);
+            }
         }
 
         const row = new ActionRowBuilder().addComponents(
@@ -324,7 +358,7 @@ async function startSession({ channel, invokerId }) {
         type: ChannelType.PublicThread,
         reason: `English Wordchain started by ${invokerId}`
     });
-    await beginGame(thread);
+    await beginGame(thread, invokerId);
     return thread;
 }
 
@@ -344,6 +378,15 @@ async function showCloseConfirmation(msg) {
         components: [row],
         allowedMentions: { parse: [] }
     }).catch(e => log.warn('wordchainEng: send close confirmation failed', e));
+}
+
+function canActOnRound(threadInfo, userId) {
+    if (!threadInfo) return false;
+    const participants = threadInfo.lastRoundParticipants;
+    if (!participants || participants.size === 0) {
+        return userId === threadInfo.invokerId;
+    }
+    return participants.has(userId);
 }
 
 async function handleButtonInteraction(interaction) {
@@ -369,6 +412,13 @@ async function handleButtonInteraction(interaction) {
             }).catch(() => {});
             return true;
         }
+        if (!canActOnRound(threadInfo, interaction.user.id)) {
+            await interaction.reply({
+                content: 'Chỉ người chơi ván vừa rồi (hoặc người tạo thread nếu ván trống) mới bấm được nút này.',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+            return true;
+        }
         await interaction.update({ components: [] }).catch(() => {});
         await beginGame(interaction.channel);
         return true;
@@ -379,6 +429,13 @@ async function handleButtonInteraction(interaction) {
         if (!threadInfo) {
             await interaction.reply({
                 content: 'Không tìm được phiên này.',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+            return true;
+        }
+        if (!canActOnRound(threadInfo, interaction.user.id)) {
+            await interaction.reply({
+                content: 'Chỉ người chơi ván vừa rồi (hoặc người tạo thread nếu ván trống) mới đóng được thread.',
                 flags: MessageFlags.Ephemeral
             }).catch(() => {});
             return true;
@@ -464,6 +521,10 @@ async function handleThreadMessage(msg) {
 
     const isSurrender = word === 'surrender' || word === 'sur' || word === 'end';
     if (isSurrender) {
+        if (!session.positionOwners.includes(msg.author.id)) {
+            await msg.reply('Bạn cần đóng góp ít nhất 1 từ trong ván này mới được đầu hàng.').catch(() => {});
+            return;
+        }
         if (!session.lastValidAt) {
             await msg.reply('Chưa có từ hợp lệ nào — chưa thể đầu hàng.').catch(() => {});
             return;
@@ -476,10 +537,6 @@ async function handleThreadMessage(msg) {
         }
         await msg.react('🏳️').catch(() => {});
         await endSession(session.threadId, { reason: 'surrender' });
-        return;
-    }
-
-    if (session.playerId && msg.author.id !== session.playerId) {
         return;
     }
 
@@ -496,8 +553,8 @@ async function handleThreadMessage(msg) {
 
     session.usedWords.add(word);
     session.playerCount += 1;
+    session.positionOwners.push(msg.author.id);
     session.lastValidAt = Date.now();
-    if (!session.playerId) session.playerId = msg.author.id;
 
     await msg.react('✅').catch(() => {});
 

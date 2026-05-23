@@ -3,14 +3,15 @@ const CURRENT_VERSION = '1.6.0';
 const CHANGELOG = {
     '1.6.0': {
         date: '2026-05-23',
-        title: 'English Wordchain',
+        title: 'English Wordchain (co-op)',
         changes: [
-            '`!wordchain` — Tạo thread chơi nối từ tiếng Anh 1 người vs bot. Nối theo chữ cái cuối → chữ cái đầu (≥ 2 chữ, chỉ a-z, có trong từ điển 10k từ).',
-            'Người chơi mở từ đầu tiên. Bot trả lời, tránh kết thúc bằng các chữ hiếm (j/q/x/z) trừ một tỉ lệ nhỏ.',
-            'Bộ đếm rút dần theo tiến độ: 1-10 = 60s, 11-20 = 45s, 21-30 = 30s, 31-40 = 15s, 41-50 = 10s, 51+ = 5s. Tin nhắn bot có timestamp đếm ngược `<t:UNIX:R>`.',
-            'Hết ván thưởng Ngọc: 8 ngọc/từ trong 25 từ đầu, 4 ngọc/từ sau đó. Mỗi vị trí từ chỉ thưởng tối đa 10 lần (chống farm).',
-            '`!wordchain_top` / `!wordchain_top week` — Bảng xếp hạng lifetime và tuần.',
-            'Nút **Ván mới** / **Đóng thread** sau khi kết thúc — chơi liên tục trong cùng thread.'
+            '`!wordchain` — Tạo thread chơi nối từ tiếng Anh **co-op**: bất kỳ ai trong thread đều có thể nối từ tiếp theo. Nối theo chữ cái cuối → chữ cái đầu (≥ 2 chữ, chỉ a-z, có trong từ điển ~10k từ).',
+            'Bot trả lời sau mỗi từ hợp lệ, tránh kết thúc bằng các chữ hiếm (j/q/x/z) trừ một tỉ lệ nhỏ.',
+            'Bộ đếm rút dần theo tiến độ chung của ván: 1-10 = 60s, 11-20 = 45s, 21-30 = 30s, 31-40 = 15s, 41-50 = 10s, 51+ = 5s. Tin nhắn bot có timestamp đếm ngược `<t:UNIX:R>`.',
+            'Mỗi từ được tính cho người gõ ra nó. Hết ván thưởng Ngọc per-user: 8 ngọc/từ trong 25 vị trí đầu, 4 ngọc/từ sau đó. Mỗi vị trí thưởng tối đa 10 lần/người (chống farm).',
+            'Đầu hàng (`end`/`sur`/`surrender`): chỉ người đã đóng góp ≥ 1 từ, sau ≥ 10s. Nút **Ván mới** / **Đóng thread**: chỉ người chơi ván vừa rồi.',
+            '`!wordchain_top` / `!wordchain_top week` — Bảng xếp hạng lifetime và tuần theo vị trí cao nhất mỗi người đã đóng góp.',
+            '`!metrics wordchain` — Thống kê: số ván, tổng từ, biggest round, ngọc trả ra, tỉ lệ multiplayer, phân bố end reason.'
         ]
     },
     '1.5.0': {
