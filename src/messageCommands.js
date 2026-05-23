@@ -142,10 +142,17 @@ async function handleMessageCommand(msg) {
         const game = GAMES.has(arg1) ? arg1 : (GAMES.has(arg2) ? arg2 : null);
         const dateArg = /^\d{4}-\d{2}-\d{2}$/.test(arg1) ? arg1 : (/^\d{4}-\d{2}-\d{2}$/.test(arg2) ? arg2 : null);
 
-        let text;
-        if (game) text = metrics.formatGame(game);
-        else text = metrics.formatAll(dateArg || undefined);
-        return msg.reply(`\`\`\`\n${text}\n\`\`\``);
+        if (game) {
+            return msg.reply(`\`\`\`\n${metrics.formatGame(game)}\n\`\`\``);
+        }
+        const sections = metrics.formatAllSections(dateArg || undefined);
+        const chunks = metrics.packSections(sections, 1900);
+        if (chunks.length === 0) return msg.reply('Chưa có dữ liệu metrics.');
+        await msg.reply(`\`\`\`\n${chunks[0]}\n\`\`\``);
+        for (let i = 1; i < chunks.length; i++) {
+            await msg.channel.send(`\`\`\`\n${chunks[i]}\n\`\`\``);
+        }
+        return;
     }
 
     if (cmd === '!changelog') {

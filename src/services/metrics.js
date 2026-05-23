@@ -469,7 +469,7 @@ function formatSummary(store, label) {
     ].join('\n');
 }
 
-function formatAll(bucket) {
+function formatAllSections(bucket) {
     const label = bucket ? ` [${bucket}]` : ` [${_bucket}]`;
     const store = bucket ? loadBucket(bucket) : null;
     const orig = store ? _store : null;
@@ -479,12 +479,35 @@ function formatAll(bucket) {
         Object.keys(store).forEach(k => (_store[k] = store[k]));
     }
     const liveStore = bucket ? store : _store;
-    const out = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng']
+    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng']
         .map(g => _formatGame(g))
-        .join('\n\n')
-        + `\n\n${formatSummary(liveStore, label)}`
-        + `\n📅 Ngày${label}`;
+        .filter(Boolean);
+    sections.push(`${formatSummary(liveStore, label)}\n📅 Ngày${label}`);
     if (orig) Object.assign(_store, orig);
+    return sections;
+}
+
+// Backwards-compatible single-string formatter (joins sections with blank lines).
+function formatAll(bucket) {
+    return formatAllSections(bucket).join('\n\n');
+}
+
+// Pack sections into Discord-sized chunks (≤ budget chars per chunk),
+// preserving section boundaries — never splits inside a section.
+function packSections(sections, budget = 1900) {
+    const out = [];
+    let current = '';
+    for (const s of sections) {
+        if (!s) continue;
+        const sep = current ? '\n\n' : '';
+        if (current && current.length + sep.length + s.length > budget) {
+            out.push(current);
+            current = s;
+        } else {
+            current += sep + s;
+        }
+    }
+    if (current) out.push(current);
     return out;
 }
 
@@ -508,7 +531,7 @@ module.exports = {
     recordSlot, recordCoinflip, recordTong, recordMat, recordWordchainEng,
     recordGacha, recordWordchainReject,
     formatSlot, formatCoinflip, formatTong, formatMat,
-    formatAll, formatGame, listBuckets,
+    formatAll, formatAllSections, formatGame, packSections, listBuckets,
     rollingNet, netFromStore,
     currentBucket: () => _bucket,
     flush
