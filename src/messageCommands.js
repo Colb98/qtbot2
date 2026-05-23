@@ -16,9 +16,10 @@ const { SYMBOLS: SLOT_SYMBOLS, spin: slotSpin } = require('./services/slot');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
 const dice = require('./services/dice');
 const metrics = require('./services/metrics');
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
+const wordchainEng = require('./services/wordchainEng');
 
 async function handleMessageCommand(msg) {
     const parts = msg.content.trim().split(/\s+/);
@@ -86,6 +87,8 @@ async function handleMessageCommand(msg) {
 • \`!slot <x|all>\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200.
 • \`!tong <x|all|allin> <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
 • \`!mat <x|all|allin> <1-6>\` — Đoán mặt xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6.
+• \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh (1 người vs bot). Thưởng Ngọc theo số từ nối được.
+• \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 
 **Khác:**
 • Chat: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)}/ngày).
@@ -613,6 +616,43 @@ async function handleMessageCommand(msg) {
         const buildBtns = isTong ? dice.buildTongButtons : dice.buildMatButtons;
         const components = newW.ngoc > 0 ? buildBtns(msg.author.id, amount, guess, newW.ngoc) : [];
         return msg.reply({ content, components });
+    }
+
+    if (cmd === '!wordchain') {
+        if (msg.channel.type !== ChannelType.GuildText) {
+            return msg.reply('Lệnh này chỉ dùng trong text channel (không trong thread hoặc DM).');
+        }
+        try {
+            const thread = await wordchainEng.startSession({ channel: msg.channel, invokerId: msg.author.id });
+            return msg.reply(`Đã tạo thread English wordchain: <#${thread.id}>`);
+        } catch (e) {
+            log.error('wordchain start failed', e);
+            return msg.reply('Không thể bắt đầu trò chơi.');
+        }
+    }
+
+    if (cmd === '!wordchain_top') {
+        const mode = (parts[1] || '').toLowerCase();
+        const isWeek = mode === 'week' || mode === 'tuan' || mode === 'w';
+        const top = isWeek
+            ? wordchainEng.getWeeklyTop(guildId, 10)
+            : wordchainEng.getLifetimeTop(guildId, 10);
+        if (top.length === 0) {
+            return msg.reply(isWeek
+                ? 'Chưa có ai trên bảng xếp hạng tuần này.'
+                : 'Chưa có ai trên bảng xếp hạng English Wordchain.');
+        }
+        const lines = [isWeek ? `🏆 **Top English Wordchain — Tuần này**` : `🏆 **Top English Wordchain — Lifetime**`];
+        for (let i = 0; i < top.length; i++) {
+            const [userId, best] = top[i];
+            let name = userId;
+            try {
+                const m = await msg.guild.members.fetch(userId).catch(() => null);
+                if (m) name = m.displayName;
+            } catch (e) { /* ignore */ }
+            lines.push(`${i + 1}. **${name}** — **${best}** từ`);
+        }
+        return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
     }
 
     if (cmd === '!upload_ingame_emotes') {

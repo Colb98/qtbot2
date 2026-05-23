@@ -2,6 +2,7 @@ const { Events, MessageFlags, ActionRowBuilder, ButtonBuilder, AttachmentBuilder
 const path = require('path');
 const log = require('../../logger');
 const wordchain = require('../services/wordchain');
+const wordchainEng = require('../services/wordchainEng');
 const arrangeCmd = require('../commands/arrange');
 const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
@@ -95,6 +96,8 @@ module.exports = {
                             log.error('gacha_all confirm error:', e);
                         }
                     }
+                } else if (interaction.customId.startsWith('wce_')) {
+                    await wordchainEng.handleButtonInteraction(interaction);
                 } else {
                     await wordchain.handleButtonInteraction(interaction);
                 }

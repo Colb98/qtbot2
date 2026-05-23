@@ -43,5 +43,22 @@ module.exports = {
             thienthuong: 0.95,
             kythuong: 0
         }
+    },
+
+    WORDCHAIN_ENG: {
+        NGOC_PER_WORD: 8,
+        WORD_THRESHOLD: 25,
+        NGOC_PER_WORD_AFTER: 4,
+        REWARD_CAP_PER_POSITION: 10,
+        TIMER_LADDER: [
+            { upTo: 10, seconds: 60 },
+            { upTo: 20, seconds: 45 },
+            { upTo: 30, seconds: 30 },
+            { upTo: 40, seconds: 15 },
+            { upTo: 50, seconds: 10 },
+            { upTo: Infinity, seconds: 5 }
+        ],
+        RARE_END_LETTERS: ['j', 'q', 'x', 'z'],
+        RARE_END_RATE: 0.05
     }
 };

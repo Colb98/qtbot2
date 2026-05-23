@@ -1,6 +1,18 @@
-const CURRENT_VERSION = '1.5.0';
+const CURRENT_VERSION = '1.6.0';
 
 const CHANGELOG = {
+    '1.6.0': {
+        date: '2026-05-23',
+        title: 'English Wordchain',
+        changes: [
+            '`!wordchain` — Tạo thread chơi nối từ tiếng Anh 1 người vs bot. Nối theo chữ cái cuối → chữ cái đầu (≥ 2 chữ, chỉ a-z, có trong từ điển 10k từ).',
+            'Người chơi mở từ đầu tiên. Bot trả lời, tránh kết thúc bằng các chữ hiếm (j/q/x/z) trừ một tỉ lệ nhỏ.',
+            'Bộ đếm rút dần theo tiến độ: 1-10 = 60s, 11-20 = 45s, 21-30 = 30s, 31-40 = 15s, 41-50 = 10s, 51+ = 5s. Tin nhắn bot có timestamp đếm ngược `<t:UNIX:R>`.',
+            'Hết ván thưởng Ngọc: 8 ngọc/từ trong 25 từ đầu, 4 ngọc/từ sau đó. Mỗi vị trí từ chỉ thưởng tối đa 10 lần (chống farm).',
+            '`!wordchain_top` / `!wordchain_top week` — Bảng xếp hạng lifetime và tuần.',
+            'Nút **Ván mới** / **Đóng thread** sau khi kết thúc — chơi liên tục trong cùng thread.'
+        ]
+    },
     '1.5.0': {
         date: '2026-05-22',
         title: 'Metrics & tách !help / !devhelp',
