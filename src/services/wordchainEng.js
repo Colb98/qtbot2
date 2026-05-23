@@ -20,13 +20,25 @@ const rawDict = fs.readFileSync(DICT_PATH, 'utf8')
     .map(s => s.trim().toLowerCase())
     .filter(w => /^[a-z]+$/.test(w) && w.length >= 2);
 const wordSet = new Set(rawDict);
-const byFirstLetter = {};
+const fallbackByFirstLetter = {};
 for (const w of rawDict) {
     const k = w[0];
-    if (!byFirstLetter[k]) byFirstLetter[k] = [];
-    byFirstLetter[k].push(w);
+    if (!fallbackByFirstLetter[k]) fallbackByFirstLetter[k] = [];
+    fallbackByFirstLetter[k].push(w);
 }
-log.info(`wordchainEng: dictionary loaded — ${wordSet.size} words`);
+
+const BOT_DICT_PATH = path.join(__dirname, '..', '..', 'word_dict', 'english_cel.txt');
+const rawBotDict = fs.readFileSync(BOT_DICT_PATH, 'utf8')
+    .split(/\r?\n/)
+    .map(s => s.trim().toLowerCase())
+    .filter(w => /^[a-z]+$/.test(w) && w.length >= 2);
+const botByFirstLetter = {};
+for (const w of rawBotDict) {
+    const k = w[0];
+    if (!botByFirstLetter[k]) botByFirstLetter[k] = [];
+    botByFirstLetter[k].push(w);
+}
+log.info(`wordchainEng: dictionaries loaded — player ${wordSet.size} words, bot ${rawBotDict.length} words (fallback ${rawDict.length})`);
 
 const HARD_CAP_MS = 2 * 24 * 60 * 60 * 1000;
 const SURRENDER_COOLDOWN_MS = 10 * 1000;
@@ -48,14 +60,22 @@ function ensureRoot() {
     if (!data.wordchainEng.wordCounts) data.wordchainEng.wordCounts = {};
 }
 
-function weekStr() {
-    const shifted = new Date(Date.now() + 7 * 3600 * 1000);
+function weekStrAt(ts) {
+    const shifted = new Date(ts + 7 * 3600 * 1000);
     const d = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()));
     const day = d.getUTCDay() || 7;
     d.setUTCDate(d.getUTCDate() + 4 - day);
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
     return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function weekStr() {
+    return weekStrAt(Date.now());
+}
+
+function previousWeekStr() {
+    return weekStrAt(Date.now() - 24 * 3600 * 1000);
 }
 
 function timeoutSecondsFor(playerCount) {
@@ -70,22 +90,37 @@ function randomFrom(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function pickBotWord(firstLetter, usedWords) {
-    const bucket = byFirstLetter[firstLetter];
+function pickFromIndex(index, firstLetter, usedWords) {
+    const bucket = index[firstLetter];
     if (!Array.isArray(bucket) || bucket.length === 0) return null;
     const pool = bucket.filter(w => !usedWords.has(w));
     if (pool.length === 0) return null;
     const rareSet = new Set(economy.WORDCHAIN_ENG.RARE_END_LETTERS);
+    const sRate = economy.WORDCHAIN_ENG.S_END_RATE;
+    const rareRate = economy.WORDCHAIN_ENG.RARE_END_RATE;
     const easy = [];
+    const sEnding = [];
     const rare = [];
     for (const w of pool) {
-        if (rareSet.has(w[w.length - 1])) rare.push(w);
+        const last = w[w.length - 1];
+        if (last === 's') sEnding.push(w);
+        else if (rareSet.has(last)) rare.push(w);
         else easy.push(w);
     }
-    if (easy.length === 0) return randomFrom(rare);
-    if (rare.length === 0) return randomFrom(easy);
-    if (Math.random() < economy.WORDCHAIN_ENG.RARE_END_RATE) return randomFrom(rare);
-    return randomFrom(easy);
+    if (easy.length > 0) {
+        const r = Math.random();
+        if (sEnding.length > 0 && r < sRate) return randomFrom(sEnding);
+        if (rare.length > 0 && r < sRate + rareRate) return randomFrom(rare);
+        return randomFrom(easy);
+    }
+    if (sEnding.length > 0) return randomFrom(sEnding);
+    if (rare.length > 0) return randomFrom(rare);
+    return null;
+}
+
+function pickBotWord(firstLetter, usedWords) {
+    return pickFromIndex(botByFirstLetter, firstLetter, usedWords)
+        || pickFromIndex(fallbackByFirstLetter, firstLetter, usedWords);
 }
 
 function validateWord(word, requiredFirstLetter, usedWords) {
@@ -137,15 +172,102 @@ function getLifetimeTop(guildId, limit = 10) {
 }
 
 function getWeeklyTop(guildId, limit = 10) {
+    return getWeeklyTopForWeek(guildId, weekStr(), limit);
+}
+
+function getWeeklyTopForWeek(guildId, week, limit = 10) {
     ensureRoot();
     const scores = data.wordchainEng.weekly[guildId];
     if (!scores) return [];
-    const week = weekStr();
     return Object.entries(scores)
         .filter(([, e]) => e && e.week === week && e.best > 0)
         .map(([uid, e]) => [uid, e.best])
         .sort((a, b) => b[1] - a[1])
         .slice(0, limit);
+}
+
+function rewardForRank(rank) {
+    const table = economy.WORDCHAIN_ENG.WEEKLY_REWARDS || [];
+    for (const tier of table) {
+        if (rank >= tier.from && rank <= tier.to) return tier.ngoc;
+    }
+    return 0;
+}
+
+function getWeeklyRewardTable() {
+    return economy.WORDCHAIN_ENG.WEEKLY_REWARDS || [];
+}
+
+function payoutWeek(guildId, week) {
+    ensureRoot();
+    const top = getWeeklyTopForWeek(guildId, week, 10);
+    if (top.length === 0) return { week, paid: [] };
+    const paid = [];
+    for (let i = 0; i < top.length; i++) {
+        const [userId, best] = top[i];
+        const rank = i + 1;
+        const ngoc = rewardForRank(rank);
+        if (ngoc > 0) {
+            addNgoc(guildId, userId, ngoc);
+            paid.push({ userId, rank, best, ngoc });
+        }
+    }
+    data.wordchainEng.weeklyPaid = data.wordchainEng.weeklyPaid || {};
+    data.wordchainEng.weeklyPaid[guildId] = week;
+    saveData();
+    return { week, paid };
+}
+
+function payoutAllGuilds(week) {
+    ensureRoot();
+    const guilds = Object.keys(data.wordchainEng.weekly || {});
+    const results = [];
+    for (const guildId of guilds) {
+        const alreadyPaid = data.wordchainEng.weeklyPaid && data.wordchainEng.weeklyPaid[guildId];
+        if (alreadyPaid === week) continue;
+        const res = payoutWeek(guildId, week);
+        if (res.paid.length > 0) {
+            results.push({ guildId, ...res });
+            log.info(`wordchainEng: paid weekly ${week} in guild ${guildId} — ${res.paid.length} winners`);
+        }
+    }
+    return results;
+}
+
+async function announcePayout(guildId, result) {
+    const channelId = data.channelId && data.channelId[guildId];
+    if (!channelId) return;
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel) return;
+    const lines = [`🏆 **English Wordchain — Tổng kết tuần ${result.week}**`];
+    for (const w of result.paid) {
+        lines.push(`Top ${w.rank}. <@${w.userId}> — **${w.best}** từ · +**${fmt(w.ngoc)}** ${renderEmote('ngoc')}`);
+    }
+    await channel.send({ content: lines.join('\n'), allowedMentions: { parse: [] } })
+        .catch(e => log.warn('wordchainEng: announcePayout send failed', e));
+}
+
+async function runWeeklyPayout() {
+    const week = previousWeekStr();
+    log.info(`wordchainEng: running weekly payout for week ${week}`);
+    const results = payoutAllGuilds(week);
+    for (const r of results) {
+        await announcePayout(r.guildId, r);
+    }
+    return results;
+}
+
+let _weeklyCronTask = null;
+function scheduleWeeklyPayout() {
+    if (_weeklyCronTask) return;
+    let cron;
+    try { cron = require('node-cron'); }
+    catch (e) { log.warn('wordchainEng: node-cron not available, weekly payout disabled', e); return; }
+    _weeklyCronTask = cron.schedule('0 0 * * 1', async () => {
+        try { await runWeeklyPayout(); }
+        catch (e) { log.error('wordchainEng: weekly payout cron error', e); }
+    }, { timezone: 'Asia/Ho_Chi_Minh' });
+    log.info('wordchainEng: scheduled weekly payout — Mon 00:00 Asia/Ho_Chi_Minh');
 }
 
 function armTimer(session) {
@@ -175,7 +297,7 @@ function getHelpText() {
         `• **Co-op:** bất kỳ ai trong thread đều có thể nối từ tiếp theo. Mỗi từ được tính cho người đã gõ nó.\n` +
         `• Mỗi từ chỉ được dùng 1 lần / ván.\n` +
         `• ✅ hợp lệ — ❌ không có / sai luật nối — ⛔ đã dùng.\n` +
-        `• Đầu hàng: gõ \`end\`, \`surrender\` hoặc \`sur\` (chỉ người đã đóng góp ≥ 1 từ, sau ≥ 10s).\n` +
+        `• Đầu hàng: gõ \`end\`, \`surrender\` hoặc \`sur\` — chỉ người đã đóng góp ≥ 1 từ, sau ≥ 10s. Bị bỏ qua nếu chữ kế là **E**/**S** hoặc thời gian còn lại < 20s. Nếu \`end\` là 1 nước nối hợp lệ, nó sẽ được tính làm nước đi luôn.\n` +
         `• Thời gian rút dần theo tiến độ chung: 1-10 = 60s, 11-20 = 45s, 21-30 = 30s, 31-40 = 15s, 41-50 = 10s, 51+ = 5s.\n` +
         `• Hết ván nhận Ngọc theo các vị trí từ mà mỗi người đóng góp (mỗi vị trí thưởng tối đa 10 lần/người).`
     );
@@ -202,6 +324,7 @@ async function beginGame(thread, invokerId) {
         playerCount: 0,
         lastValidAt: null,
         nextTimeoutMs: 0,
+        displayedEndAt: null,
         timer: null,
         ended: false
     };
@@ -215,7 +338,7 @@ async function beginGame(thread, invokerId) {
     await thread.send(intro).catch(e => log.warn('wordchainEng: send intro failed', e));
 }
 
-async function endSession(threadId, { reason }) {
+async function endSession(threadId, { reason, winnerId }) {
     const session = sessions.get(threadId);
     if (!session || session.ended) return;
     session.ended = true;
@@ -237,6 +360,8 @@ async function endSession(threadId, { reason }) {
     const cfg = economy.WORDCHAIN_ENG;
     ensureRoot();
 
+    const winBonus = (reason === 'dead_end' && winnerId && cfg.WIN_BONUS > 0) ? cfg.WIN_BONUS : 0;
+
     for (const [uid, positions] of ownerPositions) {
         if (!data.wordchainEng.wordCounts[session.guildId]) data.wordchainEng.wordCounts[session.guildId] = {};
         const arrRoot = data.wordchainEng.wordCounts[session.guildId];
@@ -252,15 +377,18 @@ async function endSession(threadId, { reason }) {
             arr[i - 1] = prev + 1;
         }
 
-        if (reward > 0) addNgoc(session.guildId, uid, reward);
+        const bonus = (uid === winnerId) ? winBonus : 0;
+        const totalForUser = reward + bonus;
+        if (totalForUser > 0) addNgoc(session.guildId, uid, totalForUser);
         const bestPos = positions[positions.length - 1];
         const lifetimeBest = updateLifetime(session.guildId, uid, bestPos);
         const weeklyBest = updateWeekly(session.guildId, uid, bestPos);
-        totalNgocAwarded += reward;
+        totalNgocAwarded += totalForUser;
         perUserSummary.push({
             userId: uid,
             wordCount: positions.length,
             reward,
+            bonus,
             bestPosition: bestPos,
             lifetimeBest,
             weeklyBest
@@ -291,17 +419,23 @@ async function endSession(threadId, { reason }) {
         : 'kết thúc';
 
     if (thread) {
-        const lines = [`🏁 Game over — ${reasonText}.`];
+        const lines = [];
+        if (reason === 'dead_end' && winnerId) {
+            lines.push(`🎉 **Bot không còn từ để nối — <@${winnerId}> thắng cuộc!**`);
+        } else {
+            lines.push(`🏁 Game over — ${reasonText}.`);
+        }
         if (session.playerCount === 0) {
             lines.push('Chưa ai nối được từ nào.');
         } else {
             lines.push(`Tổng số từ đã nối: **${session.playerCount}**`);
             perUserSummary.sort((a, b) => b.bestPosition - a.bestPosition);
             for (const s of perUserSummary) {
-                const rewardPart = s.reward > 0
-                    ? `+${fmt(s.reward)} ${renderEmote('ngoc')}`
-                    : `+0 ${renderEmote('ngoc')} (đã đạt cap)`;
-                lines.push(`<@${s.userId}> — **${s.wordCount}** từ · ${rewardPart} · best **${s.bestPosition}** (life **${s.lifetimeBest}** · tuần **${s.weeklyBest}**)`);
+                const parts = [];
+                if (s.reward > 0) parts.push(`+${fmt(s.reward)} ${renderEmote('ngoc')}`);
+                else parts.push(`+0 ${renderEmote('ngoc')} (đã đạt cap)`);
+                if (s.bonus > 0) parts.push(`🏆 +${fmt(s.bonus)} ${renderEmote('ngoc')} thưởng thắng`);
+                lines.push(`<@${s.userId}> — **${s.wordCount}** từ · ${parts.join(' · ')} · best **${s.bestPosition}** (life **${s.lifetimeBest}** · tuần **${s.weeklyBest}**)`);
             }
         }
 
@@ -520,8 +654,10 @@ async function handleThreadMessage(msg) {
         return;
     }
 
-    const isSurrender = word === 'surrender' || word === 'sur' || word === 'end';
-    if (isSurrender) {
+    const isSurrenderToken = word === 'surrender' || word === 'sur' || word === 'end';
+    const action = validateWord(word, session.requiredFirstLetter, session.usedWords);
+
+    if (action !== 'valid' && isSurrenderToken) {
         if (!session.positionOwners.includes(msg.author.id)) {
             await msg.reply('Bạn cần đóng góp ít nhất 1 từ trong ván này mới được đầu hàng.').catch(() => {});
             return;
@@ -529,6 +665,16 @@ async function handleThreadMessage(msg) {
         if (!session.lastValidAt) {
             await msg.reply('Chưa có từ hợp lệ nào — chưa thể đầu hàng.').catch(() => {});
             return;
+        }
+        const blockLetters = new Set(economy.WORDCHAIN_ENG.SURRENDER_BLOCK_LETTERS);
+        if (session.requiredFirstLetter && blockLetters.has(session.requiredFirstLetter)) {
+            return;
+        }
+        if (session.displayedEndAt) {
+            const remainingMs = session.displayedEndAt - Date.now();
+            if (remainingMs < economy.WORDCHAIN_ENG.SURRENDER_MIN_REMAINING_MS) {
+                return;
+            }
         }
         const elapsed = Date.now() - session.lastValidAt;
         if (elapsed < SURRENDER_COOLDOWN_MS) {
@@ -540,8 +686,6 @@ async function handleThreadMessage(msg) {
         await endSession(session.threadId, { reason: 'surrender' });
         return;
     }
-
-    const action = validateWord(word, session.requiredFirstLetter, session.usedWords);
 
     if (action === 'shape' || action === 'not_in_dict' || action === 'wrong_chain') {
         await msg.react('❌').catch(() => {});
@@ -562,7 +706,7 @@ async function handleThreadMessage(msg) {
     const playerLast = word[word.length - 1];
     const botWord = pickBotWord(playerLast, session.usedWords);
     if (!botWord) {
-        await endSession(session.threadId, { reason: 'dead_end' });
+        await endSession(session.threadId, { reason: 'dead_end', winnerId: msg.author.id });
         return;
     }
     session.usedWords.add(botWord);
@@ -571,6 +715,7 @@ async function handleThreadMessage(msg) {
 
     const secs = timeoutSecondsFor(session.playerCount);
     const endUnix = Math.floor(Date.now() / 1000) + secs;
+    session.displayedEndAt = endUnix * 1000;
 
     const replyContent =
         `**${botWord}**\n` +
@@ -587,5 +732,8 @@ module.exports = {
     handleThreadMessage,
     handleButtonInteraction,
     getLifetimeTop,
-    getWeeklyTop
+    getWeeklyTop,
+    getWeeklyRewardTable,
+    scheduleWeeklyPayout,
+    runWeeklyPayout
 };

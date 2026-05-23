@@ -1,6 +1,21 @@
-const CURRENT_VERSION = '1.6.1';
+const CURRENT_VERSION = '1.7.0';
 
 const CHANGELOG = {
+    '1.7.0': {
+        date: '2026-05-23',
+        title: 'Wordchain — bot dict, surrender rules, weekly reward, win bonus',
+        changes: [
+            'Bot chọn từ trả lời từ `word_dict/english_cel.txt` (~68k từ phổ thông) — gọn và tự nhiên hơn. Validation của người chơi vẫn dùng `english_worddict.txt`.',
+            'Khi `cel.txt` hết từ cho chữ cái đó (ví dụ pool **x** nhỏ), bot tự fallback sang `english_worddict.txt` để vẫn nối được.',
+            'Nếu cả 2 pool đều hết từ → người chơi vừa nối từ cuối **thắng cuộc** + nhận thưởng **10000 ngọc** (`WIN_BONUS`).',
+            'Bot giảm tỉ lệ kết thúc bằng **S** xuống 5%, cùng tỉ lệ rare-letter (j/q/x/z) — chữ kế đa dạng hơn.',
+            '`end`/`sur`/`surrender`: kiểm tra nước nối hợp lệ trước. Nếu `end` là 1 nước hợp lệ, nó được chơi thay vì đầu hàng.',
+            'Đầu hàng bị **bỏ qua** nếu chữ kế là **E**/**S** hoặc thời gian còn lại < 20s — chống bail khi đang ở thế dễ.',
+            'Thưởng tuần (auto Thứ Hai 00:00 GMT+7): Top 1 = 15000 ngọc, Top 2-3 = 8000, Top 4-10 = 4000. `!wordchain_top` (mặc định tuần) hiển thị bảng thưởng.',
+            '`!wordchain_top` giờ mặc định hiện top tuần; `!wordchain_top lifetime` để xem all-time.',
+            '`!wordchain_payout` (super admin) — chạy ngay payout tuần trước nếu cron lỡ.'
+        ]
+    },
     '1.6.1': {
         date: '2026-05-23',
         title: 'Wordchain timer fix',

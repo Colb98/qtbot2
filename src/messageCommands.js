@@ -109,6 +109,7 @@ async function handleMessageCommand(msg) {
 
 **Metrics & Debug:**
 • \`!metrics [slot|coinflip|tong|mat|wordchain] [YYYY-MM-DD]\` — Xem thống kê trò chơi (mặc định hôm nay).
+• \`!wordchain_payout\` — Trả thưởng tuần trước cho top 10 English Wordchain ngay (cron tự chạy Thứ Hai 00:00 GMT+7).
 • \`!metrics list\` — Liệt kê các file metrics đã lưu.
 
 **Guild War:**
@@ -633,26 +634,57 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!wordchain_top') {
         const mode = (parts[1] || '').toLowerCase();
-        const isWeek = mode === 'week' || mode === 'tuan' || mode === 'w';
-        const top = isWeek
-            ? wordchainEng.getWeeklyTop(guildId, 10)
-            : wordchainEng.getLifetimeTop(guildId, 10);
+        const isLifetime = mode === 'lifetime' || mode === 'life' || mode === 'all' || mode === 'l';
+        const top = isLifetime
+            ? wordchainEng.getLifetimeTop(guildId, 10)
+            : wordchainEng.getWeeklyTop(guildId, 10);
+        const header = isLifetime
+            ? `🏆 **Top English Wordchain — Lifetime**`
+            : `🏆 **Top English Wordchain — Tuần này**`;
+        const lines = [header];
         if (top.length === 0) {
-            return msg.reply(isWeek
-                ? 'Chưa có ai trên bảng xếp hạng tuần này.'
-                : 'Chưa có ai trên bảng xếp hạng English Wordchain.');
+            lines.push(isLifetime
+                ? '_Chưa có ai trên bảng xếp hạng lifetime._'
+                : '_Chưa có ai trên bảng xếp hạng tuần này._');
+        } else {
+            for (let i = 0; i < top.length; i++) {
+                const [userId, best] = top[i];
+                let name = userId;
+                try {
+                    const m = await msg.guild.members.fetch(userId).catch(() => null);
+                    if (m) name = m.displayName;
+                } catch (e) { /* ignore */ }
+                lines.push(`${i + 1}. **${name}** — **${best}** từ`);
+            }
         }
-        const lines = [isWeek ? `🏆 **Top English Wordchain — Tuần này**` : `🏆 **Top English Wordchain — Lifetime**`];
-        for (let i = 0; i < top.length; i++) {
-            const [userId, best] = top[i];
-            let name = userId;
-            try {
-                const m = await msg.guild.members.fetch(userId).catch(() => null);
-                if (m) name = m.displayName;
-            } catch (e) { /* ignore */ }
-            lines.push(`${i + 1}. **${name}** — **${best}** từ`);
+        if (!isLifetime) {
+            const table = wordchainEng.getWeeklyRewardTable();
+            if (table && table.length > 0) {
+                lines.push('');
+                lines.push(`🎁 **Thưởng tuần (reset Thứ Hai 00:00 GMT+7)** — ${renderEmote('ngoc')}`);
+                for (const tier of table) {
+                    const range = tier.from === tier.to ? `Top ${tier.from}` : `Top ${tier.from}-${tier.to}`;
+                    lines.push(`• ${range}: **${fmt(tier.ngoc)}**`);
+                }
+                lines.push(`Gõ \`!wordchain_top lifetime\` để xem bảng all-time.`);
+            }
         }
         return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+    }
+
+    if (cmd === '!wordchain_payout') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        try {
+            const results = await wordchainEng.runWeeklyPayout();
+            if (!results || results.length === 0) {
+                return msg.reply('Không có ai để trả thưởng (hoặc tuần trước đã trả rồi).');
+            }
+            const totalWinners = results.reduce((a, r) => a + r.paid.length, 0);
+            return msg.reply(`✅ Đã trả thưởng tuần trước cho ${totalWinners} người trong ${results.length} guild.`);
+        } catch (e) {
+            log.error('wordchain_payout error', e);
+            return msg.reply('Lỗi khi trả thưởng. Xem log.');
+        }
     }
 
     if (cmd === '!upload_ingame_emotes') {

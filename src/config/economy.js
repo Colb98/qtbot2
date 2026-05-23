@@ -59,6 +59,15 @@ module.exports = {
             { upTo: Infinity, seconds: 5 }
         ],
         RARE_END_LETTERS: ['j', 'q', 'x', 'z'],
-        RARE_END_RATE: 0.05
+        RARE_END_RATE: 0.05,
+        S_END_RATE: 0.05,
+        SURRENDER_BLOCK_LETTERS: ['e', 's'],
+        SURRENDER_MIN_REMAINING_MS: 20 * 1000,
+        WIN_BONUS: 10000,
+        WEEKLY_REWARDS: [
+            { from: 1, to: 1, ngoc: 15000 },
+            { from: 2, to: 3, ngoc: 8000 },
+            { from: 4, to: 10, ngoc: 4000 }
+        ]
     }
 };
