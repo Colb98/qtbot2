@@ -3,8 +3,9 @@ const CURRENT_VERSION = '1.7.0';
 const CHANGELOG = {
     '1.7.0': {
         date: '2026-05-23',
-        title: 'Wordchain — bot dict, surrender rules, weekly reward, win bonus + slot buttons',
+        title: 'Wordchain + slot buttons + dashboard metrics',
         changes: [
+            '**Dashboard metrics mở rộng**: `!metrics` giờ hiển thị unique players, median bet bucket, max bet, accumulated spins cho mỗi trò; gacha block (burned/hit rate thực vs lý thuyết/pity attribution/item distribution); wordchain block (minted/ngọc-per-phút/reward-per-ván/từ bị từ chối/% vượt mốc 25/histogram số từ); và cuối dashboard có **NET KINH TẾ** = net game + faucet wordchain − gacha burned, kèm 7-day rolling average.',
             'Slot có nút replay: **Tiếp** (cùng cược), **x0.5**, **x2**, **ALL IN** — bấm là quay tiếp luôn (giống coinflip).',
             'Bot chọn từ trả lời từ `word_dict/english_cel.txt` (~68k từ phổ thông) — gọn và tự nhiên hơn. Validation của người chơi vẫn dùng `english_worddict.txt`.',
             'Khi `cel.txt` hết từ cho chữ cái đó (ví dụ pool **x** nhỏ), bot tự fallback sang `english_worddict.txt` để vẫn nối được.',

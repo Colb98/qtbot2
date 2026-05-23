@@ -322,6 +322,7 @@ async function beginGame(thread, invokerId) {
         requiredFirstLetter: null,
         positionOwners: [],
         playerCount: 0,
+        startedAt: Date.now(),
         lastValidAt: null,
         nextTimeoutMs: 0,
         displayedEndAt: null,
@@ -402,11 +403,16 @@ async function endSession(threadId, { reason, winnerId }) {
     if (ownerPositions.size > 0) saveData();
 
     try {
+        const durationMs = session.startedAt ? Math.max(0, Date.now() - session.startedAt) : 0;
+        const aboveThreshold = session.playerCount >= cfg.WORD_THRESHOLD;
         metrics.recordWordchainEng({
             totalWords: session.playerCount,
             participants: ownerPositions.size,
             ngocAwarded: totalNgocAwarded,
-            endReason: reason
+            endReason: reason,
+            durationMs,
+            aboveThreshold,
+            userIds: Array.from(ownerPositions.keys())
         });
     } catch (e) {
         log.warn('wordchainEng: metrics record failed', e);
@@ -688,6 +694,7 @@ async function handleThreadMessage(msg) {
     }
 
     if (action === 'shape' || action === 'not_in_dict' || action === 'wrong_chain') {
+        try { metrics.recordWordchainReject(); } catch (e) { /* ignore */ }
         await msg.react('❌').catch(() => {});
         return;
     }

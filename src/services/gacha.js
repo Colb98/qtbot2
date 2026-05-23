@@ -51,10 +51,21 @@ function rollOne(pity) {
     return result;
 }
 
-function rollMany(n, pity) {
+function rollMany(n, pity, meta = null) {
     const counts = { nhuom: 0, dieu: 0, cao: 0, kythuong: 0, thienthuong: 0 };
     for (let i = 0; i < n; i++) {
-        counts[rollOne(pity)] += 1;
+        const wasKtPity = pity.kt >= GACHA.PITY_KT_THRESHOLD;
+        const wasTtPity = pity.tt >= GACHA.PITY_TT_START;
+        if (meta) {
+            if (wasKtPity) meta.ktPityRolls = (meta.ktPityRolls || 0) + 1;
+            if (wasTtPity) meta.ttPityRolls = (meta.ttPityRolls || 0) + 1;
+        }
+        const result = rollOne(pity);
+        counts[result] += 1;
+        if (meta && (result === 'cao' || result === 'thienthuong' || result === 'kythuong')) {
+            if (wasKtPity) meta.hitsAtPityKt = (meta.hitsAtPityKt || 0) + 1;
+            if (wasTtPity) meta.hitsAtPityTt = (meta.hitsAtPityTt || 0) + 1;
+        }
     }
     return counts;
 }

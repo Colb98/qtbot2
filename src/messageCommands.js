@@ -108,7 +108,7 @@ async function handleMessageCommand(msg) {
 • \`!gangoc <n> [#kênh]\` — GA ngọc, user react để nhận.
 
 **Metrics & Debug:**
-• \`!metrics [slot|coinflip|tong|mat|wordchain] [YYYY-MM-DD]\` — Xem thống kê trò chơi (mặc định hôm nay).
+• \`!metrics [slot|coinflip|tong|mat|gacha|wordchain] [YYYY-MM-DD]\` — Xem thống kê trò chơi (mặc định hôm nay; không tham số → toàn bộ + net kinh tế + 7-day rolling).
 • \`!wordchain_payout\` — Trả thưởng tuần trước cho top 10 English Wordchain ngay (cron tự chạy Thứ Hai 00:00 GMT+7).
 • \`!metrics list\` — Liệt kê các file metrics đã lưu.
 
@@ -128,7 +128,7 @@ async function handleMessageCommand(msg) {
         if (!isSuperAdmin(msg.author.id)) return;
         // !metrics [slot|coinflip|tong|mat] [YYYY-MM-DD]
         // !metrics list
-        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'wordchain', 'wordchain_eng']);
+        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng']);
         const arg1 = (parts[1] || '').toLowerCase();
         const arg2 = (parts[2] || '').toLowerCase();
 
@@ -239,11 +239,13 @@ async function handleMessageCommand(msg) {
         await new Promise(r => setTimeout(r, 2000));
 
         const wallet = getWallet(guildId, msg.author.id);
-        const counts = rollMany(n, wallet.pity);
+        const gachaMeta = {};
+        const counts = rollMany(n, wallet.pity, gachaMeta);
         for (const k of ITEM_KEYS) {
             if (counts[k] > 0) addItem(guildId, msg.author.id, k, counts[k]);
         }
         saveData();
+        metrics.recordGacha({ rolls: n, cost, counts, userId: msg.author.id, ...gachaMeta });
         const result = formatRollResult(counts);
         await shakeMsg.edit({ content: `**${member.displayName}** quay ${fmt(n)} lần (-${fmt(cost)} ${renderEmote('ngoc')}):\n${result}`, attachments: [] }).catch(e => log.error('gacha edit error', e));
         return;
@@ -472,7 +474,7 @@ async function handleMessageCommand(msg) {
         addNgoc(guildId, msg.author.id, won ? amount : -amount);
         const newW = getWallet(guildId, msg.author.id);
         const bigWin = won && (isAll || amount >= 5000);
-        metrics.recordCoinflip({ amount, won, side, viaButton: false, wasAllIn: isAll, bigWin });
+        metrics.recordCoinflip({ amount, won, side, viaButton: false, wasAllIn: isAll, bigWin, userId: msg.author.id });
         const content = formatCoinflipResult({ displayName: member.displayName, side, result, won, amount, wasAllIn: isAll });
         const components = newW.ngoc > 0 ? [buildCoinflipButtons(msg.author.id, amount, side, newW.ngoc)] : [];
         return msg.reply({ content, components });
@@ -518,7 +520,7 @@ async function handleMessageCommand(msg) {
         await new Promise(r => setTimeout(r, 750));
 
         const resultLine = formatSlotResultLine({ mult: play.mult, payout: play.payout, outcomeName: play.outcomeName });
-        metrics.recordSlot({ amount: play.amount, payout: play.payout, outcomeName: play.outcomeName, pityTriggered: play.pityTriggered, pityCapApplied: play.pityCapApplied });
+        metrics.recordSlot({ amount: play.amount, payout: play.payout, outcomeName: play.outcomeName, pityTriggered: play.pityTriggered, pityCapApplied: play.pityCapApplied, userId: msg.author.id });
 
         const components = play.walletAfter.ngoc > 0
             ? [buildSlotContinueButtons(msg.author.id, play.amount, play.walletAfter.ngoc)]
@@ -576,9 +578,9 @@ async function handleMessageCommand(msg) {
         const newW = getWallet(guildId, msg.author.id);
 
         if (isTong) {
-            metrics.recordTong({ amount, won: play.won, mult: play.mult, guess, viaButton: false, wasAllIn: isAll });
+            metrics.recordTong({ amount, won: play.won, mult: play.mult, guess, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
         } else {
-            metrics.recordMat({ amount, won: play.won, mult: play.mult, face: guess, matches: play.matches, viaButton: false, wasAllIn: isAll });
+            metrics.recordMat({ amount, won: play.won, mult: play.mult, face: guess, matches: play.matches, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
         }
 
         const content = isTong
