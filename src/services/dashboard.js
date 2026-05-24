@@ -397,8 +397,16 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+const GUILD_STORAGE_KEY = 'qtbot.dashboard.guild';
+function loadStoredGuild() {
+  try { return localStorage.getItem(GUILD_STORAGE_KEY); } catch (e) { return null; }
+}
+function saveStoredGuild(g) {
+  try { if (g) localStorage.setItem(GUILD_STORAGE_KEY, g); } catch (e) { /* private mode */ }
+}
+
 let currentDate = null;
-let currentGuild = 'all';
+let currentGuild = loadStoredGuild() || 'all';
 
 async function load(date, guild) {
   const btn = document.getElementById('refreshBtn');
@@ -412,6 +420,7 @@ async function load(date, guild) {
     snapshot = await res.json();
     currentDate = snapshot.date;
     currentGuild = snapshot.guild;
+    saveStoredGuild(currentGuild);
     setDates(snapshot.buckets, snapshot.date);
     setGuilds(snapshot.guilds, snapshot.guild);
     document.getElementById('guildLabel').textContent = (guildNameOf(snapshot, snapshot.guild) || snapshot.guild);
@@ -434,7 +443,7 @@ setInterval(() => {
   if (Date.now() >= nextRefreshAt) load(currentDate, currentGuild);
 }, 1000);
 
-load();
+load(null, currentGuild);
 </script>
 </body>
 </html>`;
