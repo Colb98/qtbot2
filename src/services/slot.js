@@ -71,7 +71,7 @@ function buildReels(outcome) {
     return pool;
 }
 
-const PITY_THRESHOLD = 10;
+const PITY_THRESHOLD = 20;
 
 function pickFromPool(pool) {
     const totalW = pool.reduce((a, p) => a + p.weight, 0);
@@ -113,8 +113,8 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
 
     const slotPityBefore = w.slotPity || 0;
     const slotStreakMaxBet = w.slotStreakMaxBet || 0;
-    const pityCapApplied = slotPityBefore >= 10 && slotStreakMaxBet > 0 && amount > slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT;
-    if (slotPityBefore >= 10 && slotStreakMaxBet > 0) {
+    const pityCapApplied = slotPityBefore >= PITY_THRESHOLD && slotStreakMaxBet > 0 && amount > slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT;
+    if (slotPityBefore >= PITY_THRESHOLD && slotStreakMaxBet > 0) {
         amount = Math.min(amount, slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT);
         if (amount <= 0) amount = 1;
     }
@@ -136,7 +136,7 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
 
     return {
         amount, payout, mult, outcomeName, spinResult,
-        pityTriggered: slotPityBefore >= 10,
+        pityTriggered: slotPityBefore >= PITY_THRESHOLD,
         pityCapApplied,
         walletAfter
     };
