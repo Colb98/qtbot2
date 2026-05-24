@@ -268,6 +268,7 @@ async function handleMessageCommand(msg) {
         const res = tryClaimDaily(guildId, msg.author.id);
         if (!res.claimed) return msg.reply('Bạn đã nhận daily hôm nay rồi. Quay lại sau 00:00.');
         const r = res.reward;
+        metrics.recordDaily({ nganphieu: r.nganphieu, userId: msg.author.id });
         return msg.reply(`🎁 Daily của ${member.displayName}: +${fmt(r.nganphieu)} ${renderEmote('nganphieu')}.`);
     }
 
@@ -480,6 +481,7 @@ async function handleMessageCommand(msg) {
         data.gaNgocGiveaway = data.gaNgocGiveaway || {};
         data.gaNgocGiveaway[sent.id] = { guildId, amount, claimed: {} };
         saveData();
+        metrics.recordGangocCreated({ amount });
         return msg.reply(`✅ GA ngọc **${fmt(amount)}** đã được đăng lên ${targetChannel}`);
     }
 

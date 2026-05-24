@@ -108,6 +108,18 @@ const GAME_DEFAULTS = {
         roundDurationMs: 0,
         rejectedWords: 0,
         roundsAboveThreshold: 0
+    },
+    daily: {
+        claims: 0,
+        nganphieuMinted: 0,
+        playerIds: {}
+    },
+    gangoc: {
+        giveaways: 0,
+        ngocPerClaimTotal: 0,
+        claims: 0,
+        ngocMinted: 0,
+        playerIds: {}
     }
 };
 
@@ -301,6 +313,32 @@ function recordWordchainEng({ totalWords, participants, ngocAwarded, endReason, 
     _dirty = true;
 }
 
+function recordDaily({ nganphieu, userId }) {
+    _checkRollover();
+    const m = _get('daily');
+    m.claims++;
+    m.nganphieuMinted += nganphieu;
+    if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
+    _dirty = true;
+}
+
+function recordGangocCreated({ amount }) {
+    _checkRollover();
+    const m = _get('gangoc');
+    m.giveaways++;
+    m.ngocPerClaimTotal += amount;
+    _dirty = true;
+}
+
+function recordGangocClaim({ amount, userId }) {
+    _checkRollover();
+    const m = _get('gangoc');
+    m.claims++;
+    m.ngocMinted += amount;
+    if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
+    _dirty = true;
+}
+
 function recordWordchainReject() {
     _checkRollover();
     const m = _get('wordchain_eng');
@@ -396,6 +434,24 @@ function _formatGame(game) {
             `Items — Cao: ${fmt(ic.cao||0)} | TT: ${fmt(ic.thienthuong||0)} | KT: ${fmt(ic.kythuong||0)} | Diều: ${fmt(ic.dieu||0)} | Nhuộm: ${fmt(ic.nhuom||0)}`
         ].join('\n');
     }
+    if (game === 'daily') {
+        const m = _get('daily');
+        const uniq = uniqueCount(m.playerIds);
+        const ngocEq = m.nganphieuMinted / 100;
+        return [
+            `🎁 DAILY (faucet) — ${fmt(m.claims)} lượt nhận | Unique: ${fmt(uniq)}`,
+            `**Minted**: ${fmt(m.nganphieuMinted)} ngân phiếu (≈ ${fmt(Math.round(ngocEq))} ngọc-eq)`
+        ].join('\n');
+    }
+    if (game === 'gangoc') {
+        const m = _get('gangoc');
+        const uniq = uniqueCount(m.playerIds);
+        const avgPerGa = m.giveaways ? Math.round(m.ngocPerClaimTotal / m.giveaways) : 0;
+        return [
+            `🎉 GANGOC (faucet) — ${fmt(m.giveaways)} GAs | ${fmt(m.claims)} claims | Unique: ${fmt(uniq)}`,
+            `**Minted**: ${fmt(m.ngocMinted)} ngọc | Avg ngọc/GA (per claim): ${fmt(avgPerGa)}`
+        ].join('\n');
+    }
     if (game === 'wordchain_eng' || game === 'wordchain') {
         const m = _get('wordchain_eng');
         const er = m.endReasons || { timeout: 0, dead_end: 0, surrender: 0 };
@@ -437,9 +493,17 @@ function netFromStore(store) {
         const payout = m.payout || 0;
         netGame += (payout - wagered);
     }
-    const minted = (store.wordchain_eng && store.wordchain_eng.ngocAwarded) || 0;
+    const mintedWordchain = (store.wordchain_eng && store.wordchain_eng.ngocAwarded) || 0;
+    const mintedGangoc = (store.gangoc && store.gangoc.ngocMinted) || 0;
+    const mintedDailyNganphieu = (store.daily && store.daily.nganphieuMinted) || 0;
+    const mintedDailyNgocEq = mintedDailyNganphieu / 100;
+    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq;
     const burned = (store.gacha && store.gacha.burned) || 0;
-    return { netGame, minted, burned, netEconomy: netGame + minted - burned };
+    return {
+        netGame, minted, burned,
+        mintedWordchain, mintedGangoc, mintedDailyNganphieu,
+        netEconomy: netGame + minted - burned
+    };
 }
 
 function rollingNet(days = 7) {
@@ -479,7 +543,7 @@ function formatAllSections(bucket) {
         Object.keys(store).forEach(k => (_store[k] = store[k]));
     }
     const liveStore = bucket ? store : _store;
-    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng']
+    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'daily', 'gangoc']
         .map(g => _formatGame(g))
         .filter(Boolean);
     sections.push(`${formatSummary(liveStore, label)}\n📅 Ngày${label}`);
@@ -530,9 +594,10 @@ function listBuckets() {
 module.exports = {
     recordSlot, recordCoinflip, recordTong, recordMat, recordWordchainEng,
     recordGacha, recordWordchainReject,
+    recordDaily, recordGangocCreated, recordGangocClaim,
     formatSlot, formatCoinflip, formatTong, formatMat,
     formatAll, formatAllSections, formatGame, packSections, listBuckets,
-    rollingNet, netFromStore,
+    rollingNet, netFromStore, loadBucket,
     currentBucket: () => _bucket,
     flush
 };

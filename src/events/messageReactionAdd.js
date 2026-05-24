@@ -8,6 +8,7 @@ const { editMessage, validateGuildMember } = require('../services/guildWar');
 const { grantIfNeeded } = require('../services/bangChienReward');
 const { addNgoc } = require('../services/currency');
 const { isMaintenance } = require('../services/maintenance');
+const metrics = require('../services/metrics');
 
 module.exports = {
     name: Events.MessageReactionAdd,
@@ -47,6 +48,7 @@ module.exports = {
                     if (!giveaway.claimed[user.id]) {
                         giveaway.claimed[user.id] = true;
                         addNgoc(giveaway.guildId, user.id, giveaway.amount);
+                        metrics.recordGangocClaim({ amount: giveaway.amount, userId: user.id });
                         log.info(`User ${user.id} claimed ${giveaway.amount} ngọc from giveaway ${reaction.message.id}`);
                     }
                 }

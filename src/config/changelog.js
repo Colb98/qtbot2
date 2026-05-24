@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '1.8.0';
+const CURRENT_VERSION = '1.9.0';
 
 const CHANGELOG = {
+    '1.9.0': {
+        date: '2026-05-24',
+        title: 'Dashboard web + faucet metrics (daily / gangoc)',
+        changes: [
+            '**Dashboard web** chạy nội bộ ở port `DASHBOARD_PORT` (mặc định 3000): cards cho mỗi trò, banner Net Kinh Tế ngày, line chart 7 ngày, dropdown chọn ngày.',
+            'Nút **Refresh** nổi góc dưới-phải (theo cuộn trang), auto-refresh mỗi 60s, kèm countdown.',
+            'Faucet mới được track: `!daily` (ngân phiếu minted, unique claimers) và `!gangoc` (số GAs, ngọc minted, unique claimers, avg ngọc/GA).',
+            'Daily + Gangoc cũng hiển thị trong `!metrics`. Net Kinh Tế giờ cộng thêm minted từ Gangoc + ngọc-equiv của Daily (÷100).'
+        ]
+    },
     '1.8.0': {
         date: '2026-05-24',
         title: 'Điểm Thân mật, Cáo 5/9 đuôi, mở rộng gift/sell',

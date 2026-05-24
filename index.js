@@ -5,6 +5,7 @@ const client = require('./src/client');
 const { loadCommands } = require('./src/commands');
 const { registerEvents } = require('./src/events');
 const { flush: flushMetrics } = require('./src/services/metrics');
+const dashboard = require('./src/services/dashboard');
 
 const TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN) {
@@ -22,5 +23,6 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 loadCommands(client);
 registerEvents(client);
+dashboard.start();
 
 client.login(TOKEN);
