@@ -48,7 +48,7 @@ module.exports = {
                     if (!giveaway.claimed[user.id]) {
                         giveaway.claimed[user.id] = true;
                         addNgoc(giveaway.guildId, user.id, giveaway.amount);
-                        metrics.recordGangocClaim({ amount: giveaway.amount, userId: user.id });
+                        metrics.recordGangocClaim({ guildId: giveaway.guildId, amount: giveaway.amount, userId: user.id });
                         log.info(`User ${user.id} claimed ${giveaway.amount} ngọc from giveaway ${reaction.message.id}`);
                     }
                 }

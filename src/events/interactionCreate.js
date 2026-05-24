@@ -94,7 +94,7 @@ module.exports = {
                                 if (counts[k] > 0) addItem(guildId, userId, k, counts[k]);
                             }
                             saveData();
-                            metrics.recordGacha({ rolls: n, cost, counts, userId, ...gachaMeta });
+                            metrics.recordGacha({ guildId, rolls: n, cost, counts, userId, ...gachaMeta });
                             const result = formatRollResult(counts);
                             await shakeMsg.edit({ content: `**${member.displayName}** quay ${fmt(n)} lần (-${fmt(cost)} ${renderEmote('ngoc')}):\n${result}`, attachments: [] }).catch(e => log.error('gacha edit error', e));
                         } catch (e) {
@@ -171,7 +171,7 @@ async function handleCoinflipButton(interaction) {
 
     const wasAllIn = action === 'allin';
     const bigWin = won && (wasAllIn || amount >= 5000);
-    metrics.recordCoinflip({ amount, won, side, viaButton: true, wasAllIn, bigWin, userId: ownerUserId });
+    metrics.recordCoinflip({ guildId, amount, won, side, viaButton: true, wasAllIn, bigWin, userId: ownerUserId });
 
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
@@ -227,14 +227,14 @@ async function handleDiceButton(interaction, game) {
     if (game === 'tong') {
         const { sum, won, mult } = dice.playTong(roll, guess);
         addNgoc(guildId, ownerUserId, won ? amount * (mult - 1) : -amount);
-        metrics.recordTong({ amount, won, mult, guess, viaButton: true, wasAllIn, userId: ownerUserId });
+        metrics.recordTong({ guildId, amount, won, mult, guess, viaButton: true, wasAllIn, userId: ownerUserId });
         const newWallet = getWallet(guildId, ownerUserId);
         content = dice.formatTongResult({ displayName, guess, roll, sum, won, amount, mult });
         components = newWallet.ngoc > 0 ? dice.buildTongButtons(ownerUserId, amount, guess, newWallet.ngoc) : [];
     } else {
         const { matches, won, mult } = dice.playMat(roll, guess);
         addNgoc(guildId, ownerUserId, won ? amount * (mult - 1) : -amount);
-        metrics.recordMat({ amount, won, mult, face: guess, matches, viaButton: true, wasAllIn, userId: ownerUserId });
+        metrics.recordMat({ guildId, amount, won, mult, face: guess, matches, viaButton: true, wasAllIn, userId: ownerUserId });
         const newWallet = getWallet(guildId, ownerUserId);
         content = dice.formatMatResult({ displayName, face: guess, roll, matches, won, amount, mult });
         components = newWallet.ngoc > 0 ? dice.buildMatButtons(ownerUserId, amount, guess, newWallet.ngoc) : [];
@@ -301,6 +301,7 @@ async function handleSlotButton(interaction) {
 
     const resultLine = formatSlotResultLine({ mult: play.mult, payout: play.payout, outcomeName: play.outcomeName });
     metrics.recordSlot({
+        guildId,
         amount: play.amount, payout: play.payout, outcomeName: play.outcomeName,
         pityTriggered: play.pityTriggered, pityCapApplied: play.pityCapApplied,
         userId: ownerUserId

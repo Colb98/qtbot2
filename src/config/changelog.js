@@ -1,6 +1,24 @@
-const CURRENT_VERSION = '1.9.0';
+const CURRENT_VERSION = '1.10.1';
 
 const CHANGELOG = {
+    '1.10.1': {
+        date: '2026-05-24',
+        title: 'Metrics admin: exclude list + adjust bucket',
+        changes: [
+            '`!metrics_exclude add|remove|clean @user` — Loại user khỏi metrics: tất cả `record*` skip hoàn toàn (không tính wagered/payout/playerIds). `add` auto-clean luôn playerIds trong các bucket cũ.',
+            '`!metrics_adjust <guildId|_legacy> <date|today> <game> <field=delta> ...` — Sửa tay bucket: cộng/trừ field số. Dotted path cho nested (vd `itemCounts.cao=-1`). Dùng để correct dữ liệu lịch sử (vd gacha test trên `_legacy`).'
+        ]
+    },
+    '1.10.0': {
+        date: '2026-05-24',
+        title: 'Per-guild metrics + dashboard guild filter',
+        changes: [
+            'Metrics giờ track riêng theo từng guild (server). Dashboard có dropdown chọn guild — không còn gộp server test vào server thật.',
+            '`!metrics` mặc định chỉ hiển thị guild hiện tại; gõ `!metrics all` để gộp tất cả guild, hoặc `!metrics guilds` để liệt kê các guild có data.',
+            'Buckets metrics cũ (trước khi split) tự động map vào guild ảo `_legacy` — vẫn xem được nhưng tách biệt khỏi data mới.',
+            'Top 10 Thiên Thưởng (`!toptt`): chỉ liệt kê vật phẩm user thực sự có (không hiện `0 cáo`); cộng Cáo 5 đuôi (×9 điểm) và Cáo 9 đuôi (×27 điểm) vào tổng.'
+        ]
+    },
     '1.9.0': {
         date: '2026-05-24',
         title: 'Dashboard web + faucet metrics (daily / gangoc)',

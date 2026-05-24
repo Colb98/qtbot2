@@ -23,6 +23,6 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 loadCommands(client);
 registerEvents(client);
-dashboard.start();
+dashboard.start(client);
 
 client.login(TOKEN);

@@ -428,6 +428,7 @@ async function endSession(threadId, { reason, winnerId }) {
         const durationMs = session.startedAt ? Math.max(0, Date.now() - session.startedAt) : 0;
         const aboveThreshold = session.playerCount >= cfg.WORD_THRESHOLD;
         metrics.recordWordchainEng({
+            guildId: session.guildId,
             totalWords: session.playerCount,
             participants: ownerPositions.size,
             ngocAwarded: totalNgocAwarded,
@@ -716,7 +717,7 @@ async function handleThreadMessage(msg) {
     }
 
     if (action === 'shape' || action === 'not_in_dict' || action === 'wrong_chain') {
-        try { metrics.recordWordchainReject(); } catch (e) { /* ignore */ }
+        try { metrics.recordWordchainReject({ guildId: msg.guildId }); } catch (e) { /* ignore */ }
         await msg.react('❌').catch(() => {});
         return;
     }

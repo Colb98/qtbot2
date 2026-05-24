@@ -5,12 +5,14 @@ const metrics = require('./metrics');
 
 const DEFAULT_PORT = 3000;
 
+let _discordClient = null;
+
 function uniqueCount(map) {
     return map ? Object.keys(map).length : 0;
 }
 
-// Strip raw player IDs from a store, keep aggregate uniquePlayers count.
-function sanitizeStore(store) {
+// Strip raw player IDs from a flat store, keep aggregate uniquePlayers count.
+function sanitizeFlatStore(store) {
     if (!store) return {};
     const out = {};
     for (const [game, m] of Object.entries(store)) {
@@ -25,16 +27,12 @@ function sanitizeStore(store) {
     return out;
 }
 
-function buildSeries(buckets, days = 7) {
+function buildSeries(buckets, days, guildFilter) {
     const slice = buckets.slice(0, days);
     const series = [];
     for (const b of slice) {
-        const store = (b === metrics.currentBucket()) ? null : metrics.loadBucket(b);
-        // For "today", loadBucket gives the on-disk copy which may lag the
-        // in-memory store by up to FLUSH_INTERVAL_MS. We accept that tradeoff:
-        // current-day numbers in series match what other clients see on disk.
-        const s = store || metrics.loadBucket(b);
-        const net = metrics.netFromStore(s);
+        const s = metrics.loadBucket(b);
+        const net = metrics.netFromStore(s, guildFilter);
         series.push({
             bucket: b,
             netEconomy: net.netEconomy,
@@ -46,24 +44,45 @@ function buildSeries(buckets, days = 7) {
             burned: net.burned
         });
     }
-    return series.reverse(); // oldest first for chart x-axis
+    return series.reverse();
 }
 
-function buildSnapshot(date) {
+function guildNameFor(id) {
+    if (id === metrics.LEGACY_GUILD_KEY) return '(legacy / pre-split)';
+    if (!_discordClient) return null;
+    const g = _discordClient.guilds.cache.get(id);
+    return g ? g.name : null;
+}
+
+function buildGuildList() {
+    // Union of guild IDs across all buckets.
+    const ids = new Set(metrics.listAllGuilds());
+    // Surface 'all' as a pseudo-option at the top.
+    const list = [{ id: 'all', name: 'Tất cả guild (aggregate)' }];
+    for (const id of Array.from(ids).sort()) {
+        list.push({ id, name: guildNameFor(id) || `(unknown ${id})` });
+    }
+    return list;
+}
+
+function buildSnapshot(date, guildFilter) {
     metrics.flush();
     const buckets = metrics.listBuckets();
     const target = date && buckets.includes(date) ? date : (buckets[0] || metrics.currentBucket());
-    const store = metrics.loadBucket(target);
-    const net = metrics.netFromStore(store);
-    const rolling = metrics.rollingNet(7);
+    const rawStore = metrics.loadBucket(target);
+    const flat = metrics.flattenStore(rawStore, guildFilter);
+    const net = metrics.netFromStore(rawStore, guildFilter);
+    const rolling = metrics.rollingNet(7, guildFilter);
     return {
         date: target,
+        guild: guildFilter || 'all',
+        guilds: buildGuildList(),
         generatedAt: new Date().toISOString(),
         buckets,
-        store: sanitizeStore(store),
+        store: sanitizeFlatStore(flat),
         net,
         rolling,
-        series7: buildSeries(buckets, 7)
+        series7: buildSeries(buckets, 7, guildFilter)
     };
 }
 
@@ -172,9 +191,13 @@ const HTML_PAGE = `<!DOCTYPE html>
 <body>
 <header>
   <h1>qtbot metrics</h1>
+  <label class="meta">Guild:</label>
+  <select id="guildSelect"></select>
+  <label class="meta">Ngày:</label>
   <select id="dateSelect"></select>
   <span class="meta">Last updated: <span id="updated">—</span></span>
   <span class="pill" id="bucketLabel">—</span>
+  <span class="pill" id="guildLabel">—</span>
 </header>
 
 <div class="net-banner" id="netBanner"></div>
@@ -219,8 +242,9 @@ function card(title, rows) {
 function renderNetBanner(snap) {
   const n = snap.net;
   const r = snap.rolling;
+  const guildLabel = snap.guild === 'all' ? 'tất cả guild' : (guildNameOf(snap, snap.guild) || ('guild ' + snap.guild));
   const html =
-    '<div class="label">Net kinh tế ngày ' + snap.date + '</div>' +
+    '<div class="label">Net kinh tế ngày ' + snap.date + ' — ' + guildLabel + '</div>' +
     '<div class="big ' + goodbad(n.netEconomy) + '">' + sign(n.netEconomy) + ' ngọc</div>' +
     '<div class="sub">' +
       '= net game (' + sign(n.netGame) + ') + minted faucets (' + sign(n.minted) + ') − gacha burned (' + fmt(n.burned) + ')' +
@@ -357,14 +381,39 @@ function setDates(buckets, selected) {
   sel.innerHTML = buckets.map(b => '<option value="' + b + '"' + (b === selected ? ' selected' : '') + '>' + b + '</option>').join('');
 }
 
-async function load(date) {
+function setGuilds(guilds, selected) {
+  const sel = document.getElementById('guildSelect');
+  sel.innerHTML = guilds.map(g => '<option value="' + g.id + '"' + (g.id === selected ? ' selected' : '') + '>' + escapeHtml(g.name || g.id) + ' [' + g.id + ']</option>').join('');
+}
+
+function guildNameOf(snap, id) {
+  if (!snap || !snap.guilds) return null;
+  const g = snap.guilds.find(x => x.id === id);
+  return g ? g.name : null;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+let currentDate = null;
+let currentGuild = 'all';
+
+async function load(date, guild) {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('loading');
   try {
-    const qs = date ? ('?date=' + encodeURIComponent(date)) : '';
+    const params = [];
+    if (date) params.push('date=' + encodeURIComponent(date));
+    if (guild) params.push('guild=' + encodeURIComponent(guild));
+    const qs = params.length ? ('?' + params.join('&')) : '';
     const res = await fetch('/api/snapshot' + qs);
     snapshot = await res.json();
+    currentDate = snapshot.date;
+    currentGuild = snapshot.guild;
     setDates(snapshot.buckets, snapshot.date);
+    setGuilds(snapshot.guilds, snapshot.guild);
+    document.getElementById('guildLabel').textContent = (guildNameOf(snapshot, snapshot.guild) || snapshot.guild);
     renderAll();
     nextRefreshAt = Date.now() + REFRESH_MS;
   } catch (e) {
@@ -374,13 +423,14 @@ async function load(date) {
   }
 }
 
-document.getElementById('refreshBtn').addEventListener('click', () => load(snapshot ? snapshot.date : null));
-document.getElementById('dateSelect').addEventListener('change', (e) => load(e.target.value));
+document.getElementById('refreshBtn').addEventListener('click', () => load(currentDate, currentGuild));
+document.getElementById('dateSelect').addEventListener('change', (e) => load(e.target.value, currentGuild));
+document.getElementById('guildSelect').addEventListener('change', (e) => load(currentDate, e.target.value));
 
 setInterval(() => {
   const remain = Math.max(0, Math.round((nextRefreshAt - Date.now()) / 1000));
   document.getElementById('countdown').textContent = remain ? '(' + remain + 's)' : '';
-  if (Date.now() >= nextRefreshAt) load(snapshot ? snapshot.date : null);
+  if (Date.now() >= nextRefreshAt) load(currentDate, currentGuild);
 }, 1000);
 
 load();
@@ -397,10 +447,14 @@ function handle(req, res) {
         }
         if (pathname === '/api/snapshot') {
             const date = parsed.query.date;
-            return sendJson(res, 200, buildSnapshot(date));
+            const guild = parsed.query.guild || 'all';
+            return sendJson(res, 200, buildSnapshot(date, guild));
         }
         if (pathname === '/api/buckets') {
             return sendJson(res, 200, { buckets: metrics.listBuckets() });
+        }
+        if (pathname === '/api/guilds') {
+            return sendJson(res, 200, { guilds: buildGuildList() });
         }
         if (pathname === '/healthz') {
             res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -414,7 +468,14 @@ function handle(req, res) {
     }
 }
 
-function start(port) {
+function start(client, port) {
+    if (client && typeof client === 'object' && client.guilds) {
+        _discordClient = client;
+    } else if (typeof client === 'number') {
+        // back-compat: dashboard.start(port)
+        port = client;
+        _discordClient = null;
+    }
     const p = Number(port || process.env.DASHBOARD_PORT || DEFAULT_PORT);
     const server = http.createServer(handle);
     server.on('error', (e) => log.error('dashboard server error', e));

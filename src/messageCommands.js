@@ -114,9 +114,11 @@ async function handleMessageCommand(msg) {
 • \`!gangoc <n> [#kênh]\` — GA ngọc, user react để nhận.
 
 **Metrics & Debug:**
-• \`!metrics [slot|coinflip|tong|mat|gacha|wordchain] [YYYY-MM-DD]\` — Xem thống kê trò chơi (mặc định hôm nay; không tham số → toàn bộ + net kinh tế + 7-day rolling).
+• \`!metrics [slot|coinflip|tong|mat|gacha|wordchain|daily|gangoc] [YYYY-MM-DD] [all|<guildId>]\` — Mặc định guild hiện tại; \`all\` để gộp; truyền guildId cụ thể để xem 1 guild khác.
+• \`!metrics list\` — Liệt kê các file metrics đã lưu. \`!metrics guilds\` — Liệt kê guilds có data.
+• \`!metrics_exclude [list|add|remove|clean] @user\` — Loại user khỏi metrics (skip toàn bộ record + dọn playerIds cũ).
+• \`!metrics_adjust <guildId|_legacy> <YYYY-MM-DD|today> <game> <field=delta> [...]\` — Cộng/trừ trực tiếp vào bucket (vd: \`rolls=-30 burned=-3000 itemCounts.cao=-1\`).
 • \`!wordchain_payout\` — Trả thưởng tuần trước cho top 10 English Wordchain ngay (cron tự chạy Thứ Hai 00:00 GMT+7).
-• \`!metrics list\` — Liệt kê các file metrics đã lưu.
 
 **Guild War:**
 • \`!setup channel #channel\` — Set kênh đăng ký bang chiến.
@@ -132,26 +134,41 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!metrics') {
         if (!isSuperAdmin(msg.author.id)) return;
-        // !metrics [slot|coinflip|tong|mat] [YYYY-MM-DD]
-        // !metrics list
-        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng']);
-        const arg1 = (parts[1] || '').toLowerCase();
-        const arg2 = (parts[2] || '').toLowerCase();
+        // !metrics [slot|coinflip|tong|mat|...] [YYYY-MM-DD] [all]
+        // Defaults to current guild's metrics; pass 'all' to aggregate across guilds.
+        // !metrics list / !metrics guilds
+        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'daily', 'gangoc']);
+        const argTokens = parts.slice(1).map(p => p.toLowerCase());
 
-        if (arg1 === 'list') {
+        if (argTokens[0] === 'list') {
             const buckets = metrics.listBuckets();
             if (!buckets.length) return msg.reply('Chưa có file metrics nào.');
             return msg.reply(`📂 **Metrics files** (${buckets.length}):\n${buckets.join('\n')}`);
         }
+        if (argTokens[0] === 'guilds') {
+            const gs = metrics.listAllGuilds();
+            if (!gs.length) return msg.reply('Chưa có guild nào có metrics.');
+            const lines = gs.map(g => {
+                const guild = client.guilds.cache.get(g);
+                const name = guild ? guild.name : (g === metrics.LEGACY_GUILD_KEY ? '(legacy/pre-split)' : '(unknown)');
+                return `\`${g}\` — ${name}`;
+            });
+            return msg.reply(`🏰 **Guilds in metrics**:\n${lines.join('\n')}`);
+        }
 
-        // Detect which arg is game and which is date
-        const game = GAMES.has(arg1) ? arg1 : (GAMES.has(arg2) ? arg2 : null);
-        const dateArg = /^\d{4}-\d{2}-\d{2}$/.test(arg1) ? arg1 : (/^\d{4}-\d{2}-\d{2}$/.test(arg2) ? arg2 : null);
+        let game = null, dateArg = null;
+        let guildFilter = guildId; // default: current guild only
+        for (const tok of argTokens) {
+            if (tok === 'all') guildFilter = 'all';
+            else if (GAMES.has(tok)) game = tok;
+            else if (/^\d{4}-\d{2}-\d{2}$/.test(tok)) dateArg = tok;
+            else if (/^\d{15,20}$/.test(tok)) guildFilter = tok;
+        }
 
         if (game) {
-            return msg.reply(`\`\`\`\n${metrics.formatGame(game)}\n\`\`\``);
+            return msg.reply(`\`\`\`\n${metrics.formatGame(game, guildFilter)}\n\`\`\``);
         }
-        const sections = metrics.formatAllSections(dateArg || undefined);
+        const sections = metrics.formatAllSections(dateArg || undefined, guildFilter);
         const chunks = metrics.packSections(sections, 1900);
         if (chunks.length === 0) return msg.reply('Chưa có dữ liệu metrics.');
         await msg.reply(`\`\`\`\n${chunks[0]}\n\`\`\``);
@@ -159,6 +176,81 @@ async function handleMessageCommand(msg) {
             await msg.channel.send(`\`\`\`\n${chunks[i]}\n\`\`\``);
         }
         return;
+    }
+
+    if (cmd === '!metrics_exclude' || cmd === '!metrics_ex') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const sub = (parts[1] || '').toLowerCase();
+        const arg = parts[2];
+        const extractId = () => {
+            if (!arg) return null;
+            if (/^\d{15,20}$/.test(arg)) return arg;
+            const m = arg.match(/^<@!?(\d{15,20})>$/);
+            return m ? m[1] : null;
+        };
+
+        if (!sub || sub === 'list') {
+            const ids = metrics.listExcluded();
+            if (ids.length === 0) return msg.reply('Exclude list trống. Cú pháp: `!metrics_exclude add|remove|clean @user|<userId>`.');
+            const lines = await Promise.all(ids.map(async id => {
+                const m = await msg.guild.members.fetch(id).catch(() => null);
+                return `\`${id}\` — ${m ? m.displayName : '(unknown)'}`;
+            }));
+            return msg.reply(`🚫 **Metrics exclude list** (${ids.length}):\n${lines.join('\n')}`);
+        }
+        const uid = extractId();
+        if (!uid) return msg.reply('Cần mention @user hoặc user ID. Cú pháp: `!metrics_exclude add|remove|clean @user|<userId>`.');
+        if (sub === 'add') {
+            const added = metrics.addExcluded(uid);
+            const cleaned = metrics.purgeUserFromPlayerIds(uid);
+            return msg.reply(`${added ? '✅ Đã thêm' : 'ℹ️ Đã có trong list'} \`${uid}\`. Dọn khỏi ${cleaned} bucket(s) đã có.`);
+        }
+        if (sub === 'remove') {
+            const removed = metrics.removeExcluded(uid);
+            return msg.reply(removed ? `✅ Đã bỏ \`${uid}\` khỏi exclude list (data cũ vẫn rỗng nếu đã clean).` : `\`${uid}\` không có trong list.`);
+        }
+        if (sub === 'clean') {
+            const cleaned = metrics.purgeUserFromPlayerIds(uid);
+            return msg.reply(`🧹 Đã xoá \`${uid}\` khỏi playerIds trên ${cleaned} bucket(s).`);
+        }
+        return msg.reply('Cú pháp: `!metrics_exclude [list]` | `add @user` | `remove @user` | `clean @user`.');
+    }
+
+    if (cmd === '!metrics_adjust') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        // !metrics_adjust <guildId|_legacy> <YYYY-MM-DD|today> <game> <field=delta> [field=delta ...]
+        const guildArg = parts[1];
+        const dateArg = parts[2];
+        const gameArg = (parts[3] || '').toLowerCase();
+        const deltaTokens = parts.slice(4);
+        if (!guildArg || !dateArg || !gameArg || deltaTokens.length === 0) {
+            return msg.reply(
+                'Cú pháp: `!metrics_adjust <guildId|_legacy> <YYYY-MM-DD|today> <game> <field=delta> [...]`\n' +
+                'VD: `!metrics_adjust _legacy 2026-05-23 gacha rolls=-30 burned=-3000 hits=-1 itemCounts.cao=-1`'
+            );
+        }
+        const bucket = dateArg.toLowerCase() === 'today' ? metrics.currentBucket() : dateArg;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(bucket)) return msg.reply('Date phải dạng `YYYY-MM-DD` hoặc `today`.');
+        const deltas = {};
+        for (const tok of deltaTokens) {
+            const eq = tok.indexOf('=');
+            if (eq < 0) return msg.reply(`Token không hợp lệ: \`${tok}\` — cần dạng \`field=delta\`.`);
+            const key = tok.slice(0, eq);
+            const val = Number(tok.slice(eq + 1));
+            if (!Number.isFinite(val)) return msg.reply(`Delta không phải số: \`${tok}\`.`);
+            deltas[key] = val;
+        }
+        try {
+            const { applied, skipped } = metrics.adjustBucket(bucket, guildArg, gameArg, deltas);
+            const appliedStr = Object.entries(applied).map(([k, v]) => `${k}${v >= 0 ? '+' : ''}${v}`).join(', ') || '(nothing)';
+            const skippedStr = Object.entries(skipped).map(([k, r]) => `${k} (${r})`).join(', ');
+            return msg.reply(
+                `🛠️ Adjusted bucket \`${bucket}\` / guild \`${guildArg}\` / game \`${gameArg}\`\n` +
+                `Applied: ${appliedStr}` + (skippedStr ? `\nSkipped: ${skippedStr}` : '')
+            );
+        } catch (e) {
+            return msg.reply(`❌ Lỗi: ${e.message}`);
+        }
     }
 
     if (cmd === '!changelog') {
@@ -258,7 +350,7 @@ async function handleMessageCommand(msg) {
             if (counts[k] > 0) addItem(guildId, msg.author.id, k, counts[k]);
         }
         saveData();
-        metrics.recordGacha({ rolls: n, cost, counts, userId: msg.author.id, ...gachaMeta });
+        metrics.recordGacha({ guildId, rolls: n, cost, counts, userId: msg.author.id, ...gachaMeta });
         const result = formatRollResult(counts);
         await shakeMsg.edit({ content: `**${member.displayName}** quay ${fmt(n)} lần (-${fmt(cost)} ${renderEmote('ngoc')}):\n${result}`, attachments: [] }).catch(e => log.error('gacha edit error', e));
         return;
@@ -268,7 +360,7 @@ async function handleMessageCommand(msg) {
         const res = tryClaimDaily(guildId, msg.author.id);
         if (!res.claimed) return msg.reply('Bạn đã nhận daily hôm nay rồi. Quay lại sau 00:00.');
         const r = res.reward;
-        metrics.recordDaily({ nganphieu: r.nganphieu, userId: msg.author.id });
+        metrics.recordDaily({ guildId, nganphieu: r.nganphieu, userId: msg.author.id });
         return msg.reply(`🎁 Daily của ${member.displayName}: +${fmt(r.nganphieu)} ${renderEmote('nganphieu')}.`);
     }
 
@@ -481,7 +573,7 @@ async function handleMessageCommand(msg) {
         data.gaNgocGiveaway = data.gaNgocGiveaway || {};
         data.gaNgocGiveaway[sent.id] = { guildId, amount, claimed: {} };
         saveData();
-        metrics.recordGangocCreated({ amount });
+        metrics.recordGangocCreated({ guildId, amount });
         return msg.reply(`✅ GA ngọc **${fmt(amount)}** đã được đăng lên ${targetChannel}`);
     }
 
@@ -499,24 +591,36 @@ async function handleMessageCommand(msg) {
     if (cmd === '!toptt') {
         const wallets = data.wallet && data.wallet[guildId];
         if (!wallets) return msg.reply('Chưa có người nào đăng ký.');
+        const TT_PER_CAO = economy.TT_PER_CAO;
+        const TT_PER_CAO5 = economy.TT_PER_CAO * economy.CAO_PER_CAO5;
+        const TT_PER_CAO9 = TT_PER_CAO5 * economy.CAO5_PER_CAO9;
         const rankings = [];
         for (const [userId, w] of Object.entries(wallets)) {
             if (!w.items) continue;
-            const score = w.items.thienthuong + (w.items.cao * economy.TT_PER_CAO);
-            if (score > 0) rankings.push({ userId, score, cao: w.items.cao, tt: w.items.thienthuong });
+            const tt = w.items.thienthuong || 0;
+            const cao = w.items.cao || 0;
+            const cao5 = w.items.cao5 || 0;
+            const cao9 = w.items.cao9 || 0;
+            const score = tt + cao * TT_PER_CAO + cao5 * TT_PER_CAO5 + cao9 * TT_PER_CAO9;
+            if (score > 0) rankings.push({ userId, score, tt, cao, cao5, cao9 });
         }
         rankings.sort((a, b) => b.score - a.score);
         const top = rankings.slice(0, 10);
         if (top.length === 0) return msg.reply('Chưa có ai có thiên thưởng.');
         const lines = ['**Top 10 Thiên Thưởng**'];
         for (let i = 0; i < top.length; i++) {
-            const { userId, score, cao, tt } = top[i];
+            const { userId, score, tt, cao, cao5, cao9 } = top[i];
             let name = userId;
             try {
                 const member = await msg.guild.members.fetch(userId).catch(() => null);
                 if (member) name = member.displayName;
             } catch (e) {}
-            lines.push(`${i + 1}. **${name}**: ${fmt(tt)} ${renderEmote('thienthuong')} + ${fmt(cao)} ${renderEmote('cao')} = **${fmt(score)}** điểm`);
+            const parts = [];
+            if (tt > 0) parts.push(`${fmt(tt)} ${renderEmote('thienthuong')}`);
+            if (cao > 0) parts.push(`${fmt(cao)} ${renderEmote('cao')}`);
+            if (cao5 > 0) parts.push(`${fmt(cao5)} ${renderEmote('cao5')}`);
+            if (cao9 > 0) parts.push(`${fmt(cao9)} ${renderEmote('cao9')}`);
+            lines.push(`${i + 1}. **${name}**: ${parts.join(' + ')} = **${fmt(score)}** điểm`);
         }
         return msg.reply(lines.join('\n'));
     }
@@ -580,7 +684,7 @@ async function handleMessageCommand(msg) {
         addNgoc(guildId, msg.author.id, won ? amount : -amount);
         const newW = getWallet(guildId, msg.author.id);
         const bigWin = won && (isAll || amount >= 5000);
-        metrics.recordCoinflip({ amount, won, side, viaButton: false, wasAllIn: isAll, bigWin, userId: msg.author.id });
+        metrics.recordCoinflip({ guildId, amount, won, side, viaButton: false, wasAllIn: isAll, bigWin, userId: msg.author.id });
         const content = formatCoinflipResult({ displayName: member.displayName, side, result, won, amount, wasAllIn: isAll });
         const components = newW.ngoc > 0 ? [buildCoinflipButtons(msg.author.id, amount, side, newW.ngoc)] : [];
         return msg.reply({ content, components });
@@ -626,7 +730,7 @@ async function handleMessageCommand(msg) {
         await new Promise(r => setTimeout(r, 750));
 
         const resultLine = formatSlotResultLine({ mult: play.mult, payout: play.payout, outcomeName: play.outcomeName });
-        metrics.recordSlot({ amount: play.amount, payout: play.payout, outcomeName: play.outcomeName, pityTriggered: play.pityTriggered, pityCapApplied: play.pityCapApplied, userId: msg.author.id });
+        metrics.recordSlot({ guildId, amount: play.amount, payout: play.payout, outcomeName: play.outcomeName, pityTriggered: play.pityTriggered, pityCapApplied: play.pityCapApplied, userId: msg.author.id });
 
         const components = play.walletAfter.ngoc > 0
             ? [buildSlotContinueButtons(msg.author.id, play.amount, play.walletAfter.ngoc)]
@@ -684,9 +788,9 @@ async function handleMessageCommand(msg) {
         const newW = getWallet(guildId, msg.author.id);
 
         if (isTong) {
-            metrics.recordTong({ amount, won: play.won, mult: play.mult, guess, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
+            metrics.recordTong({ guildId, amount, won: play.won, mult: play.mult, guess, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
         } else {
-            metrics.recordMat({ amount, won: play.won, mult: play.mult, face: guess, matches: play.matches, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
+            metrics.recordMat({ guildId, amount, won: play.won, mult: play.mult, face: guess, matches: play.matches, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
         }
 
         const content = isTong
