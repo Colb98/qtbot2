@@ -4,7 +4,26 @@ module.exports = {
 
     NGAN_PHIEU_PER_NGOC: 100,
     TT_PER_CAO: 3,
+    CAO_PER_CAO5: 3,
+    CAO5_PER_CAO9: 3,
     ROLLS_PER_THIENTHUONG: 50,
+
+    SELL_PRICE_NGOC: {
+        kythuong: 200,
+        dieu: 50,
+        nhuom: 20
+    },
+
+    BOND: {
+        PER_DIEU: 100,
+        PER_NGOC: 0.1,
+        PER_THIENTHUONG: 1000,
+        PER_CAO: 3000,
+        PER_CAO5: 9000,
+        PER_CAO9: 27000,
+        THRESHOLDS: [0, 1000, 10000, 50000, 200000, 500000, 1000000, 5000000, 10000000, 50000000],
+        EMOJIS: ['😊', '🫰', '🫶', '🥰', '❤️', '💖', '💝', '💕', '💞', '❤️‍🔥']
+    },
 
     BANG_CHIEN_REWARD: 1000,
 

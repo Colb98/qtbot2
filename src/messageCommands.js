@@ -20,6 +20,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('d
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
 const wordchainEng = require('./services/wordchainEng');
+const bond = require('./services/bond');
 
 async function handleMessageCommand(msg) {
     const parts = msg.content.trim().split(/\s+/);
@@ -79,8 +80,12 @@ async function handleMessageCommand(msg) {
 • \`!gacha [1-50|all]\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Pity lượt 20 (KT+) / 200 (TT).
 • \`!pity\` — Xem lượt còn lại đến pity.
 • \`!toptt\` / \`!topngoc\` — Bảng xếp hạng.
-• \`!tangngoc @user <n|all>\` / \`!tangthienthuong @user [n|all]\` — Tặng ngọc/thiên thưởng.
+• \`!tangngoc @user <n|all>\` / \`!tangthienthuong @user [n|all]\` — Tặng ngọc/thiên thưởng (+ Điểm Thân mật).
+• \`!tangcao\` / \`!tangcao5\` / \`!tangcao9\` / \`!tangdieu @user [n|all]\` — Tặng vật phẩm (+ Điểm Thân mật).
 • \`!banthienthuong <n|all>\` / \`!bancao <n|all>\` — Bán đổi ngọc.
+• \`!bankythuong\` / \`!bandieu\` / \`!bannhuom <n|all>\` — Bán low-tier (giá ${fmt(economy.SELL_PRICE_NGOC.kythuong)}/${fmt(economy.SELL_PRICE_NGOC.dieu)}/${fmt(economy.SELL_PRICE_NGOC.nhuom)} ngọc).
+• \`!doicao5 <n|all>\` / \`!doicao9 <n|all>\` — Đổi ${economy.CAO_PER_CAO5} cáo → 1 cáo 5 đuôi; ${economy.CAO5_PER_CAO9} cáo 5 đuôi → 1 cáo 9 đuôi.
+• \`!bond [@user]\` — Xem Điểm Thân mật (top 10 hoặc cụ thể với 1 user).
 
 **Mini Games:**
 • \`!coinflip [sap|ngua] <x|all>\` — Cược ngọc 50/50, tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
@@ -89,6 +94,7 @@ async function handleMessageCommand(msg) {
 • \`!mat <x|all|allin> <1-6>\` — Đoán mặt xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6.
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
+• \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
 
 **Khác:**
 • Chat: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)}/ngày).
@@ -277,9 +283,18 @@ async function handleMessageCommand(msg) {
         return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote('cao')}. Số dư: ${fmt(w2.items.thienthuong)} thiên thưởng, ${fmt(w2.items.cao)} cáo.`);
     }
 
-    if (cmd === '!tangthienthuong') {
+    if (cmd === '!tangthienthuong' || cmd === '!tangcao' || cmd === '!tangcao5' || cmd === '!tangcao9' || cmd === '!tangdieu') {
+        const giftMap = {
+            '!tangthienthuong': { key: 'thienthuong', bondPer: economy.BOND.PER_THIENTHUONG },
+            '!tangcao': { key: 'cao', bondPer: economy.BOND.PER_CAO },
+            '!tangcao5': { key: 'cao5', bondPer: economy.BOND.PER_CAO5 },
+            '!tangcao9': { key: 'cao9', bondPer: economy.BOND.PER_CAO9 },
+            '!tangdieu': { key: 'dieu', bondPer: economy.BOND.PER_DIEU }
+        };
+        const { key: itemKey, bondPer } = giftMap[cmd];
+        const itemLabel = ITEM_LABELS[itemKey];
         const mention = parts[1];
-        if (!mention) return msg.reply('Cú pháp: `!tangthienthuong @user [số lượng|all]` (mặc định 1)');
+        if (!mention) return msg.reply(`Cú pháp: \`${cmd} @user [số lượng|all]\` (mặc định 1)`);
         const targetId = mention.replace(/[^0-9]/g, '');
         if (!targetId) return msg.reply('Vui lòng mention user hợp lệ.');
         if (targetId === msg.author.id) return msg.reply('Không thể tự tặng chính mình.');
@@ -289,16 +304,19 @@ async function handleMessageCommand(msg) {
         const w = getWallet(guildId, msg.author.id);
         let amount;
         if (parts[2] === 'all') {
-            amount = w.items.thienthuong;
-            if (amount <= 0) return msg.reply('Bạn không có thiên thưởng để tặng.');
+            amount = w.items[itemKey];
+            if (amount <= 0) return msg.reply(`Bạn không có ${itemLabel} để tặng.`);
         } else {
             amount = parts[2] ? parseInt(parts[2], 10) : 1;
-            if (!Number.isInteger(amount) || amount <= 0) return msg.reply('Cú pháp: `!tangthienthuong @user [số lượng|all]`');
-            if (w.items.thienthuong < amount) return msg.reply(`Bạn chỉ có ${fmt(w.items.thienthuong)} thiên thưởng, không đủ tặng ${fmt(amount)}.`);
+            if (!Number.isInteger(amount) || amount <= 0) return msg.reply(`Cú pháp: \`${cmd} @user [số lượng|all]\``);
+            if (w.items[itemKey] < amount) return msg.reply(`Bạn chỉ có ${fmt(w.items[itemKey])} ${itemLabel}, không đủ tặng ${fmt(amount)}.`);
         }
-        addItem(guildId, msg.author.id, 'thienthuong', -amount);
-        addItem(guildId, targetId, 'thienthuong', amount);
-        return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('thienthuong')} cho ${targetMember.displayName}.`);
+        addItem(guildId, msg.author.id, itemKey, -amount);
+        addItem(guildId, targetId, itemKey, amount);
+        const bondDelta = Math.floor(amount * bondPer);
+        const newBond = bond.addBond(guildId, msg.author.id, targetId, bondDelta);
+        const emoji = bond.emojiFor(newBond);
+        return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote(itemKey)} cho ${targetMember.displayName}. ${emoji} Điểm Thân mật +${fmt(bondDelta)} → **${fmt(newBond)}**.`);
     }
 
     if (cmd === '!tangngoc') {
@@ -322,7 +340,12 @@ async function handleMessageCommand(msg) {
         }
         addNgoc(guildId, msg.author.id, -amount);
         addNgoc(guildId, targetId, amount);
-        return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('ngoc')} cho ${targetMember.displayName}.`);
+        const bondDelta = Math.floor(amount * economy.BOND.PER_NGOC);
+        const newBond = bond.addBond(guildId, msg.author.id, targetId, bondDelta);
+        const bondLine = bondDelta > 0
+            ? ` ${bond.emojiFor(newBond)} Điểm Thân mật +${fmt(bondDelta)} → **${fmt(newBond)}**.`
+            : '';
+        return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('ngoc')} cho ${targetMember.displayName}.${bondLine}`);
     }
 
     if (cmd === '!banthienthuong' || cmd === '!bancao') {
@@ -347,6 +370,80 @@ async function handleMessageCommand(msg) {
         addNgoc(guildId, msg.author.id, gained);
         const w2 = getWallet(guildId, msg.author.id);
         return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey])} ${itemLabel}, ${fmt(w2.ngoc)} ngọc.`);
+    }
+
+    if (cmd === '!bankythuong' || cmd === '!bandieu' || cmd === '!bannhuom') {
+        const itemKey = cmd === '!bankythuong' ? 'kythuong' : (cmd === '!bandieu' ? 'dieu' : 'nhuom');
+        const itemLabel = ITEM_LABELS[itemKey];
+        const pricePerUnit = economy.SELL_PRICE_NGOC[itemKey];
+        const w = getWallet(guildId, msg.author.id);
+        let n;
+        if (parts[1] === 'all') {
+            n = w.items[itemKey];
+            if (n <= 0) return msg.reply(`Bạn không có ${itemLabel} để bán.`);
+        } else {
+            n = parseInt(parts[1], 10);
+            if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — bán 1 ${itemLabel} = ${fmt(pricePerUnit)} ngọc.`);
+            if (w.items[itemKey] < n) return msg.reply(`Bạn chỉ có ${fmt(w.items[itemKey])} ${itemLabel}, không đủ bán ${fmt(n)}.`);
+        }
+        const gained = n * pricePerUnit;
+        addItem(guildId, msg.author.id, itemKey, -n);
+        addNgoc(guildId, msg.author.id, gained);
+        const w2 = getWallet(guildId, msg.author.id);
+        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey])} ${itemLabel}, ${fmt(w2.ngoc)} ngọc.`);
+    }
+
+    if (cmd === '!doicao5' || cmd === '!doicao9') {
+        const isCao9 = cmd === '!doicao9';
+        const srcKey = isCao9 ? 'cao5' : 'cao';
+        const dstKey = isCao9 ? 'cao9' : 'cao5';
+        const ratio = isCao9 ? economy.CAO5_PER_CAO9 : economy.CAO_PER_CAO5;
+        const n = parts[1] === 'all'
+            ? Math.floor(getWallet(guildId, msg.author.id).items[srcKey] / ratio)
+            : parseInt(parts[1], 10);
+        if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — đổi ${ratio} ${ITEM_LABELS[srcKey]} → 1 ${ITEM_LABELS[dstKey]}.`);
+        const cost = n * ratio;
+        const w = getWallet(guildId, msg.author.id);
+        if (w.items[srcKey] < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote(srcKey)} nhưng chỉ có ${fmt(w.items[srcKey])}.`);
+        addItem(guildId, msg.author.id, srcKey, -cost);
+        addItem(guildId, msg.author.id, dstKey, n);
+        const w2 = getWallet(guildId, msg.author.id);
+        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote(srcKey)} → ${fmt(n)} ${renderEmote(dstKey)}. Số dư: ${fmt(w2.items[srcKey])} ${ITEM_LABELS[srcKey]}, ${fmt(w2.items[dstKey])} ${ITEM_LABELS[dstKey]}.`);
+    }
+
+    if (cmd === '!bond' || cmd === '!thanmat') {
+        const mention = parts[1];
+        if (mention) {
+            const targetId = mention.replace(/[^0-9]/g, '');
+            if (!targetId) return msg.reply('Vui lòng mention user hợp lệ.');
+            if (targetId === msg.author.id) return msg.reply('Không thể xem Điểm Thân mật với chính mình.');
+            const targetMember = await msg.guild.members.fetch(targetId).catch(() => null);
+            if (!targetMember) return msg.reply('Không tìm thấy user trong server.');
+            const score = bond.getBond(guildId, msg.author.id, targetId);
+            const emoji = bond.emojiFor(score);
+            return msg.reply(`${emoji} **Điểm Thân mật** giữa ${member.displayName} và ${targetMember.displayName}: **${fmt(score)}**`);
+        }
+        const rows = bond.listBondsFor(guildId, msg.author.id, 10);
+        if (rows.length === 0) return msg.reply('Bạn chưa có liên kết Điểm Thân mật nào. Tặng diều/ngọc/thiên thưởng/cáo để tăng.');
+        const lines = [`**Điểm Thân mật của ${member.displayName}**`];
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i];
+            let name = r.otherId;
+            try {
+                const m = await msg.guild.members.fetch(r.otherId).catch(() => null);
+                if (m) name = m.displayName;
+            } catch (e) { /* ignore */ }
+            lines.push(`${i + 1}. ${bond.emojiFor(r.score)} **${name}** — ${fmt(r.score)}`);
+        }
+        return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+    }
+
+    if (cmd === '!boquathuong') {
+        const nowOptedOut = wordchainEng.toggleOptOut(guildId, msg.author.id);
+        if (nowOptedOut) {
+            return msg.reply(`✅ Bạn đã **bỏ qua** thưởng tuần English Wordchain. Thưởng sẽ chuyển xuống người xếp dưới. Gõ \`!boquathuong\` lần nữa để bật lại.`);
+        }
+        return msg.reply(`✅ Bạn đã **bật lại** nhận thưởng tuần English Wordchain.`);
     }
 
     if (cmd === '!gangoc') {

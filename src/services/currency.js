@@ -1,13 +1,15 @@
 const { data, saveData } = require('../state');
 const economy = require('../config/economy');
 
-const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'dieu', 'kythuong', 'thienthuong', 'shake_tt', 'slotanim', 'dice1', 'dice2', 'dice3', 'dice4', 'dice5', 'dice6'];
+const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'cao5', 'cao9', 'dieu', 'kythuong', 'thienthuong', 'shake_tt', 'slotanim', 'dice1', 'dice2', 'dice3', 'dice4', 'dice5', 'dice6'];
 const ANIMATED_EMOTES = new Set(['shake_tt', 'slotanim']);
-const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'kythuong', 'thienthuong'];
+const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'cao5', 'cao9', 'kythuong', 'thienthuong'];
 const ITEM_LABELS = {
     nhuom: 'Nhuộm',
     dieu: 'Diều',
     cao: 'Cáo',
+    cao5: 'Cáo 5 đuôi',
+    cao9: 'Cáo 9 đuôi',
     kythuong: 'Kỳ Thưởng',
     thienthuong: 'Thiên Thưởng'
 };
@@ -29,12 +31,12 @@ function getWallet(guildId, userId) {
         data.wallet[guildId][userId] = {
             nganphieu: 0,
             ngoc: 0,
-            items: { nhuom: 0, dieu: 0, cao: 0, kythuong: 0, thienthuong: 0 },
+            items: { nhuom: 0, dieu: 0, cao: 0, cao5: 0, cao9: 0, kythuong: 0, thienthuong: 0 },
             pity: { kt: 0, tt: 0 }
         };
     }
     const w = data.wallet[guildId][userId];
-    if (!w.items) w.items = { nhuom: 0, dieu: 0, cao: 0, kythuong: 0, thienthuong: 0 };
+    if (!w.items) w.items = { nhuom: 0, dieu: 0, cao: 0, cao5: 0, cao9: 0, kythuong: 0, thienthuong: 0 };
     for (const k of ITEM_KEYS) if (typeof w.items[k] !== 'number') w.items[k] = 0;
     if (typeof w.nganphieu !== 'number') w.nganphieu = 0;
     if (typeof w.ngoc !== 'number') w.ngoc = 0;

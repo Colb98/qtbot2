@@ -58,6 +58,27 @@ function ensureRoot() {
     if (!data.wordchainEng.lifetime) data.wordchainEng.lifetime = {};
     if (!data.wordchainEng.weekly) data.wordchainEng.weekly = {};
     if (!data.wordchainEng.wordCounts) data.wordchainEng.wordCounts = {};
+    if (!data.wordchainEng.weeklyOptOut) data.wordchainEng.weeklyOptOut = {};
+}
+
+function isOptedOut(guildId, userId) {
+    ensureRoot();
+    const g = data.wordchainEng.weeklyOptOut[guildId];
+    return !!(g && g[userId]);
+}
+
+function toggleOptOut(guildId, userId) {
+    ensureRoot();
+    if (!data.wordchainEng.weeklyOptOut[guildId]) data.wordchainEng.weeklyOptOut[guildId] = {};
+    const g = data.wordchainEng.weeklyOptOut[guildId];
+    if (g[userId]) {
+        delete g[userId];
+        saveData();
+        return false;
+    }
+    g[userId] = true;
+    saveData();
+    return true;
 }
 
 function weekStrAt(ts) {
@@ -200,7 +221,8 @@ function getWeeklyRewardTable() {
 
 function payoutWeek(guildId, week) {
     ensureRoot();
-    const top = getWeeklyTopForWeek(guildId, week, 10);
+    const rawTop = getWeeklyTopForWeek(guildId, week, 50);
+    const top = rawTop.filter(([uid]) => !isOptedOut(guildId, uid)).slice(0, 10);
     if (top.length === 0) return { week, paid: [] };
     const paid = [];
     for (let i = 0; i < top.length; i++) {
@@ -742,5 +764,7 @@ module.exports = {
     getWeeklyTop,
     getWeeklyRewardTable,
     scheduleWeeklyPayout,
-    runWeeklyPayout
+    runWeeklyPayout,
+    isOptedOut,
+    toggleOptOut
 };

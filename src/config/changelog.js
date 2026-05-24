@@ -1,6 +1,19 @@
-const CURRENT_VERSION = '1.7.0';
+const CURRENT_VERSION = '1.8.0';
 
 const CHANGELOG = {
+    '1.8.0': {
+        date: '2026-05-24',
+        title: 'Điểm Thân mật, Cáo 5/9 đuôi, mở rộng gift/sell',
+        changes: [
+            '**Điểm Thân mật** giữa 2 người chơi: tặng quà cho nhau → tăng điểm. Tỷ lệ: Diều +100, Ngọc +0.1, Thiên Thưởng +1000, Cáo +3000, Cáo 5 đuôi +9000, Cáo 9 đuôi +27000 mỗi đơn vị tặng.',
+            'Emoji hiển thị theo mốc (0/1k/10k/50k/200k/500k/1M/5M/10M/50M+): 😊 🫰 🫶 🥰 ❤️ 💖 💝 💕 💞 ❤️‍🔥.',
+            '`!bond` — top 10 liên kết của bạn. `!bond @user` — Điểm Thân mật với 1 người.',
+            '**Cáo 5 đuôi & Cáo 9 đuôi** (vật phẩm mới): `!doicao5 <n|all>` đổi 3 cáo → 1 cáo 5 đuôi; `!doicao9 <n|all>` đổi 3 cáo 5 đuôi → 1 cáo 9 đuôi.',
+            '`!tangcao` / `!tangcao5` / `!tangcao9` / `!tangdieu @user [n|all]` — tặng vật phẩm, kèm Điểm Thân mật.',
+            '`!bankythuong` / `!bandieu` / `!bannhuom <n|all>` — bán vật phẩm tier thấp đổi ngọc (200 / 50 / 20 ngọc mỗi).',
+            '`!boquathuong` — toggle bỏ qua thưởng tuần English Wordchain; thưởng tự chuyển xuống người xếp dưới.'
+        ]
+    },
     '1.7.0': {
         date: '2026-05-23',
         title: 'Wordchain + slot buttons + dashboard metrics',
