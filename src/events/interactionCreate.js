@@ -4,7 +4,7 @@ const log = require('../../logger');
 const wordchain = require('../services/wordchain');
 const wordchainEng = require('../services/wordchainEng');
 const arrangeCmd = require('../commands/arrange');
-const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS } = require('../services/currency');
+const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS, ITEM_LABELS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult, tokenToSide } = require('../services/coinflip');
 const { SYMBOLS: SLOT_SYMBOLS, playSlot, formatResultLine: formatSlotResultLine, buildContinueButtons: buildSlotContinueButtons } = require('../services/slot');
@@ -103,6 +103,8 @@ module.exports = {
                     }
                 } else if (interaction.customId.startsWith('wce_')) {
                     await wordchainEng.handleButtonInteraction(interaction);
+                } else if (interaction.customId.startsWith('khodo:')) {
+                    await handleKhodoButton(interaction);
                 } else {
                     await wordchain.handleButtonInteraction(interaction);
                 }
@@ -314,4 +316,25 @@ async function handleSlotButton(interaction) {
         content: `${render(sym[0], sym[1], sym[2])}\n${resultLine}`,
         components
     }).catch(e => log.error('slot edit final', e));
+}
+
+async function handleKhodoButton(interaction) {
+    const [, action, ownerUserId] = interaction.customId.split(':');
+    if (action !== 'all') return;
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải kho đồ của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    const guildId = interaction.guildId;
+    const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
+    const displayName = member ? member.displayName : interaction.user.username;
+    const w = getWallet(guildId, ownerUserId);
+    const lines = [
+        `**Kho đồ của ${displayName}**`,
+        `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`,
+        `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc)}**`
+    ];
+    for (const k of ITEM_KEYS) {
+        lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(w.items[k] || 0)}**`);
+    }
+    await interaction.update({ content: lines.join('\n'), components: [] }).catch(e => log.error('khodo update error', e));
 }

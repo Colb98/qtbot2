@@ -79,6 +79,44 @@ function checkGameCooldown(userId) {
     return { onCooldown: false, msLeft: 0 };
 }
 
+// Split a long message into Discord-safe chunks on blank-line boundaries,
+// falling back to per-line splits if a single section exceeds the budget.
+function chunkMessage(text, budget = 1990) {
+    if (!text) return [];
+    if (text.length <= budget) return [text];
+    const chunks = [];
+    let current = '';
+    const flush = () => { if (current) { chunks.push(current); current = ''; } };
+    const append = (piece, sep) => {
+        const joined = current ? current + sep + piece : piece;
+        if (joined.length <= budget) { current = joined; return; }
+        flush();
+        if (piece.length <= budget) { current = piece; return; }
+        // Single piece still too big: hard-split.
+        for (let i = 0; i < piece.length; i += budget) chunks.push(piece.slice(i, i + budget));
+    };
+    for (const section of text.split('\n\n')) {
+        if ((current ? current.length + 2 : 0) + section.length <= budget) {
+            append(section, '\n\n');
+        } else {
+            // Section won't fit alongside current — flush, then handle section.
+            flush();
+            if (section.length <= budget) { current = section; continue; }
+            // Section alone is too big: split by lines.
+            for (const line of section.split('\n')) append(line, '\n');
+        }
+    }
+    flush();
+    return chunks;
+}
+
+async function replyChunked(msg, text) {
+    const chunks = chunkMessage(text);
+    if (chunks.length === 0) return;
+    await msg.reply(chunks[0]);
+    for (let i = 1; i < chunks.length; i++) await msg.channel.send(chunks[i]);
+}
+
 async function replyEphemeral(msg, content, ttlMs = 3000) {
     try {
         const reply = await msg.reply(content);
@@ -104,5 +142,7 @@ module.exports = {
     getNextSaturday,
     checkGameCooldown,
     replyEphemeral,
+    chunkMessage,
+    replyChunked,
     GAME_COOLDOWN_MS
 };

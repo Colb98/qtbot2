@@ -5,7 +5,7 @@ const log = require('../logger');
 const client = require('./client');
 const { data, saveData } = require('./state');
 const { CLASS_NAMES, MANAGER_ID, EMOTE_GUILD_ID, EMOTE_FILES } = require('./constants');
-const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin, checkGameCooldown, replyEphemeral } = require('./utils');
+const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin, checkGameCooldown, replyEphemeral, replyChunked } = require('./utils');
 const { isMaintenance, setMaintenance } = require('./services/maintenance');
 const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require('./services/guildWar');
 const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
@@ -104,7 +104,7 @@ async function handleMessageCommand(msg) {
 **Khác:**
 • Chat: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)}/ngày).
 • Báo danh bang chiến: +${fmt(economy.BANG_CHIEN_REWARD)} ngọc/lần.`;
-        await msg.reply(userHelp);
+        await replyChunked(msg, userHelp);
         return;
     }
 
@@ -133,7 +133,7 @@ async function handleMessageCommand(msg) {
 • \`!testreminders <day> <hour> <minute>\` — Lên lịch nhắc nhở test.
 • \`!sendlist\` — Gửi danh sách cho manager.
 • \`!voteclass\` — Đăng bình chọn class.`;
-        await msg.reply(devHelp);
+        await replyChunked(msg, devHelp);
         return;
     }
 
@@ -286,10 +286,24 @@ async function handleMessageCommand(msg) {
             `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`,
             `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc)}**`
         ];
+        let hiddenCount = 0;
         for (const k of ITEM_KEYS) {
-            lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(w.items[k])}**`);
+            if ((w.items[k] || 0) > 0) {
+                lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(w.items[k])}**`);
+            } else {
+                hiddenCount++;
+            }
         }
-        return msg.reply(lines.join('\n'));
+        const components = [];
+        if (hiddenCount > 0) {
+            components.push(new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`khodo:all:${msg.author.id}`)
+                    .setLabel(`Xem hết (+${hiddenCount} trống)`)
+                    .setStyle(ButtonStyle.Secondary)
+            ));
+        }
+        return msg.reply({ content: lines.join('\n'), components });
     }
 
     if (cmd === '!doingoc') {
