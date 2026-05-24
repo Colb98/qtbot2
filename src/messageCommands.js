@@ -82,9 +82,14 @@ async function handleMessageCommand(msg) {
 • \`!toptt\` / \`!topngoc\` — Bảng xếp hạng.
 • \`!tangngoc @user <n|all>\` / \`!tangthienthuong @user [n|all]\` — Tặng ngọc/thiên thưởng (+ Điểm Thân mật).
 • \`!tangcao\` / \`!tangcao5\` / \`!tangcao9\` / \`!tangdieu @user [n|all]\` — Tặng vật phẩm (+ Điểm Thân mật).
+• \`!tangphuongbang\` / \`!tangphuonghoa\` / \`!tangthantrang @user [n|all]\` — Tặng trang phục (+ Điểm Thân mật).
 • \`!banthienthuong <n|all>\` / \`!bancao <n|all>\` — Bán đổi ngọc.
 • \`!bankythuong\` / \`!bandieu\` / \`!bannhuom <n|all>\` — Bán low-tier (giá ${fmt(economy.SELL_PRICE_NGOC.kythuong)}/${fmt(economy.SELL_PRICE_NGOC.dieu)}/${fmt(economy.SELL_PRICE_NGOC.nhuom)} ngọc).
 • \`!doicao5 <n|all>\` / \`!doicao9 <n|all>\` — Đổi ${economy.CAO_PER_CAO5} cáo → 1 cáo 5 đuôi; ${economy.CAO5_PER_CAO9} cáo 5 đuôi → 1 cáo 9 đuôi.
+• \`!doiphuongbang <n|all>\` — ${economy.PHUONGBANG_TT} thiên thưởng → 1 Phượng Băng.
+• \`!doiphuonghoa <n|all>\` — 1 Phượng Băng + ${economy.PHUONGHOA_TT} thiên thưởng → 1 Phượng Hoả.
+• \`!doithantrang <n|all>\` — ${economy.THANTRANG_TT} thiên thưởng → 1 Thần Trang.
+  (Phượng & Thần Trang: chỉ đổi 1 chiều, không bán, có thể tặng.)
 • \`!bond [@user]\` — Xem Điểm Thân mật (top 10 hoặc cụ thể với 1 user).
 
 **Mini Games:**
@@ -376,13 +381,17 @@ async function handleMessageCommand(msg) {
         return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote('cao')}. Số dư: ${fmt(w2.items.thienthuong)} thiên thưởng, ${fmt(w2.items.cao)} cáo.`);
     }
 
-    if (cmd === '!tangthienthuong' || cmd === '!tangcao' || cmd === '!tangcao5' || cmd === '!tangcao9' || cmd === '!tangdieu') {
+    if (cmd === '!tangthienthuong' || cmd === '!tangcao' || cmd === '!tangcao5' || cmd === '!tangcao9' || cmd === '!tangdieu'
+        || cmd === '!tangphuongbang' || cmd === '!tangphuonghoa' || cmd === '!tangthantrang') {
         const giftMap = {
             '!tangthienthuong': { key: 'thienthuong', bondPer: economy.BOND.PER_THIENTHUONG },
             '!tangcao': { key: 'cao', bondPer: economy.BOND.PER_CAO },
             '!tangcao5': { key: 'cao5', bondPer: economy.BOND.PER_CAO5 },
             '!tangcao9': { key: 'cao9', bondPer: economy.BOND.PER_CAO9 },
-            '!tangdieu': { key: 'dieu', bondPer: economy.BOND.PER_DIEU }
+            '!tangdieu': { key: 'dieu', bondPer: economy.BOND.PER_DIEU },
+            '!tangphuongbang': { key: 'phuonghoang1', bondPer: economy.BOND.PER_PHUONGHOANG1 },
+            '!tangphuonghoa': { key: 'phuonghoang2', bondPer: economy.BOND.PER_PHUONGHOANG2 },
+            '!tangthantrang': { key: 'thantrang', bondPer: economy.BOND.PER_THANTRANG }
         };
         const { key: itemKey, bondPer } = giftMap[cmd];
         const itemLabel = ITEM_LABELS[itemKey];
@@ -504,6 +513,45 @@ async function handleMessageCommand(msg) {
         return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote(srcKey)} → ${fmt(n)} ${renderEmote(dstKey)}. Số dư: ${fmt(w2.items[srcKey])} ${ITEM_LABELS[srcKey]}, ${fmt(w2.items[dstKey])} ${ITEM_LABELS[dstKey]}.`);
     }
 
+    if (cmd === '!doiphuongbang' || cmd === '!doithantrang') {
+        const isThantrang = cmd === '!doithantrang';
+        const dstKey = isThantrang ? 'thantrang' : 'phuonghoang1';
+        const ttPer = isThantrang ? economy.THANTRANG_TT : economy.PHUONGBANG_TT;
+        const w = getWallet(guildId, msg.author.id);
+        const n = parts[1] === 'all'
+            ? Math.floor(w.items.thienthuong / ttPer)
+            : parseInt(parts[1], 10);
+        if (!Number.isInteger(n) || n <= 0) {
+            return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — đổi ${fmt(ttPer)} ${renderEmote('thienthuong')} → 1 ${renderEmote(dstKey)} ${ITEM_LABELS[dstKey]}.`);
+        }
+        const cost = n * ttPer;
+        if (w.items.thienthuong < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(w.items.thienthuong)}.`);
+        addItem(guildId, msg.author.id, 'thienthuong', -cost);
+        addItem(guildId, msg.author.id, dstKey, n);
+        const w2 = getWallet(guildId, msg.author.id);
+        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote(dstKey)}. Số dư: ${fmt(w2.items.thienthuong)} thiên thưởng, ${fmt(w2.items[dstKey])} ${ITEM_LABELS[dstKey]}.`);
+    }
+
+    if (cmd === '!doiphuonghoa') {
+        const ttPer = economy.PHUONGHOA_TT;
+        const w = getWallet(guildId, msg.author.id);
+        const maxByTt = Math.floor(w.items.thienthuong / ttPer);
+        const n = parts[1] === 'all'
+            ? Math.min(w.items.phuonghoang1, maxByTt)
+            : parseInt(parts[1], 10);
+        if (!Number.isInteger(n) || n <= 0) {
+            return msg.reply(`Cú pháp: \`!doiphuonghoa <số lượng|all>\` — đổi 1 ${renderEmote('phuonghoang1')} + ${fmt(ttPer)} ${renderEmote('thienthuong')} → 1 ${renderEmote('phuonghoang2')} Phượng Hoả.`);
+        }
+        const ttCost = n * ttPer;
+        if (w.items.phuonghoang1 < n) return msg.reply(`Cần ${fmt(n)} ${renderEmote('phuonghoang1')} nhưng chỉ có ${fmt(w.items.phuonghoang1)}.`);
+        if (w.items.thienthuong < ttCost) return msg.reply(`Cần ${fmt(ttCost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(w.items.thienthuong)}.`);
+        addItem(guildId, msg.author.id, 'phuonghoang1', -n);
+        addItem(guildId, msg.author.id, 'thienthuong', -ttCost);
+        addItem(guildId, msg.author.id, 'phuonghoang2', n);
+        const w2 = getWallet(guildId, msg.author.id);
+        return msg.reply(`Đã đổi ${fmt(n)} ${renderEmote('phuonghoang1')} + ${fmt(ttCost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote('phuonghoang2')}. Số dư: ${fmt(w2.items.phuonghoang1)} Phượng Băng, ${fmt(w2.items.phuonghoang2)} Phượng Hoả, ${fmt(w2.items.thienthuong)} thiên thưởng.`);
+    }
+
     if (cmd === '!bond' || cmd === '!thanmat') {
         const mention = parts[1];
         if (mention) {
@@ -591,36 +639,51 @@ async function handleMessageCommand(msg) {
     if (cmd === '!toptt') {
         const wallets = data.wallet && data.wallet[guildId];
         if (!wallets) return msg.reply('Chưa có người nào đăng ký.');
+        // Each item's TT-equivalent value (1 unit = N thiên thưởng).
+        // All items exchanged from TT contribute to the score, even forward-only sinks.
         const TT_PER_CAO = economy.TT_PER_CAO;
-        const TT_PER_CAO5 = economy.TT_PER_CAO * economy.CAO_PER_CAO5;
+        const TT_PER_CAO5 = TT_PER_CAO * economy.CAO_PER_CAO5;
         const TT_PER_CAO9 = TT_PER_CAO5 * economy.CAO5_PER_CAO9;
+        const TT_PER_PHUONGBANG = economy.PHUONGBANG_TT;
+        const TT_PER_PHUONGHOA = economy.PHUONGBANG_TT + economy.PHUONGHOA_TT;
+        const TT_PER_THANTRANG = economy.THANTRANG_TT;
+        const SCORED_ITEMS = [
+            { key: 'thienthuong', mult: 1 },
+            { key: 'cao', mult: TT_PER_CAO },
+            { key: 'cao5', mult: TT_PER_CAO5 },
+            { key: 'cao9', mult: TT_PER_CAO9 },
+            { key: 'phuonghoang1', mult: TT_PER_PHUONGBANG },
+            { key: 'phuonghoang2', mult: TT_PER_PHUONGHOA },
+            { key: 'thantrang', mult: TT_PER_THANTRANG }
+        ];
         const rankings = [];
         for (const [userId, w] of Object.entries(wallets)) {
             if (!w.items) continue;
-            const tt = w.items.thienthuong || 0;
-            const cao = w.items.cao || 0;
-            const cao5 = w.items.cao5 || 0;
-            const cao9 = w.items.cao9 || 0;
-            const score = tt + cao * TT_PER_CAO + cao5 * TT_PER_CAO5 + cao9 * TT_PER_CAO9;
-            if (score > 0) rankings.push({ userId, score, tt, cao, cao5, cao9 });
+            let score = 0;
+            const owned = {};
+            for (const { key, mult } of SCORED_ITEMS) {
+                const n = w.items[key] || 0;
+                owned[key] = n;
+                score += n * mult;
+            }
+            if (score > 0) rankings.push({ userId, score, owned });
         }
         rankings.sort((a, b) => b.score - a.score);
         const top = rankings.slice(0, 10);
         if (top.length === 0) return msg.reply('Chưa có ai có thiên thưởng.');
         const lines = ['**Top 10 Thiên Thưởng**'];
         for (let i = 0; i < top.length; i++) {
-            const { userId, score, tt, cao, cao5, cao9 } = top[i];
+            const { userId, score, owned } = top[i];
             let name = userId;
             try {
                 const member = await msg.guild.members.fetch(userId).catch(() => null);
                 if (member) name = member.displayName;
             } catch (e) {}
-            const parts = [];
-            if (tt > 0) parts.push(`${fmt(tt)} ${renderEmote('thienthuong')}`);
-            if (cao > 0) parts.push(`${fmt(cao)} ${renderEmote('cao')}`);
-            if (cao5 > 0) parts.push(`${fmt(cao5)} ${renderEmote('cao5')}`);
-            if (cao9 > 0) parts.push(`${fmt(cao9)} ${renderEmote('cao9')}`);
-            lines.push(`${i + 1}. **${name}**: ${parts.join(' + ')} = **${fmt(score)}** điểm`);
+            const partsLine = [];
+            for (const { key } of SCORED_ITEMS) {
+                if (owned[key] > 0) partsLine.push(`${fmt(owned[key])} ${renderEmote(key)}`);
+            }
+            lines.push(`${i + 1}. **${name}**: ${partsLine.join(' + ')} = **${fmt(score)}** điểm`);
         }
         return msg.reply(lines.join('\n'));
     }

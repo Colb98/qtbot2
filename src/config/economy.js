@@ -8,9 +8,15 @@ module.exports = {
     CAO5_PER_CAO9: 3,
     ROLLS_PER_THIENTHUONG: 50,
 
+    // Trang phục: forward-only exchange from Thiên Thưởng.
+    // Phượng Hoả = 1 Phượng Băng + PHUONGHOA_TT thiên thưởng.
+    PHUONGBANG_TT: 200,
+    PHUONGHOA_TT: 200,
+    THANTRANG_TT: 100,
+
     SELL_PRICE_NGOC: {
-        kythuong: 200,
-        dieu: 50,
+        kythuong: 100,
+        dieu: 20,
         nhuom: 20
     },
 
@@ -21,6 +27,10 @@ module.exports = {
         PER_CAO: 3000,
         PER_CAO5: 9000,
         PER_CAO9: 27000,
+        // Cosmetics: scale at 1000 bond per TT-equivalent of cost.
+        PER_PHUONGHOANG1: 200000,
+        PER_PHUONGHOANG2: 400000,
+        PER_THANTRANG: 100000,
         THRESHOLDS: [0, 1000, 10000, 50000, 200000, 500000, 1000000, 5000000, 10000000, 50000000],
         EMOJIS: ['😊', '🫰', '🫶', '🥰', '❤️', '💖', '💝', '💕', '💞', '❤️‍🔥']
     },

@@ -1,6 +1,18 @@
-const CURRENT_VERSION = '1.10.1';
+const CURRENT_VERSION = '1.11.0';
 
 const CHANGELOG = {
+    '1.11.0': {
+        date: '2026-05-24',
+        title: 'Trang phục: Phượng Băng, Phượng Hoả, Thần Trang',
+        changes: [
+            '**Vật phẩm mới (trang phục)**: Phượng Băng, Phượng Hoả, Thần Trang. Đổi 1 chiều từ Thiên Thưởng — không bán lại, không đổi ngược, có thể tặng.',
+            `\`!doiphuongbang <n|all>\` — 200 thiên thưởng → 1 Phượng Băng.`,
+            '`!doiphuonghoa <n|all>` — 1 Phượng Băng + 200 thiên thưởng → 1 Phượng Hoả.',
+            '`!doithantrang <n|all>` — 100 thiên thưởng → 1 Thần Trang.',
+            '`!tangphuongbang` / `!tangphuonghoa` / `!tangthantrang @user [n|all]` — tặng + Điểm Thân mật (200k / 400k / 100k bond mỗi vật phẩm).',
+            'Cần chạy `!upload_ingame_emotes` để upload emote `phuonghoang1` (Phượng Băng), `phuonghoang2` (Phượng Hoả), `thantrang`.'
+        ]
+    },
     '1.10.1': {
         date: '2026-05-24',
         title: 'Metrics admin: exclude list + adjust bucket',
