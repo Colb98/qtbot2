@@ -142,6 +142,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
     gap: 12px;
+    margin-bottom: 12px;
   }
   .card {
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
