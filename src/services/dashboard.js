@@ -41,6 +41,7 @@ function buildSeries(buckets, days, guildFilter) {
             mintedWordchain: net.mintedWordchain,
             mintedGangoc: net.mintedGangoc,
             mintedDailyNganphieu: net.mintedDailyNganphieu,
+            mintedVuaTiengViet: net.mintedVuaTiengViet,
             burned: net.burned
         });
     }
@@ -327,6 +328,18 @@ function renderGameCards(snap) {
     ]));
   }
 
+  if (s.vuatiengviet) {
+    const m = s.vuatiengviet;
+    const bd = m.byDifficulty || {};
+    cards.push(card('🇻🇳 VUATIENGVIET (faucet) — ' + fmt(m.words || 0) + ' từ', [
+      row('Minted', fmt(m.ngocAwarded || 0) + ' ngọc', 'good'),
+      row('Unique players', fmt(m.uniquePlayers || 0), 'accent'),
+      row('Dễ', fmt((bd.easy || {}).words || 0) + ' từ (' + fmt((bd.easy || {}).ngocAwarded || 0) + ' ngọc)'),
+      row('Trung bình', fmt((bd.medium || {}).words || 0) + ' từ (' + fmt((bd.medium || {}).ngocAwarded || 0) + ' ngọc)'),
+      row('Khó', fmt((bd.hard || {}).words || 0) + ' từ (' + fmt((bd.hard || {}).ngocAwarded || 0) + ' ngọc)')
+    ]));
+  }
+
   if (s.daily) {
     const m = s.daily;
     cards.push(card('🎁 DAILY (faucet) — ' + fmt(m.claims || 0) + ' lượt nhận', [
@@ -487,6 +500,15 @@ function renderGameCharts(snap) {
       gcBar('gc_tong_sum', TONG_SUMS.map(String), TONG_SUMS.map(k => sc[k]||0), PALETTE[4]);
     }
     gcBetBuckets('gc_tong_bet', '🎲 Tong — Phân phối mức cược', m, PALETTE[4], container);
+  }
+
+  if (s.vuatiengviet && (s.vuatiengviet.words || 0) > 0) {
+    const bd = s.vuatiengviet.byDifficulty || {};
+    const dWords = ['easy', 'medium', 'hard'].map(k => (bd[k] || {}).words || 0);
+    if (dWords.some(v => v > 0)) {
+      container.appendChild(gcCard('gc_vtv_diff', '🇻🇳 VuaTiếngViệt — Từ theo độ khó'));
+      gcDonut('gc_vtv_diff', ['Dễ', 'Trung bình', 'Khó'], dWords);
+    }
   }
 
   if (s.gacha && (s.gacha.rolls || 0) > 0) {

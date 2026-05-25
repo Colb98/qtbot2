@@ -1030,17 +1030,17 @@ async function handleMessageCommand(msg) {
             ? vuaTiengViet.getLifetimeTop(guildId, 10)
             : vuaTiengViet.getWeeklyTop(guildId, 10);
         const header = isLifetime
-            ? `🏆 **Top Vua Tiếng Việt — Lifetime** (tổng từ đoán đúng)`
-            : `🏆 **Top Vua Tiếng Việt — Tuần này** (tổng từ đoán đúng)`;
+            ? `🏆 **Top Vua Tiếng Việt — Lifetime** (tổng ngọc kiếm được)`
+            : `🏆 **Top Vua Tiếng Việt — Tuần này** (tổng ngọc kiếm được)`;
         const lines = [header];
         if (top.length === 0) {
             lines.push('_Chưa có ai trên bảng xếp hạng._');
         } else {
             for (let i = 0; i < top.length; i++) {
-                const [userId, ngoc] = top[i];
+                const [userId, v] = top[i];
                 let name = userId;
                 try { const m = await msg.guild.members.fetch(userId).catch(() => null); if (m) name = m.displayName; } catch (e) { /* ignore */ }
-                lines.push(`${i + 1}. **${name}** — **${fmt(ngoc)}** ${renderEmote('ngoc')}`);
+                lines.push(`${i + 1}. **${name}** — **${fmt(v.ngoc || 0)}** ${renderEmote('ngoc')} (${fmt(v.words || 0)} từ)`);
             }
         }
         if (!isLifetime) {

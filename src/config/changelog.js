@@ -1,15 +1,24 @@
-const CURRENT_VERSION = '1.12.0';
+const CURRENT_VERSION = '1.12.1';
 
 const CHANGELOG = {
+    '1.12.1': {
+        date: '2026-05-25',
+        title: 'Vua Tiếng Việt — cải tiến xáo trộn & metrics',
+        changes: [
+            'Từ bị xáo trộn trùng với thứ tự gốc sẽ được xáo lại (tối đa 10 lần/từ, 20 lần thử từ khác).',
+            'Thêm metrics faucet Vua Tiếng Việt vào dashboard: số từ đoán đúng, ngọc phát ra, phân theo độ khó.',
+            '`!vuatiengviet_resetcap` (superAdmin) — Reset cap ngày cả server.'
+        ]
+    },
     '1.12.0': {
         date: '2026-05-25',
         title: 'Vua Tiếng Việt — trò chơi đoán từ bị xáo trộn',
         changes: [
             '**Trò chơi mới:** `!vuatiengviet [easy|medium|hard]` — Bot tạo thread, chọn từ ngẫu nhiên từ 22k từ tiếng Việt, xáo trộn các chữ cái và người chơi đoán trong giới hạn thời gian.',
-            '**3 độ khó:** Dễ (60s, 40 ngọc/từ, cap 800/ngày) · Trung Bình (30s, 100 ngọc/từ, cap 2000/ngày) · Khó (15s, 220 ngọc/từ, cap 4400/ngày). Mặc định: Dễ.',
+            '**3 độ khó:** Dễ (60s, 80 ngọc/từ, cap 1600/ngày) · Trung Bình (30s, 200 ngọc/từ, cap 4000/ngày) · Khó (15s, 440 ngọc/từ, cap 8800/ngày). Mặc định: Dễ.',
             'Sau 3 từ liên tiếp không trả lời → trò chơi tạm dừng, hiện nút **Tiếp tục** / **Đóng thread**. Thread tự đóng sau 24h không hoạt động.',
             '`!vuatiengviet_cap` — Xem trạng thái cap ngọc hôm nay theo từng độ khó.',
-            '`!vuatiengviet_top [lifetime]` — Bảng xếp hạng tuần / all-time theo tổng ngọc kiếm được. Thưởng tuần: Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k ngọc (reset Thứ Hai 00:00 GMT+7).',
+            '`!vuatiengviet_top [lifetime]` — Bảng xếp hạng tuần / all-time theo tổng từ đoán đúng. Thưởng tuần: Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k ngọc (reset Thứ Hai 00:00 GMT+7).',
             '`!vtv_boquathuong` — Bỏ qua / đăng ký lại thưởng tuần Vua Tiếng Việt.',
             '`!vuatiengviet_payout` (admin) — Trả thưởng tuần thủ công.'
         ]

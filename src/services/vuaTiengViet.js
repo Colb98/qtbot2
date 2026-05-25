@@ -12,6 +12,7 @@ const client = require('../client');
 const { data, saveData } = require('../state');
 const { addNgoc, renderEmote, fmt, todayStr } = require('./currency');
 const economy = require('../config/economy');
+const metrics = require('./metrics');
 
 const DICT_PATH = path.join(__dirname, '..', '..', 'word_dict', 'vietnamese_22k.txt');
 const wordList = fs.readFileSync(DICT_PATH, 'utf8')
@@ -95,9 +96,9 @@ function earnNgoc(guildId, userId, difficulty, amount) {
         cap.earned += actual;
         addNgoc(guildId, userId, actual);
     }
-    // Word count always increments regardless of ngọc cap
-    updateLifetime(guildId, userId);
-    updateWeekly(guildId, userId);
+    updateLifetime(guildId, userId, actual);
+    updateWeekly(guildId, userId, actual);
+    metrics.recordVuaTiengViet({ guildId, difficulty, ngocAwarded: actual, userId });
     saveData();
     return actual;
 }
@@ -121,20 +122,28 @@ function resetDailyCaps(guildId) {
 
 // ── Leaderboard ────────────────────────────────────────────────────────────
 
-function updateLifetime(guildId, userId) {
+function updateLifetime(guildId, userId, ngoc) {
     ensureRoot();
     if (!data.vuaTiengViet.lifetime[guildId]) data.vuaTiengViet.lifetime[guildId] = {};
-    data.vuaTiengViet.lifetime[guildId][userId] = (data.vuaTiengViet.lifetime[guildId][userId] || 0) + 1;
+    const existing = data.vuaTiengViet.lifetime[guildId][userId];
+    if (!existing || typeof existing === 'number') {
+        const oldWords = typeof existing === 'number' ? existing : 0;
+        data.vuaTiengViet.lifetime[guildId][userId] = { ngoc, words: oldWords + 1 };
+    } else {
+        existing.ngoc  = (existing.ngoc  || 0) + ngoc;
+        existing.words = (existing.words || 0) + 1;
+    }
 }
 
-function updateWeekly(guildId, userId) {
+function updateWeekly(guildId, userId, ngoc) {
     ensureRoot();
     if (!data.vuaTiengViet.weekly[guildId]) data.vuaTiengViet.weekly[guildId] = {};
     const week = weekStr();
     const entry = data.vuaTiengViet.weekly[guildId][userId];
     if (!entry || entry.week !== week) {
-        data.vuaTiengViet.weekly[guildId][userId] = { week, words: 1 };
+        data.vuaTiengViet.weekly[guildId][userId] = { week, ngoc, words: 1 };
     } else {
+        entry.ngoc  = (entry.ngoc  || 0) + ngoc;
         entry.words = (entry.words || 0) + 1;
     }
 }
@@ -144,8 +153,12 @@ function getLifetimeTop(guildId, limit = 10) {
     const scores = data.vuaTiengViet.lifetime[guildId];
     if (!scores) return [];
     return Object.entries(scores)
-        .filter(([, v]) => v > 0)
-        .sort((a, b) => b[1] - a[1])
+        .map(([uid, v]) => [uid, typeof v === 'number' ? { ngoc: 0, words: v } : v])
+        .filter(([, v]) => (v.ngoc || 0) > 0 || (v.words || 0) > 0)
+        .sort((a, b) => {
+            const d = (b[1].ngoc || 0) - (a[1].ngoc || 0);
+            return d !== 0 ? d : (a[1].words || 0) - (b[1].words || 0);
+        })
         .slice(0, limit);
 }
 
@@ -158,9 +171,12 @@ function getWeeklyTopForWeek(guildId, week, limit = 10) {
     const scores = data.vuaTiengViet.weekly[guildId];
     if (!scores) return [];
     return Object.entries(scores)
-        .filter(([, e]) => e && e.week === week && (e.words || 0) > 0)
-        .map(([uid, e]) => [uid, e.words || 0])
-        .sort((a, b) => b[1] - a[1])
+        .filter(([, e]) => e && e.week === week && ((e.ngoc || 0) > 0 || (e.words || 0) > 0))
+        .map(([uid, e]) => [uid, { ngoc: e.ngoc || 0, words: e.words || 0 }])
+        .sort((a, b) => {
+            const d = b[1].ngoc - a[1].ngoc;
+            return d !== 0 ? d : a[1].words - b[1].words;
+        })
         .slice(0, limit);
 }
 
@@ -184,12 +200,12 @@ function payoutWeek(guildId, week) {
     if (top.length === 0) return { week, paid: [] };
     const paid = [];
     for (let i = 0; i < top.length; i++) {
-        const [userId, words] = top[i];
+        const [userId, v] = top[i];
         const rank = i + 1;
         const reward = rewardForRank(rank);
         if (reward > 0) {
             addNgoc(guildId, userId, reward);
-            paid.push({ userId, rank, words, reward });
+            paid.push({ userId, rank, ngoc: v.ngoc || 0, words: v.words || 0, reward });
         }
     }
     data.vuaTiengViet.weeklyPaid[guildId] = week;
@@ -221,7 +237,7 @@ async function announcePayout(guildId, result) {
     if (!channel) return;
     const lines = [`🏆 **Vua Tiếng Việt — Tổng kết tuần ${result.week}**`];
     for (const w of result.paid) {
-        lines.push(`Top ${w.rank}. <@${w.userId}> — **${fmt(w.words)}** từ · +**${fmt(w.reward)}** ${renderEmote('ngoc')} thưởng`);
+        lines.push(`Top ${w.rank}. <@${w.userId}> — **${fmt(w.ngoc)}** ${renderEmote('ngoc')} (${fmt(w.words)} từ) · +**${fmt(w.reward)}** ${renderEmote('ngoc')} thưởng`);
     }
     await channel.send({ content: lines.join('\n'), allowedMentions: { parse: [] } })
         .catch(e => log.warn('vuaTiengViet: announcePayout send failed', e));
@@ -262,14 +278,32 @@ function shuffled(chars) {
     return chars;
 }
 
+function syllableChars(syl, difficulty) {
+    const chars = [...syl];
+    return difficulty === 'easy'
+        ? chars.map((c, i) => i === 0 ? c.toUpperCase() : c.toLowerCase())
+        : chars.map(c => c.toUpperCase());
+}
+
 function scrambleWord(word, difficulty) {
-    const syllables = word.normalize('NFC').split(' ');
-    return syllables.map(syl => {
-        const chars = difficulty === 'easy'
-            ? [...syl].map((c, i) => i === 0 ? c.toUpperCase() : c.toLowerCase())
-            : [...syl].map(c => c.toUpperCase());
-        return shuffled(chars).join('/');
-    }).join('_');
+    return word.normalize('NFC').split(' ')
+        .map(syl => shuffled(syllableChars(syl, difficulty)).join('/'))
+        .join('_');
+}
+
+function pickScrambledWord(difficulty) {
+    for (let wi = 0; wi < 20; wi++) {
+        const word = randomWord();
+        const syllables = word.normalize('NFC').split(' ');
+        const original = syllables.map(syl => syllableChars(syl, difficulty).join('/')).join('_');
+        for (let si = 0; si < 10; si++) {
+            const scrambled = scrambleWord(word, difficulty);
+            if (scrambled !== original) return { word, scrambled };
+        }
+    }
+    // All attempts produced identity scrambles — return last word as-is.
+    const word = randomWord();
+    return { word, scrambled: scrambleWord(word, difficulty) };
 }
 
 function normalizeAnswer(text) {
@@ -305,9 +339,9 @@ function armThreadHardCap(threadInfo, threadId) {
 // ── Core game flow ─────────────────────────────────────────────────────────
 
 async function sendNextWord(session, thread) {
-    const word = randomWord();
+    const { word, scrambled } = pickScrambledWord(session.difficulty);
     session.currentWord = normalizeAnswer(word);
-    session.scrambled   = scrambleWord(word, session.difficulty);
+    session.scrambled   = scrambled;
 
     const cfg     = economy.VUATIENGVIET[session.difficulty.toUpperCase()];
     const endUnix = Math.floor((Date.now() + cfg.TIME_LIMIT_S * 1000) / 1000);
@@ -331,6 +365,7 @@ async function onTimeout(threadId) {
 
     if (session.consecutiveMisses >= economy.VUATIENGVIET.MAX_MISSES) {
         session.ended = true;
+        sessions.delete(threadId);
         await thread.send(
             `⏰ **Hết giờ!** Đáp án là: **${session.currentWord}**\n` +
             `Đã bỏ qua **${session.consecutiveMisses}** từ liên tiếp. Trò chơi tạm dừng.`
@@ -357,7 +392,7 @@ async function showContinuePrompt(thread) {
             .setStyle(ButtonStyle.Secondary)
     );
     await thread.send({
-        content: '❓ Bạn có muốn tiếp tục trò chơi không?',
+        content: '❓ Bạn có muốn tiếp tục trò chơi không? (Gõ `continue` hoặc bấm nút)',
         components: [row]
     }).catch(() => {});
 }
@@ -454,10 +489,12 @@ async function handleButtonInteraction(interaction) {
             await interaction.reply({ content: 'Không tìm được phiên này.', flags: MessageFlags.Ephemeral }).catch(() => {});
             return true;
         }
-        if (sessions.has(threadId)) {
+        const activeSession = sessions.get(threadId);
+        if (activeSession && !activeSession.ended) {
             await interaction.reply({ content: 'Đã có ván đang chơi.', flags: MessageFlags.Ephemeral }).catch(() => {});
             return true;
         }
+        if (activeSession) sessions.delete(threadId);
         await interaction.update({ components: [] }).catch(() => {});
         const difficulty = threadInfo.difficulty || 'easy';
         const session = {
@@ -529,16 +566,38 @@ async function handleThreadMessage(msg) {
 
     armThreadHardCap(threadInfo, msg.channel.id);
 
-    const session = sessions.get(msg.channel.id);
-    if (!session || session.ended) return;
-
     const answer = normalizeAnswer(msg.content);
     if (!answer) return;
+
+    // Resume paused game via text when no active session exists
+    if ((answer === 'start' || answer === 'continue') && !sessions.has(msg.channel.id)) {
+        const difficulty = threadInfo.difficulty || 'easy';
+        const session = {
+            guildId: msg.guildId,
+            threadId: msg.channel.id,
+            difficulty,
+            invokerId: threadInfo.invokerId,
+            currentWord: null,
+            scrambled: null,
+            consecutiveMisses: 0,
+            timer: null,
+            ended: false,
+            wordEndAt: null,
+            startedAt: Date.now()
+        };
+        sessions.set(msg.channel.id, session);
+        await sendNextWord(session, msg.channel);
+        return;
+    }
+
+    const session = sessions.get(msg.channel.id);
+    if (!session || session.ended) return;
 
     // Early exit
     if (answer === 'end') {
         if (session.timer) { clearTimeout(session.timer); session.timer = null; }
         session.ended = true;
+        sessions.delete(msg.channel.id);
         await msg.react('🏳️').catch(() => {});
         await msg.channel.send(`🏁 <@${msg.author.id}> đã kết thúc trò chơi.`).catch(() => {});
         await showContinuePrompt(msg.channel);

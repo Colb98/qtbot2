@@ -136,6 +136,16 @@ const GAME_DEFAULTS = {
         claims: 0,
         ngocMinted: 0,
         playerIds: {}
+    },
+    vuatiengviet: {
+        words: 0,
+        ngocAwarded: 0,
+        byDifficulty: {
+            easy:   { words: 0, ngocAwarded: 0 },
+            medium: { words: 0, ngocAwarded: 0 },
+            hard:   { words: 0, ngocAwarded: 0 }
+        },
+        playerIds: {}
     }
 };
 
@@ -569,6 +579,22 @@ function recordGangocClaim({ guildId, amount, userId }) {
     _dirty = true;
 }
 
+function recordVuaTiengViet({ guildId, difficulty, ngocAwarded, userId }) {
+    if (isExcluded(userId)) return;
+    _checkRollover();
+    const m = _get(guildId, 'vuatiengviet');
+    m.words++;
+    m.ngocAwarded += ngocAwarded;
+    if (!m.byDifficulty) m.byDifficulty = { easy: { words: 0, ngocAwarded: 0 }, medium: { words: 0, ngocAwarded: 0 }, hard: { words: 0, ngocAwarded: 0 } };
+    const d = (difficulty || '').toLowerCase();
+    if (m.byDifficulty[d]) {
+        m.byDifficulty[d].words++;
+        m.byDifficulty[d].ngocAwarded += ngocAwarded;
+    }
+    if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
+    _dirty = true;
+}
+
 function recordWordchainReject({ guildId } = {}) {
     _checkRollover();
     const m = _get(guildId, 'wordchain_eng');
@@ -693,6 +719,16 @@ function _formatGame(game, perGuildStore, guildFilter) {
             `**Minted**: ${fmt(m.ngocMinted)} ngọc | Avg ngọc/GA (per claim): ${fmt(avgPerGa)}`
         ].join('\n');
     }
+    if (game === 'vuatiengviet') {
+        const m = _flatGame(perGuildStore, guildFilter, 'vuatiengviet');
+        const bd = m.byDifficulty || {};
+        const uniq = uniqueCount(m.playerIds);
+        return [
+            `🇻🇳 VUATIENGVIET (faucet) — ${fmt(m.words)} từ đoán đúng`,
+            `**Minted**: ${fmt(m.ngocAwarded)} ngọc | Unique players: ${fmt(uniq)}`,
+            `Dễ: ${fmt((bd.easy || {}).words || 0)} từ (${fmt((bd.easy || {}).ngocAwarded || 0)} ngọc) | Trung bình: ${fmt((bd.medium || {}).words || 0)} từ (${fmt((bd.medium || {}).ngocAwarded || 0)} ngọc) | Khó: ${fmt((bd.hard || {}).words || 0)} từ (${fmt((bd.hard || {}).ngocAwarded || 0)} ngọc)`
+        ].join('\n');
+    }
     if (game === 'wordchain_eng' || game === 'wordchain') {
         const m = _flatGame(perGuildStore, guildFilter, 'wordchain_eng');
         const er = m.endReasons || { timeout: 0, dead_end: 0, surrender: 0 };
@@ -737,11 +773,12 @@ function netFromStore(perGuildStore, guildFilter) {
     const mintedGangoc = (flat.gangoc && flat.gangoc.ngocMinted) || 0;
     const mintedDailyNganphieu = (flat.daily && flat.daily.nganphieuMinted) || 0;
     const mintedDailyNgocEq = mintedDailyNganphieu / 100;
-    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq;
+    const mintedVuaTiengViet = (flat.vuatiengviet && flat.vuatiengviet.ngocAwarded) || 0;
+    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet;
     const burned = (flat.gacha && flat.gacha.burned) || 0;
     return {
         netGame, minted, burned,
-        mintedWordchain, mintedGangoc, mintedDailyNganphieu,
+        mintedWordchain, mintedGangoc, mintedDailyNganphieu, mintedVuaTiengViet,
         netEconomy: netGame + minted - burned
     };
 }
@@ -777,7 +814,7 @@ function formatSummary(store, label, guildFilter) {
 function formatAllSections(bucket, guildFilter) {
     const label = bucket ? ` [${bucket}]` : ` [${_bucket}]`;
     const store = bucket ? loadBucket(bucket) : _store;
-    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'daily', 'gangoc']
+    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'vuatiengviet', 'daily', 'gangoc']
         .map(g => _formatGame(g, store, guildFilter))
         .filter(Boolean);
     sections.push(`${formatSummary(store, label, guildFilter)}\n📅 Ngày${label}`);
@@ -826,7 +863,7 @@ function listBuckets() {
 
 module.exports = {
     recordSlot, recordCoinflip, recordTong, recordMat, recordWordchainEng,
-    recordGacha, recordWordchainReject,
+    recordGacha, recordWordchainReject, recordVuaTiengViet,
     recordDaily, recordGangocCreated, recordGangocClaim,
     formatSlot, formatCoinflip, formatTong, formatMat,
     formatAll, formatAllSections, formatGame, packSections, listBuckets,
