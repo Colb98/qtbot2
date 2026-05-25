@@ -3,6 +3,7 @@ const path = require('path');
 const log = require('../../logger');
 const wordchain = require('../services/wordchain');
 const wordchainEng = require('../services/wordchainEng');
+const vuaTiengViet = require('../services/vuaTiengViet');
 const arrangeCmd = require('../commands/arrange');
 const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS, ITEM_LABELS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
@@ -103,6 +104,8 @@ module.exports = {
                     }
                 } else if (interaction.customId.startsWith('wce_')) {
                     await wordchainEng.handleButtonInteraction(interaction);
+                } else if (interaction.customId.startsWith('vtv_')) {
+                    await vuaTiengViet.handleButtonInteraction(interaction);
                 } else if (interaction.customId.startsWith('khodo:')) {
                     await handleKhodoButton(interaction);
                 } else {

@@ -74,6 +74,18 @@ module.exports = {
         }
     },
 
+    VUATIENGVIET: {
+        EASY:   { TIME_LIMIT_S: 60, NGOC_PER_WORD: 40,  DAILY_CAP: 800  },
+        MEDIUM: { TIME_LIMIT_S: 30, NGOC_PER_WORD: 100, DAILY_CAP: 2000 },
+        HARD:   { TIME_LIMIT_S: 15, NGOC_PER_WORD: 220, DAILY_CAP: 4400 },
+        MAX_MISSES: 3,
+        WEEKLY_REWARDS: [
+            { from: 1, to: 1,  ngoc: 15000 },
+            { from: 2, to: 3,  ngoc: 8000  },
+            { from: 4, to: 10, ngoc: 4000  }
+        ]
+    },
+
     WORDCHAIN_ENG: {
         NGOC_PER_WORD: 8,
         WORD_THRESHOLD: 25,

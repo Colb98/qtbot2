@@ -20,6 +20,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('d
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
 const wordchainEng = require('./services/wordchainEng');
+const vuaTiengViet = require('./services/vuaTiengViet');
 const bond = require('./services/bond');
 
 async function handleMessageCommand(msg) {
@@ -944,6 +945,91 @@ async function handleMessageCommand(msg) {
             return msg.reply(`✅ Đã trả thưởng tuần trước cho ${totalWinners} người trong ${results.length} guild.`);
         } catch (e) {
             log.error('wordchain_payout error', e);
+            return msg.reply('Lỗi khi trả thưởng. Xem log.');
+        }
+    }
+
+    if (cmd === '!vuatiengviet') {
+        if (msg.channel.type !== ChannelType.GuildText) {
+            return msg.reply('Lệnh này chỉ dùng trong text channel (không trong thread hoặc DM).');
+        }
+        const modeArg = (parts[1] || '').toLowerCase();
+        let difficulty = 'easy';
+        if (modeArg === 'medium' || modeArg === 'trung') difficulty = 'medium';
+        else if (modeArg === 'hard' || modeArg === 'kho' || modeArg === 'khó') difficulty = 'hard';
+        try {
+            const thread = await vuaTiengViet.startSession({ channel: msg.channel, invokerId: msg.author.id, difficulty });
+            return msg.reply(`Đã tạo thread Vua Tiếng Việt: <#${thread.id}>`);
+        } catch (e) {
+            log.error('vuatiengviet start failed', e);
+            return msg.reply('Không thể bắt đầu trò chơi.');
+        }
+    }
+
+    if (cmd === '!vuatiengviet_cap') {
+        const status = vuaTiengViet.getCapStatus(guildId, msg.author.id);
+        const lines = [
+            `📊 **Cap Vua Tiếng Việt của bạn hôm nay:**`,
+            `🟢 Dễ: **${fmt(status.easy.earned)}** / **${fmt(status.easy.cap)}** ${renderEmote('ngoc')}`,
+            `🟡 Trung Bình: **${fmt(status.medium.earned)}** / **${fmt(status.medium.cap)}** ${renderEmote('ngoc')}`,
+            `🔴 Khó: **${fmt(status.hard.earned)}** / **${fmt(status.hard.cap)}** ${renderEmote('ngoc')}`
+        ];
+        return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+    }
+
+    if (cmd === '!vuatiengviet_top') {
+        const mode = (parts[1] || '').toLowerCase();
+        const isLifetime = mode === 'lifetime' || mode === 'life' || mode === 'all' || mode === 'l';
+        const top = isLifetime
+            ? vuaTiengViet.getLifetimeTop(guildId, 10)
+            : vuaTiengViet.getWeeklyTop(guildId, 10);
+        const header = isLifetime
+            ? `🏆 **Top Vua Tiếng Việt — Lifetime** (tổng ngọc kiếm được)`
+            : `🏆 **Top Vua Tiếng Việt — Tuần này** (tổng ngọc kiếm được)`;
+        const lines = [header];
+        if (top.length === 0) {
+            lines.push('_Chưa có ai trên bảng xếp hạng._');
+        } else {
+            for (let i = 0; i < top.length; i++) {
+                const [userId, ngoc] = top[i];
+                let name = userId;
+                try { const m = await msg.guild.members.fetch(userId).catch(() => null); if (m) name = m.displayName; } catch (e) { /* ignore */ }
+                lines.push(`${i + 1}. **${name}** — **${fmt(ngoc)}** ${renderEmote('ngoc')}`);
+            }
+        }
+        if (!isLifetime) {
+            const table = vuaTiengViet.getWeeklyRewardTable();
+            if (table && table.length > 0) {
+                lines.push('');
+                lines.push(`🎁 **Thưởng tuần (reset Thứ Hai 00:00 GMT+7)**`);
+                for (const tier of table) {
+                    const range = tier.from === tier.to ? `Top ${tier.from}` : `Top ${tier.from}-${tier.to}`;
+                    lines.push(`• ${range}: **${fmt(tier.ngoc)}** ${renderEmote('ngoc')}`);
+                }
+                lines.push(`Gõ \`!vuatiengviet_top lifetime\` để xem bảng all-time.`);
+            }
+        }
+        return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+    }
+
+    if (cmd === '!vtv_boquathuong') {
+        const nowOut = vuaTiengViet.toggleOptOut(guildId, msg.author.id);
+        return msg.reply(nowOut
+            ? 'Bạn đã bỏ qua thưởng tuần Vua Tiếng Việt. Gõ lại để nhận lại.'
+            : 'Bạn đã đăng ký nhận thưởng tuần Vua Tiếng Việt trở lại.');
+    }
+
+    if (cmd === '!vuatiengviet_payout') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        try {
+            const results = await vuaTiengViet.runWeeklyPayout();
+            if (!results || results.length === 0) {
+                return msg.reply('Không có ai để trả thưởng (hoặc tuần trước đã trả rồi).');
+            }
+            const totalWinners = results.reduce((a, r) => a + r.paid.length, 0);
+            return msg.reply(`✅ Đã trả thưởng tuần trước cho ${totalWinners} người trong ${results.length} guild.`);
+        } catch (e) {
+            log.error('vuatiengviet_payout error', e);
             return msg.reply('Lỗi khi trả thưởng. Xem log.');
         }
     }

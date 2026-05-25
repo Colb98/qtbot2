@@ -1,6 +1,19 @@
-const CURRENT_VERSION = '1.11.0';
+const CURRENT_VERSION = '1.12.0';
 
 const CHANGELOG = {
+    '1.12.0': {
+        date: '2026-05-25',
+        title: 'Vua Tiếng Việt — trò chơi đoán từ bị xáo trộn',
+        changes: [
+            '**Trò chơi mới:** `!vuatiengviet [easy|medium|hard]` — Bot tạo thread, chọn từ ngẫu nhiên từ 22k từ tiếng Việt, xáo trộn các chữ cái và người chơi đoán trong giới hạn thời gian.',
+            '**3 độ khó:** Dễ (60s, 40 ngọc/từ, cap 800/ngày) · Trung Bình (30s, 100 ngọc/từ, cap 2000/ngày) · Khó (15s, 220 ngọc/từ, cap 4400/ngày). Mặc định: Dễ.',
+            'Sau 3 từ liên tiếp không trả lời → trò chơi tạm dừng, hiện nút **Tiếp tục** / **Đóng thread**. Thread tự đóng sau 24h không hoạt động.',
+            '`!vuatiengviet_cap` — Xem trạng thái cap ngọc hôm nay theo từng độ khó.',
+            '`!vuatiengviet_top [lifetime]` — Bảng xếp hạng tuần / all-time theo tổng ngọc kiếm được. Thưởng tuần: Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k ngọc (reset Thứ Hai 00:00 GMT+7).',
+            '`!vtv_boquathuong` — Bỏ qua / đăng ký lại thưởng tuần Vua Tiếng Việt.',
+            '`!vuatiengviet_payout` (admin) — Trả thưởng tuần thủ công.'
+        ]
+    },
     '1.11.0': {
         date: '2026-05-24',
         title: 'Trang phục: Phượng Băng, Phượng Hoả, Thần Trang',
