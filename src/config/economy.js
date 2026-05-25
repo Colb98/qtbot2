@@ -75,9 +75,9 @@ module.exports = {
     },
 
     VUATIENGVIET: {
-        EASY:   { TIME_LIMIT_S: 60, NGOC_PER_WORD: 40,  DAILY_CAP: 800  },
-        MEDIUM: { TIME_LIMIT_S: 30, NGOC_PER_WORD: 100, DAILY_CAP: 2000 },
-        HARD:   { TIME_LIMIT_S: 15, NGOC_PER_WORD: 220, DAILY_CAP: 4400 },
+        EASY:   { TIME_LIMIT_S: 60, NGOC_PER_WORD: 80,  DAILY_CAP: 1600  },
+        MEDIUM: { TIME_LIMIT_S: 30, NGOC_PER_WORD: 200, DAILY_CAP: 4000 },
+        HARD:   { TIME_LIMIT_S: 15, NGOC_PER_WORD: 440, DAILY_CAP: 8800 },
         MAX_MISSES: 3,
         WEEKLY_REWARDS: [
             { from: 1, to: 1,  ngoc: 15000 },
@@ -87,9 +87,9 @@ module.exports = {
     },
 
     WORDCHAIN_ENG: {
-        NGOC_PER_WORD: 8,
+        NGOC_PER_WORD: 16,
         WORD_THRESHOLD: 25,
-        NGOC_PER_WORD_AFTER: 4,
+        NGOC_PER_WORD_AFTER: 8,
         REWARD_CAP_PER_POSITION: 20,
         TIMER_LADDER: [
             { upTo: 10, seconds: 60 },
