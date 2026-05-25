@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '1.12.1';
+const CURRENT_VERSION = '1.12.2';
 
 const CHANGELOG = {
+    '1.12.2': {
+        date: '2026-05-26',
+        title: 'Slot EV tinh chỉnh & sửa race condition nối từ / VTV',
+        changes: [
+            'Slot: chỉnh trọng số nhiều outcome cùng lúc (Mini/2x/An Ủi/Hoàn Vốn giảm 1–7%, Nhỏ x0.5/x0.25/Thua tăng 2–4%) — EV mô phỏng ~1.03 (cũ ~1.076). Jackpot Cáo/Thiên Thưởng/Ngọc giữ nguyên.',
+            'Sửa race condition ở **Nối Từ** (BOT), **English Wordchain** và **Vua Tiếng Việt**: trước đây 2 tin nhắn gửi sát nhau cùng được chấp nhận (bot trả lời 2 lần / cùng đáp án trao thưởng cho 2 người). Giờ serialize xử lý mỗi thread bằng promise mutex — tin nhắn thứ 2 đợi tin nhắn 1 xử lý xong (gồm cả phản hồi bot) trước khi validate.'
+        ]
+    },
     '1.12.1': {
         date: '2026-05-25',
         title: 'Vua Tiếng Việt — cải tiến xáo trộn & metrics',

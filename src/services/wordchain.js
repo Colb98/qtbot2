@@ -38,6 +38,7 @@ function getTopScores(guildId, limit = 10) {
 
 const sessions = new Map();
 const threads = new Map();
+const _msgLocks = new Map();
 
 function hasThread(threadId) {
     return threads.has(threadId);
@@ -414,6 +415,18 @@ async function handleButtonInteraction(interaction) {
 }
 
 async function handleThreadMessage(msg) {
+    const threadId = msg.channel.id;
+    const prev = _msgLocks.get(threadId) || Promise.resolve();
+    const current = prev.then(() => _handleThreadMessageImpl(msg))
+        .catch(e => log.warn('wordchain: handleThreadMessage error', e));
+    _msgLocks.set(threadId, current);
+    current.finally(() => {
+        if (_msgLocks.get(threadId) === current) _msgLocks.delete(threadId);
+    });
+    return current;
+}
+
+async function _handleThreadMessageImpl(msg) {
     const threadInfo = threads.get(msg.channel.id);
     if (!threadInfo) return;
     if (msg.author.bot) return;

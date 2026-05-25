@@ -22,14 +22,14 @@ const POOL = [
     { name: 'MEGA Jackpot',         mult: 150,  weight: 1,    kind: '3x', symbol: 'M1' },
     { name: 'Jackpot Thiên Thưởng', mult: 40,   weight: 4,    kind: '3x', symbol: 'M2' },
     { name: 'Jackpot Ngọc',         mult: 18,   weight: 9,    kind: '3x', symbol: 'M3' },
-    { name: 'Mini Jackpot',         mult: 10,   weight: 62,   kind: '2x', symbol: 'M1' },
-    { name: '2x Cáo',               mult: 6,    weight: 70,   kind: '2x', symbol: 'M2' },
-    { name: '2x Vua',               mult: 3,    weight: 130,  kind: '2x', symbol: 'M3' },
-    { name: 'An Ủi To',             mult: 2,    weight: 200,  kind: '3x', symbol: 'M4' },
-    { name: 'Hoàn Vốn',             mult: 1,    weight: 700,  kind: '3x', symbols: ['M5', 'M6'] },
-    { name: 'Nhỏ x0.5',             mult: 0.5,  weight: 600,  kind: '2x', symbol: 'M4' },
-    { name: 'Nhỏ x0.25',            mult: 0.25, weight: 350,  kind: '2x', symbols: ['M5', 'M6'] },
-    { name: 'Thua',                 mult: 0,    weight: 1197, kind: 'thua' }
+    { name: 'Mini Jackpot',         mult: 10,   weight: 58,   kind: '2x', symbol: 'M1' },
+    { name: '2x Cáo',               mult: 6,    weight: 65,   kind: '2x', symbol: 'M2' },
+    { name: '2x Vua',               mult: 3,    weight: 122,  kind: '2x', symbol: 'M3' },
+    { name: 'An Ủi To',             mult: 2,    weight: 192,  kind: '3x', symbol: 'M4' },
+    { name: 'Hoàn Vốn',             mult: 1,    weight: 695,  kind: '3x', symbols: ['M5', 'M6'] },
+    { name: 'Nhỏ x0.5',             mult: 0.5,  weight: 615,  kind: '2x', symbol: 'M4' },
+    { name: 'Nhỏ x0.25',            mult: 0.25, weight: 365,  kind: '2x', symbols: ['M5', 'M6'] },
+    { name: 'Thua',                 mult: 0,    weight: 1230, kind: 'thua' }
 ];
 
 const _totalWeight = POOL.reduce((a, p) => a + p.weight, 0);
