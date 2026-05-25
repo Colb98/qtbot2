@@ -286,9 +286,12 @@ function syllableChars(syl, difficulty) {
 }
 
 function scrambleWord(word, difficulty) {
-    return word.normalize('NFC').split(' ')
-        .map(syl => shuffled(syllableChars(syl, difficulty)).join('/'))
-        .join('_');
+    const syllables = word.normalize('NFC').split(' ');
+    const allChars = syllables.flatMap(syl => syllableChars(syl, difficulty));
+    shuffled(allChars);
+    const lens = syllables.map(syl => [...syl].length);
+    let i = 0;
+    return lens.map(len => allChars.slice(i, i += len).join('/')).join('_');
 }
 
 function pickScrambledWord(difficulty) {
