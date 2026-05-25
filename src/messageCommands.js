@@ -23,10 +23,23 @@ const wordchainEng = require('./services/wordchainEng');
 const vuaTiengViet = require('./services/vuaTiengViet');
 const bond = require('./services/bond');
 
+const BLOCKED_GAME_CMDS = new Set([
+    '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
+    '!gacha', '!wordchain', '!vuatiengviet'
+]);
+
 async function handleMessageCommand(msg) {
     const parts = msg.content.trim().split(/\s+/);
     const cmd = parts[0].toLowerCase();
     const guildId = msg.guildId;
+
+    if (BLOCKED_GAME_CMDS.has(cmd)) {
+        const blockedArr = data.blockedGameChannels && data.blockedGameChannels[guildId];
+        if (blockedArr && new Set(blockedArr).has(msg.channel.id)) {
+            return msg.reply('❌ Kênh này không cho phép chơi game. Vui lòng vào kênh game để chơi.');
+        }
+    }
+
     const member = await msg.guild.members.fetch(msg.author.id);
 
     if (cmd === '!maintenance') {
@@ -879,6 +892,39 @@ async function handleMessageCommand(msg) {
         const buildBtns = isTong ? dice.buildTongButtons : dice.buildMatButtons;
         const components = newW.ngoc > 0 ? buildBtns(msg.author.id, amount, guess, newW.ngoc) : [];
         return msg.reply({ content, components });
+    }
+
+    if (cmd === '!blockgames') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        if (!data.blockedGameChannels) data.blockedGameChannels = {};
+        if (!data.blockedGameChannels[guildId]) data.blockedGameChannels[guildId] = [];
+        const blocked = data.blockedGameChannels[guildId];
+        const action = (parts[1] || '').toLowerCase();
+
+        if (action === 'list') {
+            if (blocked.length === 0) return msg.reply('Không có kênh nào bị chặn game.');
+            const lines = ['**Kênh bị chặn game:**'];
+            for (const cid of blocked) lines.push(`• <#${cid}>`);
+            return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+        }
+
+        const USAGE = 'Cú pháp: `!blockgames add|remove #channel` hoặc `!blockgames list`';
+        const target = msg.mentions.channels.first();
+        if (!target) return msg.reply(USAGE);
+
+        if (action === 'add') {
+            if (blocked.includes(target.id)) return msg.reply(`<#${target.id}> đã bị chặn rồi.`);
+            blocked.push(target.id);
+            saveData();
+            return msg.reply(`✅ Đã chặn game trong <#${target.id}>. Ảnh hưởng: ${[...BLOCKED_GAME_CMDS].join(', ')}`);
+        } else if (action === 'remove') {
+            const idx = blocked.indexOf(target.id);
+            if (idx === -1) return msg.reply(`<#${target.id}> chưa bị chặn.`);
+            blocked.splice(idx, 1);
+            saveData();
+            return msg.reply(`✅ Đã bỏ chặn game trong <#${target.id}>.`);
+        }
+        return msg.reply(USAGE);
     }
 
     if (cmd === '!wordchain') {

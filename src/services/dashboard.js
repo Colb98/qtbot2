@@ -158,6 +158,16 @@ const HTML_PAGE = `<!DOCTYPE html>
   .v.accent { color: var(--accent); font-weight: 600; }
   .chart-card { grid-column: 1 / -1; height: 320px; }
   .chart-card canvas { width: 100% !important; height: 260px !important; }
+  .chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 12px; margin-bottom: 12px;
+  }
+  .chart-sm {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+  }
+  .chart-sm h2 { margin: 0 0 8px 0; font-size: 14px; font-weight: 600; }
+  .chart-sm canvas { width: 100% !important; height: 220px !important; }
 
   /* Floating refresh button (follows scroll, like back-to-top) */
   .fab {
@@ -210,6 +220,8 @@ const HTML_PAGE = `<!DOCTYPE html>
   <canvas id="chart7"></canvas>
 </div>
 
+<div class="chart-grid" id="chartGrid"></div>
+
 <button class="fab" id="refreshBtn">
   <span class="spinner"></span>
   <span>↻ Refresh</span>
@@ -227,7 +239,14 @@ const sign = (n) => (n >= 0 ? '+' : '') + fmt(n);
 const pct = (a, b) => !b ? '—' : ((a / b) * 100).toFixed(1) + '%';
 const goodbad = (n) => n > 0 ? 'good' : (n < 0 ? 'bad' : '');
 
+const PALETTE = [
+  'rgba(79,195,247,0.85)','rgba(102,187,106,0.85)','rgba(239,83,80,0.85)',
+  'rgba(255,183,77,0.85)','rgba(171,71,188,0.85)','rgba(38,198,218,0.85)',
+  'rgba(255,138,101,0.85)','rgba(92,107,192,0.85)'
+];
+
 let chart;
+let gameCharts = {};
 let snapshot;
 let nextRefreshAt = 0;
 const REFRESH_MS = 60_000;
@@ -368,6 +387,119 @@ function renderChart(snap) {
   });
 }
 
+function gcCard(id, title) {
+  const d = document.createElement('div');
+  d.className = 'chart-sm';
+  d.innerHTML = '<h2>' + title + '</h2><canvas id="' + id + '"></canvas>';
+  return d;
+}
+
+function gcDonut(id, labels, data) {
+  const total = data.reduce((a, b) => a + b, 0);
+  gameCharts[id] = new Chart(document.getElementById(id).getContext('2d'), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: PALETTE.slice(0, data.length), borderWidth: 1, borderColor: 'rgba(0,0,0,0.25)' }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#e6e6e6', boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => c.label + ': ' + fmt(c.parsed) + ' (' + (total ? ((c.parsed/total)*100).toFixed(1) : 0) + '%)' } }
+      }
+    }
+  });
+}
+
+function gcBar(id, labels, data, color, xLabel) {
+  gameCharts[id] = new Chart(document.getElementById(id).getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: xLabel || '', data, backgroundColor: color || PALETTE[0], borderRadius: 3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => fmt(c.parsed.y) } }
+      },
+      scales: {
+        x: { ticks: { color: '#8a96a3', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { ticks: { color: '#8a96a3', font: { size: 10 }, callback: v => fmt(v) }, grid: { color: 'rgba(255,255,255,0.05)' } }
+      }
+    }
+  });
+}
+
+const TONG_SUMS = Array.from({length: 16}, (_, i) => i + 3);
+
+function gcBetBuckets(id, title, m, color, container) {
+  const entries = Object.entries(m.betBuckets || {}).filter(([,v]) => v > 0);
+  if (!entries.length) return;
+  container.appendChild(gcCard(id, title));
+  gcBar(id, entries.map(([k]) => k), entries.map(([,v]) => v), color);
+}
+
+function renderGameCharts(snap) {
+  for (const c of Object.values(gameCharts)) c.destroy();
+  gameCharts = {};
+  const container = document.getElementById('chartGrid');
+  container.innerHTML = '';
+  const s = snap.store;
+
+  if (s.slot) {
+    const m = s.slot;
+    const ocEntries = Object.entries(m.outcomes || {}).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
+    if (ocEntries.length > 0) {
+      container.appendChild(gcCard('gc_slot_oc', '🎰 Slot — Phân phối kết quả'));
+      gcDonut('gc_slot_oc', ocEntries.map(e => e[0]), ocEntries.map(e => e[1]));
+    }
+    gcBetBuckets('gc_slot_bet', '🎰 Slot — Phân phối mức cược', m, PALETTE[0], container);
+  }
+
+  if (s.coinflip && (s.coinflip.spins || 0) > 0) {
+    const m = s.coinflip;
+    container.appendChild(gcCard('gc_cf_wl', '🪙 CoinFlip — Thắng / Thua'));
+    gcDonut('gc_cf_wl', ['Thắng','Thua'], [m.wins || 0, (m.spins || 0) - (m.wins || 0)]);
+    const sg = m.sideGuess || {};
+    if ((sg.sap||0) + (sg.ngua||0) + (sg.none||0) > 0) {
+      container.appendChild(gcCard('gc_cf_side', '🪙 CoinFlip — Lựa chọn mặt'));
+      gcDonut('gc_cf_side', ['Sấp','Ngửa','Random'], [sg.sap||0, sg.ngua||0, sg.none||0]);
+    }
+    gcBetBuckets('gc_cf_bet', '🪙 CoinFlip — Phân phối mức cược', m, PALETTE[3], container);
+  }
+
+  if (s.mat && (s.mat.spins || 0) > 0) {
+    const m = s.mat;
+    const fc = m.faceCounts || {};
+    if (Object.values(fc).some(v => v > 0)) {
+      container.appendChild(gcCard('gc_mat_face', '🎲 Mat — Mặt cược ưa thích'));
+      gcBar('gc_mat_face', ['1','2','3','4','5','6'], [1,2,3,4,5,6].map(k => fc[k]||0), PALETTE[3]);
+    }
+    const mc = m.matchCounts || {};
+    if (Object.values(mc).some(v => v > 0)) {
+      container.appendChild(gcCard('gc_mat_match', '🎲 Mat — Số xúc xắc khớp'));
+      gcBar('gc_mat_match', ['0','1','2','3','4','5','6'], [0,1,2,3,4,5,6].map(k => mc[k]||0), PALETTE[2]);
+    }
+  }
+
+  if (s.tong && (s.tong.spins || 0) > 0) {
+    const m = s.tong;
+    const sc = m.sumCounts || {};
+    if (Object.values(sc).some(v => v > 0)) {
+      container.appendChild(gcCard('gc_tong_sum', '🎲 Tong — Tổng điểm được đặt'));
+      gcBar('gc_tong_sum', TONG_SUMS.map(String), TONG_SUMS.map(k => sc[k]||0), PALETTE[4]);
+    }
+    gcBetBuckets('gc_tong_bet', '🎲 Tong — Phân phối mức cược', m, PALETTE[4], container);
+  }
+
+  if (s.gacha && (s.gacha.rolls || 0) > 0) {
+    const ic = s.gacha.itemCounts || {};
+    const gLabels = ['Cáo','Thiên Thưởng','Kỳ Thưởng','Diều','Nhuộm'];
+    const gVals = ['cao','thienthuong','kythuong','dieu','nhuom'].map(k => ic[k]||0);
+    if (gVals.some(v => v > 0)) {
+      container.appendChild(gcCard('gc_gacha_items', '🎁 Gacha — Phân phối vật phẩm'));
+      gcDonut('gc_gacha_items', gLabels, gVals);
+    }
+  }
+}
+
 function renderAll() {
   if (!snapshot) return;
   document.getElementById('updated').textContent = new Date(snapshot.generatedAt).toLocaleTimeString();
@@ -375,6 +507,7 @@ function renderAll() {
   renderNetBanner(snapshot);
   renderGameCards(snapshot);
   renderChart(snapshot);
+  renderGameCharts(snapshot);
 }
 
 function setDates(buckets, selected) {
