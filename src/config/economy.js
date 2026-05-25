@@ -21,7 +21,7 @@ module.exports = {
     },
 
     BOND: {
-        PER_DIEU: 100,
+        PER_DIEU: 20,
         PER_NGOC: 0.1,
         PER_THIENTHUONG: 1000,
         PER_CAO: 3000,
