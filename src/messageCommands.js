@@ -1030,8 +1030,8 @@ async function handleMessageCommand(msg) {
             ? vuaTiengViet.getLifetimeTop(guildId, 10)
             : vuaTiengViet.getWeeklyTop(guildId, 10);
         const header = isLifetime
-            ? `🏆 **Top Vua Tiếng Việt — Lifetime** (tổng ngọc kiếm được)`
-            : `🏆 **Top Vua Tiếng Việt — Tuần này** (tổng ngọc kiếm được)`;
+            ? `🏆 **Top Vua Tiếng Việt — Lifetime** (tổng từ đoán đúng)`
+            : `🏆 **Top Vua Tiếng Việt — Tuần này** (tổng từ đoán đúng)`;
         const lines = [header];
         if (top.length === 0) {
             lines.push('_Chưa có ai trên bảng xếp hạng._');
@@ -1078,6 +1078,12 @@ async function handleMessageCommand(msg) {
             log.error('vuatiengviet_payout error', e);
             return msg.reply('Lỗi khi trả thưởng. Xem log.');
         }
+    }
+
+    if (cmd === '!vuatiengviet_resetcap') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const count = vuaTiengViet.resetDailyCaps(guildId);
+        return msg.reply(`✅ Đã reset cap ngày Vua Tiếng Việt cho **${count}** người trong server.`);
     }
 
     if (cmd === '!upload_ingame_emotes') {
