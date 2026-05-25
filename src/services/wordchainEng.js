@@ -10,7 +10,7 @@ const {
 const log = require('../../logger');
 const client = require('../client');
 const { data, saveData } = require('../state');
-const { addNgoc, renderEmote, fmt } = require('./currency');
+const { addNgoc, renderEmote, fmt, todayStr } = require('./currency');
 const economy = require('../config/economy');
 const metrics = require('./metrics');
 
@@ -257,7 +257,8 @@ function payoutAllGuilds(week) {
 }
 
 async function announcePayout(guildId, result) {
-    const channelId = data.channelId && data.channelId[guildId];
+    const channelId = (data.wordchainNotiChannel && data.wordchainNotiChannel[guildId])
+        || (data.channelId && data.channelId[guildId]);
     if (!channelId) return;
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel) return;
@@ -388,16 +389,21 @@ async function endSession(threadId, { reason, winnerId }) {
     for (const [uid, positions] of ownerPositions) {
         if (!data.wordchainEng.wordCounts[session.guildId]) data.wordchainEng.wordCounts[session.guildId] = {};
         const arrRoot = data.wordchainEng.wordCounts[session.guildId];
-        if (!arrRoot[uid]) arrRoot[uid] = [];
-        const arr = arrRoot[uid];
+        const today = todayStr();
+        const existing = arrRoot[uid];
+        // migrate legacy plain-array format or reset if it's a new day
+        if (!existing || Array.isArray(existing) || existing.date !== today) {
+            arrRoot[uid] = { date: today, counts: [] };
+        }
+        const counts = arrRoot[uid].counts;
 
         let reward = 0;
         for (const i of positions) {
-            const prev = arr[i - 1] || 0;
+            const prev = counts[i - 1] || 0;
             if (prev < cfg.REWARD_CAP_PER_POSITION) {
                 reward += rewardForPosition(i);
             }
-            arr[i - 1] = prev + 1;
+            counts[i - 1] = prev + 1;
         }
 
         const bonus = (uid === winnerId) ? winBonus : 0;

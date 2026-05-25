@@ -124,6 +124,8 @@ async function handleMessageCommand(msg) {
 • \`!metrics_exclude [list|add|remove|clean] @user\` — Loại user khỏi metrics (skip toàn bộ record + dọn playerIds cũ).
 • \`!metrics_adjust <guildId|_legacy> <YYYY-MM-DD|today> <game> <field=delta> [...]\` — Cộng/trừ trực tiếp vào bucket (vd: \`rolls=-30 burned=-3000 itemCounts.cao=-1\`).
 • \`!wordchain_payout\` — Trả thưởng tuần trước cho top 10 English Wordchain ngay (cron tự chạy Thứ Hai 00:00 GMT+7).
+• \`!wordchain_reset\` — Reset daily limit ngọc wordchain (20 lần/vị trí) cho toàn server (ManageGuild).
+• \`!setwordchain_noti [#channel|clear]\` — Cài kênh riêng nhận thông báo thưởng tuần wordchain (ManageGuild). Mặc định dùng kênh bot.
 
 **Guild War:**
 • \`!setup channel #channel\` — Set kênh đăng ký bang chiến.
@@ -980,6 +982,42 @@ async function handleMessageCommand(msg) {
         let reply = `Đã upload ${okCount}/${INGAME_EMOTE_NAMES.length} emote.`;
         if (failures.length) reply += `\nLỗi:\n\`\`\`${failures.join('\n')}\`\`\``;
         return msg.reply(reply);
+    }
+
+    if (cmd === '!wordchain_reset') {
+        if (!msg.member.permissions.has('ManageGuild') && !isSuperAdmin(msg.author.id)) return;
+        if (!data.wordchainEng || !data.wordchainEng.wordCounts || !data.wordchainEng.wordCounts[guildId]) {
+            return msg.reply('Không có dữ liệu daily limit để reset.');
+        }
+        data.wordchainEng.wordCounts[guildId] = {};
+        saveData();
+        return msg.reply('✅ Đã reset daily limit ngọc wordchain cho toàn bộ user trong server.');
+    }
+
+    if (cmd === '!setwordchain_noti') {
+        if (!msg.member.permissions.has('ManageGuild') && !isSuperAdmin(msg.author.id)) return;
+        const arg = parts[1];
+        if (!arg) {
+            const current = data.wordchainNotiChannel && data.wordchainNotiChannel[guildId];
+            return msg.reply(
+                current
+                    ? `Kênh thông báo thưởng tuần wordchain: <#${current}>. Dùng \`!setwordchain_noti #channel\` để đổi hoặc \`!setwordchain_noti clear\` để xoá.`
+                    : 'Chưa cài kênh riêng. Dùng `!setwordchain_noti #channel`. (Nếu chưa cài sẽ dùng kênh mặc định của bot.)'
+            );
+        }
+        if (arg.toLowerCase() === 'clear') {
+            if (data.wordchainNotiChannel) delete data.wordchainNotiChannel[guildId];
+            saveData();
+            return msg.reply('✅ Đã xoá kênh thông báo wordchain. Sẽ dùng kênh mặc định của bot.');
+        }
+        const channelId = arg.replace(/[^0-9]/g, '');
+        if (!channelId) return msg.reply('Vui lòng mention `#channel` hợp lệ hoặc `clear`.');
+        const targetChannel = await msg.guild.channels.fetch(channelId).catch(() => null);
+        if (!targetChannel) return msg.reply('Không tìm thấy kênh được chỉ định.');
+        data.wordchainNotiChannel = data.wordchainNotiChannel || {};
+        data.wordchainNotiChannel[guildId] = channelId;
+        saveData();
+        return msg.reply(`✅ Kênh thông báo thưởng tuần wordchain: <#${channelId}>.`);
     }
 
     if (!msg.member.permissions.has('ManageGuild') && !isManager(guildId, msg.author.id)) return;

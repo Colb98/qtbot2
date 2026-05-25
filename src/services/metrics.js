@@ -10,8 +10,8 @@ const FLUSH_INTERVAL_MS = 30_000;
 // ---- bucket helpers --------------------------------------------------------
 
 function currentBucket() {
-    // UTC date string, e.g. '2026-05-22'
-    return new Date().toISOString().slice(0, 10);
+    const shifted = new Date(Date.now() + 7 * 3600 * 1000);
+    return shifted.toISOString().slice(0, 10);
 }
 
 function bucketPath(bucket) {
