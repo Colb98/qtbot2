@@ -58,6 +58,8 @@ module.exports = {
             return;
         }
 
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
         if (newClass) data.registrations[interaction.guildId][user.id].class = newClass;
         if (ingameName) data.registrations[interaction.guildId][user.id].ingame = ingameName;
 
@@ -73,9 +75,8 @@ module.exports = {
         }
         saveData();
 
-        await interaction.reply({
-            content: 'Đã cập nhật thông tin thành viên.',
-            flags: MessageFlags.Ephemeral
+        await interaction.editReply({
+            content: 'Đã cập nhật thông tin thành viên.'
         });
     }
 };

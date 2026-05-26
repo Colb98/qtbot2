@@ -8,6 +8,7 @@ node_modules/
 
 # Runtime data (modified on server)
 data.json
+data.json.*
 backupdata/
 
 # Local SSH/deploy notes
