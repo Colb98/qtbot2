@@ -6,7 +6,7 @@ const client = require('./client');
 const { data, saveData } = require('./state');
 const { CLASS_NAMES, MANAGER_ID, EMOTE_GUILD_ID, EMOTE_FILES } = require('./constants');
 const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin, checkGameCooldown, replyEphemeral, replyChunked } = require('./utils');
-const { isMaintenance, setMaintenance } = require('./services/maintenance');
+const { isMaintenance, setMaintenance, isBlockedByMaintenance } = require('./services/maintenance');
 const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require('./services/guildWar');
 const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
@@ -57,7 +57,7 @@ async function handleMessageCommand(msg) {
         return msg.reply(`Trạng thái bảo trì: **${status}**.\nCú pháp: \`!maintenance on|off\`.`);
     }
 
-    if (isMaintenance()) {
+    if (isBlockedByMaintenance(msg.author.id, msg.guild)) {
         return replyEphemeral(msg, '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.');
     }
 
@@ -300,12 +300,13 @@ async function handleMessageCommand(msg) {
         const lines = [
             `**Kho đồ của ${member.displayName}**`,
             `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`,
-            `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc)}**`
+            `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`
         ];
         let hiddenCount = 0;
         for (const k of ITEM_KEYS) {
-            if ((w.items[k] || 0) > 0) {
-                lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(w.items[k])}**`);
+            const total = (w.items[k] || 0) + (w.lockedItems[k] || 0);
+            if (total > 0) {
+                lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(total)}**`);
             } else {
                 hiddenCount++;
             }
@@ -337,7 +338,7 @@ async function handleMessageCommand(msg) {
         addNganphieu(guildId, msg.author.id, -cost);
         addNgoc(guildId, msg.author.id, n);
         const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('nganphieu')} → ${fmt(n)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.nganphieu)} ngân phiếu, ${fmt(w2.ngoc)} ngọc.`);
+        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('nganphieu')} → ${fmt(n)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.nganphieu)} ngân phiếu, ${fmt(w2.ngoc + w2.lockedNgoc)} ngọc.`);
     }
 
     if (cmd === '!gacha') {
@@ -529,7 +530,7 @@ async function handleMessageCommand(msg) {
         addNgoc(guildId, msg.author.id, gained);
         saveData();
         const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey])} ${itemLabel}, ${fmt(w2.ngoc)} ngọc.`);
+        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey] + w2.lockedItems[itemKey])} ${itemLabel}, ${fmt(w2.ngoc + w2.lockedNgoc)} ngọc.`);
     }
 
     if (cmd === '!bankythuong' || cmd === '!bandieu' || cmd === '!bannhuom') {
@@ -555,7 +556,7 @@ async function handleMessageCommand(msg) {
         addNgoc(guildId, msg.author.id, gained);
         saveData();
         const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey])} ${itemLabel}, ${fmt(w2.ngoc)} ngọc.`);
+        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey] + w2.lockedItems[itemKey])} ${itemLabel}, ${fmt(w2.ngoc + w2.lockedNgoc)} ngọc.`);
     }
 
     if (cmd === '!doicao5' || cmd === '!doicao9') {
@@ -753,7 +754,7 @@ async function handleMessageCommand(msg) {
             let score = 0;
             const owned = {};
             for (const { key, mult } of SCORED_ITEMS) {
-                const n = w.items[key] || 0;
+                const n = (w.items[key] || 0) + ((w.lockedItems && w.lockedItems[key]) || 0);
                 owned[key] = n;
                 score += n * mult;
             }
@@ -784,7 +785,8 @@ async function handleMessageCommand(msg) {
         if (!wallets) return msg.reply('Chưa có người nào đăng ký.');
         const rankings = [];
         for (const [userId, w] of Object.entries(wallets)) {
-            if (w.ngoc && w.ngoc > 0) rankings.push({ userId, ngoc: w.ngoc });
+            const totalN = (w.ngoc || 0) + (w.lockedNgoc || 0);
+            if (totalN > 0) rankings.push({ userId, ngoc: totalN });
         }
         rankings.sort((a, b) => b.ngoc - a.ngoc);
         const top = rankings.slice(0, 10);

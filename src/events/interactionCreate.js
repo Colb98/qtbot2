@@ -13,12 +13,12 @@ const dice = require('../services/dice');
 const metrics = require('../services/metrics');
 const economy = require('../config/economy');
 const { data, saveData } = require('../state');
-const { isMaintenance } = require('../services/maintenance');
+const { isBlockedByMaintenance } = require('../services/maintenance');
 
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
-        if (isMaintenance()) {
+        if (isBlockedByMaintenance(interaction.user.id, interaction.guild)) {
             if (interaction.isRepliable && interaction.isRepliable()) {
                 await interaction.reply({ content: '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.', flags: MessageFlags.Ephemeral }).catch(() => {});
             }
@@ -344,10 +344,11 @@ async function handleKhodoButton(interaction) {
     const lines = [
         `**Kho đồ của ${displayName}**`,
         `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`,
-        `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc)}**`
+        `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`
     ];
     for (const k of ITEM_KEYS) {
-        lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(w.items[k] || 0)}**`);
+        const total = (w.items[k] || 0) + (w.lockedItems[k] || 0);
+        lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(total)}**`);
     }
     await interaction.update({ content: lines.join('\n'), components: [] }).catch(e => log.error('khodo update error', e));
 }
