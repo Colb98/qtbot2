@@ -839,7 +839,7 @@ async function handleMessageCommand(msg) {
         const result = Math.random() < 0.5 ? 'sap' : 'ngua';
         const won = side ? (side === result) : (Math.random() < 0.5);
         spendNgocForGame(guildId, msg.author.id, amount);
-        if (won) addNgoc(guildId, msg.author.id, amount);
+        if (won) addNgoc(guildId, msg.author.id, amount * 2);
         const newW = getWallet(guildId, msg.author.id);
         const bigWin = won && (isAll || amount >= 5000);
         metrics.recordCoinflip({ guildId, amount, won, side, viaButton: false, wasAllIn: isAll, bigWin, userId: msg.author.id });

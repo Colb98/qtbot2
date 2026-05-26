@@ -175,7 +175,7 @@ async function handleCoinflipButton(interaction) {
     const result = Math.random() < 0.5 ? 'sap' : 'ngua';
     const won = side ? (side === result) : (Math.random() < 0.5);
     spendNgocForGame(guildId, ownerUserId, amount);
-    if (won) addNgoc(guildId, ownerUserId, amount);
+    if (won) addNgoc(guildId, ownerUserId, amount * 2);
 
     const wasAllIn = action === 'allin';
     const bigWin = won && (wasAllIn || amount >= 5000);
