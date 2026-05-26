@@ -6,11 +6,11 @@ const client = require('./client');
 const { data, saveData } = require('./state');
 const { CLASS_NAMES, MANAGER_ID, EMOTE_GUILD_ID, EMOTE_FILES } = require('./constants');
 const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin, checkGameCooldown, replyEphemeral, replyChunked } = require('./utils');
-const { isMaintenance, setMaintenance } = require('./services/maintenance');
+const { isMaintenance, setMaintenance, isBlockedByMaintenance } = require('./services/maintenance');
 const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require('./services/guildWar');
 const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
-const { getWallet, addNganphieu, addNgoc, addItem, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
+const { getWallet, addNganphieu, addNgoc, addItem, addLockedNgoc, addLockedItem, spendNgocForGame, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
 const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
 const { SYMBOLS: SLOT_SYMBOLS, playSlot, formatResultLine: formatSlotResultLine, buildContinueButtons: buildSlotContinueButtons } = require('./services/slot');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
@@ -57,7 +57,7 @@ async function handleMessageCommand(msg) {
         return msg.reply(`Trạng thái bảo trì: **${status}**.\nCú pháp: \`!maintenance on|off\`.`);
     }
 
-    if (isMaintenance()) {
+    if (isBlockedByMaintenance(msg.author.id, msg.guild)) {
         return replyEphemeral(msg, '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.');
     }
 
@@ -300,12 +300,13 @@ async function handleMessageCommand(msg) {
         const lines = [
             `**Kho đồ của ${member.displayName}**`,
             `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`,
-            `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc)}**`
+            `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`
         ];
         let hiddenCount = 0;
         for (const k of ITEM_KEYS) {
-            if ((w.items[k] || 0) > 0) {
-                lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(w.items[k])}**`);
+            const total = (w.items[k] || 0) + (w.lockedItems[k] || 0);
+            if (total > 0) {
+                lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(total)}**`);
             } else {
                 hiddenCount++;
             }
@@ -337,14 +338,15 @@ async function handleMessageCommand(msg) {
         addNganphieu(guildId, msg.author.id, -cost);
         addNgoc(guildId, msg.author.id, n);
         const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('nganphieu')} → ${fmt(n)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.nganphieu)} ngân phiếu, ${fmt(w2.ngoc)} ngọc.`);
+        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('nganphieu')} → ${fmt(n)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.nganphieu)} ngân phiếu, ${fmt(w2.ngoc + w2.lockedNgoc)} ngọc.`);
     }
 
     if (cmd === '!gacha') {
         let n;
         if (parts[1] === 'all') {
             const w = getWallet(guildId, msg.author.id);
-            n = Math.floor(w.ngoc / ROLL_COST);
+            const totalNgocGacha = w.ngoc + w.lockedNgoc;
+            n = Math.floor(totalNgocGacha / ROLL_COST);
             if (n <= 0) return msg.reply(`Bạn không có đủ ngọc để quay. Cần ít nhất ${fmt(ROLL_COST)} ngọc.`);
             const cost = n * ROLL_COST;
             const confirmRow = new ActionRowBuilder().addComponents(
@@ -364,8 +366,9 @@ async function handleMessageCommand(msg) {
         }
         const cost = n * ROLL_COST;
         const w = getWallet(guildId, msg.author.id);
-        if (w.ngoc < cost) return msg.reply(`Cần ${fmt(cost)} ngọc để quay ${fmt(n)} lần, bạn có ${fmt(w.ngoc)}.`);
-        addNgoc(guildId, msg.author.id, -cost);
+        const totalNgocGacha = w.ngoc + w.lockedNgoc;
+        if (totalNgocGacha < cost) return msg.reply(`Cần ${fmt(cost)} ngọc để quay ${fmt(n)} lần, bạn có ${fmt(totalNgocGacha)}.`);
+        spendNgocForGame(guildId, msg.author.id, cost);
 
         let shakeMsg;
         const shakeEmoteId = data.ingameEmoteIds && data.ingameEmoteIds.shake_tt;
@@ -404,9 +407,17 @@ async function handleMessageCommand(msg) {
         if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`!doithienthuong <số lượng cáo>\` — đổi ${economy.TT_PER_CAO} thiên thưởng thành 1 cáo.`);
         const cost = n * economy.TT_PER_CAO;
         const w = getWallet(guildId, msg.author.id);
-        if (w.items.thienthuong < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(w.items.thienthuong)}.`);
-        addItem(guildId, msg.author.id, 'thienthuong', -cost);
-        addItem(guildId, msg.author.id, 'cao', n);
+        const totalTT = w.items.thienthuong + w.lockedItems.thienthuong;
+        if (totalTT < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(totalTT)}.`);
+        const nonLockedTTUsed = Math.min(cost, w.items.thienthuong);
+        const lockedTTUsed = cost - nonLockedTTUsed;
+        w.items.thienthuong -= nonLockedTTUsed;
+        w.lockedItems.thienthuong -= lockedTTUsed;
+        const nonLockedCao = Math.floor(nonLockedTTUsed / economy.TT_PER_CAO);
+        const lockedCao = n - nonLockedCao;
+        w.items.cao += nonLockedCao;
+        w.lockedItems.cao += lockedCao;
+        saveData();
         const w2 = getWallet(guildId, msg.author.id);
         return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote('cao')}. Số dư: ${fmt(w2.items.thienthuong)} thiên thưởng, ${fmt(w2.items.cao)} cáo.`);
     }
@@ -434,21 +445,28 @@ async function handleMessageCommand(msg) {
         if (!targetMember) return msg.reply('Không tìm thấy user trong server.');
         if (targetMember.user.bot) return msg.reply('Không tặng cho bot được.');
         const w = getWallet(guildId, msg.author.id);
+        const lockedItemAmt = w.lockedItems[itemKey];
+        const totalItem = w.items[itemKey] + lockedItemAmt;
         let amount;
         if (parts[2] === 'all') {
-            amount = w.items[itemKey];
+            amount = totalItem;
             if (amount <= 0) return msg.reply(`Bạn không có ${itemLabel} để tặng.`);
         } else {
             amount = parts[2] ? parseInt(parts[2], 10) : 1;
             if (!Number.isInteger(amount) || amount <= 0) return msg.reply(`Cú pháp: \`${cmd} @user [số lượng|all]\``);
-            if (w.items[itemKey] < amount) return msg.reply(`Bạn chỉ có ${fmt(w.items[itemKey])} ${itemLabel}, không đủ tặng ${fmt(amount)}.`);
+            if (totalItem < amount) return msg.reply(`Bạn chỉ có ${fmt(totalItem)} ${itemLabel}, không đủ tặng ${fmt(amount)}.`);
         }
-        addItem(guildId, msg.author.id, itemKey, -amount);
-        addItem(guildId, targetId, itemKey, amount);
-        const bondDelta = Math.floor(amount * bondPer);
+        const nonLockedUsed = Math.min(amount, w.items[itemKey]);
+        const lockedUsed = amount - nonLockedUsed;
+        w.items[itemKey] -= nonLockedUsed;
+        w.lockedItems[itemKey] -= lockedUsed;
+        saveData();
+        addLockedItem(guildId, targetId, itemKey, amount);
+        const bondDelta = Math.floor(nonLockedUsed * bondPer);
         const newBond = bond.addBond(guildId, msg.author.id, targetId, bondDelta);
         const emoji = bond.emojiFor(newBond);
-        return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote(itemKey)} cho ${targetMember.displayName}. ${emoji} Điểm Thân mật +${fmt(bondDelta)} → **${fmt(newBond)}**.`);
+        const lockedNote = lockedUsed > 0 ? ` (có ${fmt(lockedUsed)} ${itemLabel} khoá không tăng thân mật)` : '';
+        return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote(itemKey)} cho ${targetMember.displayName}. ${emoji} Điểm Thân mật +${fmt(bondDelta)} → **${fmt(newBond)}**.${lockedNote}`);
     }
 
     if (cmd === '!tangngoc') {
@@ -461,23 +479,29 @@ async function handleMessageCommand(msg) {
         if (!targetMember) return msg.reply('Không tìm thấy user trong server.');
         if (targetMember.user.bot) return msg.reply('Không tặng cho bot được.');
         const w = getWallet(guildId, msg.author.id);
+        const totalNgocGift = w.ngoc + w.lockedNgoc;
         let amount;
         if (parts[2] === 'all') {
-            amount = w.ngoc;
+            amount = totalNgocGift;
             if (amount <= 0) return msg.reply('Bạn không có ngọc để tặng.');
         } else {
             amount = parseInt(parts[2], 10);
             if (!Number.isInteger(amount) || amount <= 0) return msg.reply('Cú pháp: `!tangngoc @user <số lượng|all>`');
-            if (w.ngoc < amount) return msg.reply(`Bạn chỉ có ${fmt(w.ngoc)} ngọc, không đủ tặng ${fmt(amount)}.`);
+            if (totalNgocGift < amount) return msg.reply(`Bạn chỉ có ${fmt(totalNgocGift)} ngọc, không đủ tặng ${fmt(amount)}.`);
         }
-        addNgoc(guildId, msg.author.id, -amount);
-        addNgoc(guildId, targetId, amount);
-        const bondDelta = Math.floor(amount * economy.BOND.PER_NGOC);
+        const nonLockedUsed = Math.min(amount, w.ngoc);
+        const lockedUsed = amount - nonLockedUsed;
+        w.ngoc -= nonLockedUsed;
+        w.lockedNgoc -= lockedUsed;
+        saveData();
+        addLockedNgoc(guildId, targetId, amount);
+        const bondDelta = Math.floor(nonLockedUsed * economy.BOND.PER_NGOC);
         const newBond = bond.addBond(guildId, msg.author.id, targetId, bondDelta);
         const bondLine = bondDelta > 0
             ? ` ${bond.emojiFor(newBond)} Điểm Thân mật +${fmt(bondDelta)} → **${fmt(newBond)}**.`
             : '';
-        return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('ngoc')} cho ${targetMember.displayName}.${bondLine}`);
+        const lockedNote = lockedUsed > 0 ? ` (có ${fmt(lockedUsed)} ngọc khoá không tăng thân mật)` : '';
+        return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('ngoc')} cho ${targetMember.displayName}.${bondLine}${lockedNote}`);
     }
 
     if (cmd === '!banthienthuong' || cmd === '!bancao') {
@@ -488,20 +512,25 @@ async function handleMessageCommand(msg) {
             ? economy.ROLLS_PER_THIENTHUONG * ROLL_COST * economy.TT_PER_CAO
             : economy.ROLLS_PER_THIENTHUONG * ROLL_COST;
         const w = getWallet(guildId, msg.author.id);
+        const totalSell = w.items[itemKey] + w.lockedItems[itemKey];
         let n;
         if (parts[1] === 'all') {
-            n = w.items[itemKey];
+            n = totalSell;
             if (n <= 0) return msg.reply(`Bạn không có ${itemLabel} để bán.`);
         } else {
             n = parseInt(parts[1], 10);
             if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — bán 1 ${itemLabel} = ${fmt(pricePerUnit)} ngọc.`);
-            if (w.items[itemKey] < n) return msg.reply(`Bạn chỉ có ${fmt(w.items[itemKey])} ${itemLabel}, không đủ bán ${fmt(n)}.`);
+            if (totalSell < n) return msg.reply(`Bạn chỉ có ${fmt(totalSell)} ${itemLabel}, không đủ bán ${fmt(n)}.`);
         }
+        const nonLockedSold = Math.min(n, w.items[itemKey]);
+        const lockedSold = n - nonLockedSold;
+        w.items[itemKey] -= nonLockedSold;
+        w.lockedItems[itemKey] -= lockedSold;
         const gained = n * pricePerUnit;
-        addItem(guildId, msg.author.id, itemKey, -n);
         addNgoc(guildId, msg.author.id, gained);
+        saveData();
         const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey])} ${itemLabel}, ${fmt(w2.ngoc)} ngọc.`);
+        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey] + w2.lockedItems[itemKey])} ${itemLabel}, ${fmt(w2.ngoc + w2.lockedNgoc)} ngọc.`);
     }
 
     if (cmd === '!bankythuong' || cmd === '!bandieu' || cmd === '!bannhuom') {
@@ -509,20 +538,25 @@ async function handleMessageCommand(msg) {
         const itemLabel = ITEM_LABELS[itemKey];
         const pricePerUnit = economy.SELL_PRICE_NGOC[itemKey];
         const w = getWallet(guildId, msg.author.id);
+        const totalSell = w.items[itemKey] + w.lockedItems[itemKey];
         let n;
         if (parts[1] === 'all') {
-            n = w.items[itemKey];
+            n = totalSell;
             if (n <= 0) return msg.reply(`Bạn không có ${itemLabel} để bán.`);
         } else {
             n = parseInt(parts[1], 10);
             if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — bán 1 ${itemLabel} = ${fmt(pricePerUnit)} ngọc.`);
-            if (w.items[itemKey] < n) return msg.reply(`Bạn chỉ có ${fmt(w.items[itemKey])} ${itemLabel}, không đủ bán ${fmt(n)}.`);
+            if (totalSell < n) return msg.reply(`Bạn chỉ có ${fmt(totalSell)} ${itemLabel}, không đủ bán ${fmt(n)}.`);
         }
+        const nonLockedSold = Math.min(n, w.items[itemKey]);
+        const lockedSold = n - nonLockedSold;
+        w.items[itemKey] -= nonLockedSold;
+        w.lockedItems[itemKey] -= lockedSold;
         const gained = n * pricePerUnit;
-        addItem(guildId, msg.author.id, itemKey, -n);
         addNgoc(guildId, msg.author.id, gained);
+        saveData();
         const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey])} ${itemLabel}, ${fmt(w2.ngoc)} ngọc.`);
+        return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey] + w2.lockedItems[itemKey])} ${itemLabel}, ${fmt(w2.ngoc + w2.lockedNgoc)} ngọc.`);
     }
 
     if (cmd === '!doicao5' || cmd === '!doicao9') {
@@ -530,15 +564,23 @@ async function handleMessageCommand(msg) {
         const srcKey = isCao9 ? 'cao5' : 'cao';
         const dstKey = isCao9 ? 'cao9' : 'cao5';
         const ratio = isCao9 ? economy.CAO5_PER_CAO9 : economy.CAO_PER_CAO5;
+        const w = getWallet(guildId, msg.author.id);
+        const totalSrc = w.items[srcKey] + w.lockedItems[srcKey];
         const n = parts[1] === 'all'
-            ? Math.floor(getWallet(guildId, msg.author.id).items[srcKey] / ratio)
+            ? Math.floor(totalSrc / ratio)
             : parseInt(parts[1], 10);
         if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — đổi ${ratio} ${ITEM_LABELS[srcKey]} → 1 ${ITEM_LABELS[dstKey]}.`);
         const cost = n * ratio;
-        const w = getWallet(guildId, msg.author.id);
-        if (w.items[srcKey] < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote(srcKey)} nhưng chỉ có ${fmt(w.items[srcKey])}.`);
-        addItem(guildId, msg.author.id, srcKey, -cost);
-        addItem(guildId, msg.author.id, dstKey, n);
+        if (totalSrc < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote(srcKey)} nhưng chỉ có ${fmt(totalSrc)}.`);
+        const nonLockedUsed = Math.min(cost, w.items[srcKey]);
+        const lockedUsed = cost - nonLockedUsed;
+        w.items[srcKey] -= nonLockedUsed;
+        w.lockedItems[srcKey] -= lockedUsed;
+        const nonLockedDst = Math.floor(nonLockedUsed / ratio);
+        const lockedDst = n - nonLockedDst;
+        w.items[dstKey] += nonLockedDst;
+        w.lockedItems[dstKey] += lockedDst;
+        saveData();
         const w2 = getWallet(guildId, msg.author.id);
         return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote(srcKey)} → ${fmt(n)} ${renderEmote(dstKey)}. Số dư: ${fmt(w2.items[srcKey])} ${ITEM_LABELS[srcKey]}, ${fmt(w2.items[dstKey])} ${ITEM_LABELS[dstKey]}.`);
     }
@@ -548,16 +590,24 @@ async function handleMessageCommand(msg) {
         const dstKey = isThantrang ? 'thantrang' : 'phuonghoang1';
         const ttPer = isThantrang ? economy.THANTRANG_TT : economy.PHUONGBANG_TT;
         const w = getWallet(guildId, msg.author.id);
+        const totalTT = w.items.thienthuong + w.lockedItems.thienthuong;
         const n = parts[1] === 'all'
-            ? Math.floor(w.items.thienthuong / ttPer)
+            ? Math.floor(totalTT / ttPer)
             : parseInt(parts[1], 10);
         if (!Number.isInteger(n) || n <= 0) {
             return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — đổi ${fmt(ttPer)} ${renderEmote('thienthuong')} → 1 ${renderEmote(dstKey)} ${ITEM_LABELS[dstKey]}.`);
         }
         const cost = n * ttPer;
-        if (w.items.thienthuong < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(w.items.thienthuong)}.`);
-        addItem(guildId, msg.author.id, 'thienthuong', -cost);
-        addItem(guildId, msg.author.id, dstKey, n);
+        if (totalTT < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(totalTT)}.`);
+        const nonLockedTTUsed = Math.min(cost, w.items.thienthuong);
+        const lockedTTUsed = cost - nonLockedTTUsed;
+        w.items.thienthuong -= nonLockedTTUsed;
+        w.lockedItems.thienthuong -= lockedTTUsed;
+        const nonLockedDst = Math.floor(nonLockedTTUsed / ttPer);
+        const lockedDst = n - nonLockedDst;
+        w.items[dstKey] += nonLockedDst;
+        w.lockedItems[dstKey] += lockedDst;
+        saveData();
         const w2 = getWallet(guildId, msg.author.id);
         return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote(dstKey)}. Số dư: ${fmt(w2.items.thienthuong)} thiên thưởng, ${fmt(w2.items[dstKey])} ${ITEM_LABELS[dstKey]}.`);
     }
@@ -565,19 +615,31 @@ async function handleMessageCommand(msg) {
     if (cmd === '!doiphuonghoa') {
         const ttPer = economy.PHUONGHOA_TT;
         const w = getWallet(guildId, msg.author.id);
-        const maxByTt = Math.floor(w.items.thienthuong / ttPer);
+        const totalP1 = w.items.phuonghoang1 + w.lockedItems.phuonghoang1;
+        const totalTT = w.items.thienthuong + w.lockedItems.thienthuong;
+        const maxByTt = Math.floor(totalTT / ttPer);
         const n = parts[1] === 'all'
-            ? Math.min(w.items.phuonghoang1, maxByTt)
+            ? Math.min(totalP1, maxByTt)
             : parseInt(parts[1], 10);
         if (!Number.isInteger(n) || n <= 0) {
             return msg.reply(`Cú pháp: \`!doiphuonghoa <số lượng|all>\` — đổi 1 ${renderEmote('phuonghoang1')} + ${fmt(ttPer)} ${renderEmote('thienthuong')} → 1 ${renderEmote('phuonghoang2')} Phượng Hoả.`);
         }
         const ttCost = n * ttPer;
-        if (w.items.phuonghoang1 < n) return msg.reply(`Cần ${fmt(n)} ${renderEmote('phuonghoang1')} nhưng chỉ có ${fmt(w.items.phuonghoang1)}.`);
-        if (w.items.thienthuong < ttCost) return msg.reply(`Cần ${fmt(ttCost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(w.items.thienthuong)}.`);
-        addItem(guildId, msg.author.id, 'phuonghoang1', -n);
-        addItem(guildId, msg.author.id, 'thienthuong', -ttCost);
-        addItem(guildId, msg.author.id, 'phuonghoang2', n);
+        if (totalP1 < n) return msg.reply(`Cần ${fmt(n)} ${renderEmote('phuonghoang1')} nhưng chỉ có ${fmt(totalP1)}.`);
+        if (totalTT < ttCost) return msg.reply(`Cần ${fmt(ttCost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(totalTT)}.`);
+        const nonLockedP1Used = Math.min(n, w.items.phuonghoang1);
+        const lockedP1Used = n - nonLockedP1Used;
+        const nonLockedTTUsed = Math.min(ttCost, w.items.thienthuong);
+        const lockedTTUsed = ttCost - nonLockedTTUsed;
+        w.items.phuonghoang1 -= nonLockedP1Used;
+        w.lockedItems.phuonghoang1 -= lockedP1Used;
+        w.items.thienthuong -= nonLockedTTUsed;
+        w.lockedItems.thienthuong -= lockedTTUsed;
+        const nonLockedP2 = Math.min(nonLockedP1Used, Math.floor(nonLockedTTUsed / ttPer));
+        const lockedP2 = n - nonLockedP2;
+        w.items.phuonghoang2 += nonLockedP2;
+        w.lockedItems.phuonghoang2 += lockedP2;
+        saveData();
         const w2 = getWallet(guildId, msg.author.id);
         return msg.reply(`Đã đổi ${fmt(n)} ${renderEmote('phuonghoang1')} + ${fmt(ttCost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote('phuonghoang2')}. Số dư: ${fmt(w2.items.phuonghoang1)} Phượng Băng, ${fmt(w2.items.phuonghoang2)} Phượng Hoả, ${fmt(w2.items.thienthuong)} thiên thưởng.`);
     }
@@ -692,7 +754,7 @@ async function handleMessageCommand(msg) {
             let score = 0;
             const owned = {};
             for (const { key, mult } of SCORED_ITEMS) {
-                const n = w.items[key] || 0;
+                const n = (w.items[key] || 0) + ((w.lockedItems && w.lockedItems[key]) || 0);
                 owned[key] = n;
                 score += n * mult;
             }
@@ -723,7 +785,8 @@ async function handleMessageCommand(msg) {
         if (!wallets) return msg.reply('Chưa có người nào đăng ký.');
         const rankings = [];
         for (const [userId, w] of Object.entries(wallets)) {
-            if (w.ngoc && w.ngoc > 0) rankings.push({ userId, ngoc: w.ngoc });
+            const totalN = (w.ngoc || 0) + (w.lockedNgoc || 0);
+            if (totalN > 0) rankings.push({ userId, ngoc: totalN });
         }
         rankings.sort((a, b) => b.ngoc - a.ngoc);
         const top = rankings.slice(0, 10);
@@ -764,22 +827,25 @@ async function handleMessageCommand(msg) {
             return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
         }
         const w = getWallet(guildId, msg.author.id);
+        const totalNgocCf = w.ngoc + w.lockedNgoc;
         let amount;
         if (isAll) {
-            amount = Math.min(w.ngoc, economy.COINFLIP_MAX_BET);
+            amount = Math.min(totalNgocCf, economy.COINFLIP_MAX_BET);
             if (amount <= 0) return msg.reply('Bạn không có ngọc để chơi.');
         } else {
             amount = Math.min(rawAmount, economy.COINFLIP_MAX_BET);
-            if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
+            if (totalNgocCf < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(totalNgocCf)}.`);
         }
         const result = Math.random() < 0.5 ? 'sap' : 'ngua';
         const won = side ? (side === result) : (Math.random() < 0.5);
-        addNgoc(guildId, msg.author.id, won ? amount : -amount);
+        spendNgocForGame(guildId, msg.author.id, amount);
+        if (won) addNgoc(guildId, msg.author.id, amount * 2);
         const newW = getWallet(guildId, msg.author.id);
         const bigWin = won && (isAll || amount >= 5000);
         metrics.recordCoinflip({ guildId, amount, won, side, viaButton: false, wasAllIn: isAll, bigWin, userId: msg.author.id });
         const content = formatCoinflipResult({ displayName: member.displayName, side, result, won, amount, wasAllIn: isAll });
-        const components = newW.ngoc > 0 ? [buildCoinflipButtons(msg.author.id, amount, side, newW.ngoc)] : [];
+        const totalNgocAfterCf = newW.ngoc + newW.lockedNgoc;
+        const components = totalNgocAfterCf > 0 ? [buildCoinflipButtons(msg.author.id, amount, side, totalNgocAfterCf)] : [];
         return msg.reply({ content, components });
     }
 
@@ -825,8 +891,9 @@ async function handleMessageCommand(msg) {
         const resultLine = formatSlotResultLine({ mult: play.mult, payout: play.payout, outcomeName: play.outcomeName });
         metrics.recordSlot({ guildId, amount: play.amount, payout: play.payout, outcomeName: play.outcomeName, pityTriggered: play.pityTriggered, pityCapApplied: play.pityCapApplied, userId: msg.author.id });
 
-        const components = play.walletAfter.ngoc > 0
-            ? [buildSlotContinueButtons(msg.author.id, play.amount, play.walletAfter.ngoc)]
+        const totalNgocAfterSlot = play.walletAfter.ngoc + (play.walletAfter.lockedNgoc || 0);
+        const components = totalNgocAfterSlot > 0
+            ? [buildSlotContinueButtons(msg.author.id, play.amount, totalNgocAfterSlot)]
             : [];
         await slotMsg.edit({
             content: `${render(sym[0], sym[1], sym[2])}\n${resultLine}`,
@@ -865,19 +932,20 @@ async function handleMessageCommand(msg) {
         }
 
         const w = getWallet(guildId, msg.author.id);
+        const totalNgocDice = w.ngoc + w.lockedNgoc;
         let amount;
         if (isAll) {
-            amount = Math.min(w.ngoc, maxBet);
+            amount = Math.min(totalNgocDice, maxBet);
             if (amount <= 0) return msg.reply('Bạn không có ngọc để chơi.');
         } else {
             amount = Math.min(rawAmount, maxBet);
-            if (w.ngoc < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(w.ngoc)}.`);
+            if (totalNgocDice < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(totalNgocDice)}.`);
         }
 
         const roll = dice.rollDice();
         const play = isTong ? dice.playTong(roll, guess) : dice.playMat(roll, guess);
-        const delta = play.won ? amount * (play.mult - 1) : -amount;
-        addNgoc(guildId, msg.author.id, delta);
+        spendNgocForGame(guildId, msg.author.id, amount);
+        if (play.won) addNgoc(guildId, msg.author.id, amount * play.mult);
         const newW = getWallet(guildId, msg.author.id);
 
         if (isTong) {
@@ -890,7 +958,8 @@ async function handleMessageCommand(msg) {
             ? dice.formatTongResult({ displayName: member.displayName, guess, roll, sum: play.sum, won: play.won, amount, mult: play.mult })
             : dice.formatMatResult({ displayName: member.displayName, face: guess, roll, matches: play.matches, won: play.won, amount, mult: play.mult });
         const buildBtns = isTong ? dice.buildTongButtons : dice.buildMatButtons;
-        const components = newW.ngoc > 0 ? buildBtns(msg.author.id, amount, guess, newW.ngoc) : [];
+        const totalNgocAfterDice = newW.ngoc + newW.lockedNgoc;
+        const components = totalNgocAfterDice > 0 ? buildBtns(msg.author.id, amount, guess, totalNgocAfterDice) : [];
         return msg.reply({ content, components });
     }
 

@@ -34,15 +34,20 @@ function getWallet(guildId, userId) {
         data.wallet[guildId][userId] = {
             nganphieu: 0,
             ngoc: 0,
+            lockedNgoc: 0,
             items: { nhuom: 0, dieu: 0, cao: 0, cao5: 0, cao9: 0, kythuong: 0, thienthuong: 0, phuonghoang1: 0, phuonghoang2: 0, thantrang: 0 },
+            lockedItems: { nhuom: 0, dieu: 0, cao: 0, cao5: 0, cao9: 0, kythuong: 0, thienthuong: 0, phuonghoang1: 0, phuonghoang2: 0, thantrang: 0 },
             pity: { kt: 0, tt: 0 }
         };
     }
     const w = data.wallet[guildId][userId];
     if (!w.items) w.items = { nhuom: 0, dieu: 0, cao: 0, cao5: 0, cao9: 0, kythuong: 0, thienthuong: 0, phuonghoang1: 0, phuonghoang2: 0, thantrang: 0 };
+    if (!w.lockedItems) w.lockedItems = { nhuom: 0, dieu: 0, cao: 0, cao5: 0, cao9: 0, kythuong: 0, thienthuong: 0, phuonghoang1: 0, phuonghoang2: 0, thantrang: 0 };
     for (const k of ITEM_KEYS) if (typeof w.items[k] !== 'number') w.items[k] = 0;
+    for (const k of ITEM_KEYS) if (typeof w.lockedItems[k] !== 'number') w.lockedItems[k] = 0;
     if (typeof w.nganphieu !== 'number') w.nganphieu = 0;
     if (typeof w.ngoc !== 'number') w.ngoc = 0;
+    if (typeof w.lockedNgoc !== 'number') w.lockedNgoc = 0;
     if (!w.pity) w.pity = { kt: 0, tt: 0 };
     if (typeof w.pity.kt !== 'number') w.pity.kt = 0;
     if (typeof w.pity.tt !== 'number') w.pity.tt = 0;
@@ -71,6 +76,30 @@ function addItem(guildId, userId, key, amount) {
     w.items[key] += amount;
     saveData();
     return w.items[key];
+}
+
+function addLockedNgoc(guildId, userId, amount) {
+    const w = getWallet(guildId, userId);
+    w.lockedNgoc += amount;
+    saveData();
+    return w.lockedNgoc;
+}
+
+function addLockedItem(guildId, userId, key, amount) {
+    if (!ITEM_KEYS.includes(key)) throw new Error(`Unknown item key: ${key}`);
+    const w = getWallet(guildId, userId);
+    w.lockedItems[key] += amount;
+    saveData();
+    return w.lockedItems[key];
+}
+
+// Deducts ngọc for games: locked first, then non-locked. Saves data.
+function spendNgocForGame(guildId, userId, amount) {
+    const w = getWallet(guildId, userId);
+    const lockedUsed = Math.min(amount, w.lockedNgoc);
+    w.lockedNgoc -= lockedUsed;
+    w.ngoc -= (amount - lockedUsed);
+    saveData();
 }
 
 function tryEarnFromChat(guildId, userId) {
@@ -127,6 +156,9 @@ module.exports = {
     addNganphieu,
     addNgoc,
     addItem,
+    addLockedNgoc,
+    addLockedItem,
+    spendNgocForGame,
     tryEarnFromChat,
     tryClaimDaily,
     renderEmote,

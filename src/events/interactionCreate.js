@@ -5,7 +5,7 @@ const wordchain = require('../services/wordchain');
 const wordchainEng = require('../services/wordchainEng');
 const vuaTiengViet = require('../services/vuaTiengViet');
 const arrangeCmd = require('../commands/arrange');
-const { getWallet, addNgoc, addItem, renderEmote, fmt, ITEM_KEYS, ITEM_LABELS } = require('../services/currency');
+const { getWallet, addNgoc, addItem, spendNgocForGame, renderEmote, fmt, ITEM_KEYS, ITEM_LABELS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult, tokenToSide } = require('../services/coinflip');
 const { SYMBOLS: SLOT_SYMBOLS, playSlot, formatResultLine: formatSlotResultLine, buildContinueButtons: buildSlotContinueButtons } = require('../services/slot');
@@ -13,12 +13,12 @@ const dice = require('../services/dice');
 const metrics = require('../services/metrics');
 const economy = require('../config/economy');
 const { data, saveData } = require('../state');
-const { isMaintenance } = require('../services/maintenance');
+const { isBlockedByMaintenance } = require('../services/maintenance');
 
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
-        if (isMaintenance()) {
+        if (isBlockedByMaintenance(interaction.user.id, interaction.guild)) {
             if (interaction.isRepliable && interaction.isRepliable()) {
                 await interaction.reply({ content: '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.', flags: MessageFlags.Ephemeral }).catch(() => {});
             }
@@ -66,12 +66,13 @@ module.exports = {
                             const guildId = interaction.guildId;
                             const member = await interaction.guild.members.fetch(userId);
                             const w = getWallet(guildId, userId);
-                            const n = Math.floor(w.ngoc / ROLL_COST);
+                            const totalNgocGacha = w.ngoc + (w.lockedNgoc || 0);
+                            const n = Math.floor(totalNgocGacha / ROLL_COST);
                             if (n <= 0) {
                                 return interaction.editReply({ content: '❌ Không đủ ngọc để quay.', components: [disabledRow] });
                             }
                             const cost = n * ROLL_COST;
-                            addNgoc(guildId, userId, -cost);
+                            spendNgocForGame(guildId, userId, cost);
 
                             // Disable buttons on the confirm message
                             await interaction.editReply({ components: [disabledRow] });
@@ -145,17 +146,18 @@ async function handleCoinflipButton(interaction) {
     const guildId = interaction.guildId;
     const wallet = getWallet(guildId, ownerUserId);
 
+    const totalNgocCf = wallet.ngoc + (wallet.lockedNgoc || 0);
     let amount;
     if (action === 'allin') {
-        amount = Math.min(wallet.ngoc, economy.COINFLIP_MAX_BET);
+        amount = Math.min(totalNgocCf, economy.COINFLIP_MAX_BET);
     } else {
         amount = Math.min(parseInt(amountStr, 10), economy.COINFLIP_MAX_BET);
     }
     if (!Number.isInteger(amount) || amount <= 0) {
         return interaction.reply({ content: 'Bạn không có ngọc để chơi.', flags: MessageFlags.Ephemeral });
     }
-    if (wallet.ngoc < amount) {
-        return interaction.reply({ content: `Bạn chỉ có ${fmt(wallet.ngoc)} ngọc, không đủ cược ${fmt(amount)}.`, flags: MessageFlags.Ephemeral });
+    if (totalNgocCf < amount) {
+        return interaction.reply({ content: `Bạn chỉ có ${fmt(totalNgocCf)} ngọc, không đủ cược ${fmt(amount)}.`, flags: MessageFlags.Ephemeral });
     }
 
     await interaction.deferUpdate().catch(e => log.error('cf defer error:', e));
@@ -172,7 +174,8 @@ async function handleCoinflipButton(interaction) {
 
     const result = Math.random() < 0.5 ? 'sap' : 'ngua';
     const won = side ? (side === result) : (Math.random() < 0.5);
-    addNgoc(guildId, ownerUserId, won ? amount : -amount);
+    spendNgocForGame(guildId, ownerUserId, amount);
+    if (won) addNgoc(guildId, ownerUserId, amount * 2);
 
     const wasAllIn = action === 'allin';
     const bigWin = won && (wasAllIn || amount >= 5000);
@@ -182,7 +185,8 @@ async function handleCoinflipButton(interaction) {
     const displayName = member ? member.displayName : interaction.user.username;
     const newWallet = getWallet(guildId, ownerUserId);
     const content = formatCoinflipResult({ displayName, side, result, won, amount, wasAllIn });
-    const components = newWallet.ngoc > 0 ? [buildCoinflipButtons(ownerUserId, amount, side, newWallet.ngoc)] : [];
+    const totalNgocAfterCf = newWallet.ngoc + (newWallet.lockedNgoc || 0);
+    const components = totalNgocAfterCf > 0 ? [buildCoinflipButtons(ownerUserId, amount, side, totalNgocAfterCf)] : [];
     await interaction.followUp({ content, components }).catch(e => log.error('cf followUp error:', e));
 }
 
@@ -196,17 +200,18 @@ async function handleDiceButton(interaction, game) {
     const wallet = getWallet(guildId, ownerUserId);
     const maxBet = game === 'tong' ? economy.TONG_MAX_BET : economy.MAT_MAX_BET;
 
+    const totalNgocDice = wallet.ngoc + (wallet.lockedNgoc || 0);
     let amount;
     if (action === 'allin') {
-        amount = Math.min(wallet.ngoc, maxBet);
+        amount = Math.min(totalNgocDice, maxBet);
     } else {
         amount = Math.min(parseInt(amountStr, 10), maxBet);
     }
     if (!Number.isInteger(amount) || amount <= 0) {
         return interaction.reply({ content: 'Bạn không có ngọc để chơi.', flags: MessageFlags.Ephemeral });
     }
-    if (wallet.ngoc < amount) {
-        return interaction.reply({ content: `Bạn chỉ có ${fmt(wallet.ngoc)} ngọc, không đủ cược ${fmt(amount)}.`, flags: MessageFlags.Ephemeral });
+    if (totalNgocDice < amount) {
+        return interaction.reply({ content: `Bạn chỉ có ${fmt(totalNgocDice)} ngọc, không đủ cược ${fmt(amount)}.`, flags: MessageFlags.Ephemeral });
     }
 
     await interaction.deferUpdate().catch(e => log.error('dice defer error:', e));
@@ -231,18 +236,22 @@ async function handleDiceButton(interaction, game) {
     const wasAllIn = action === 'allin';
     if (game === 'tong') {
         const { sum, won, mult } = dice.playTong(roll, guess);
-        addNgoc(guildId, ownerUserId, won ? amount * (mult - 1) : -amount);
+        spendNgocForGame(guildId, ownerUserId, amount);
+        if (won) addNgoc(guildId, ownerUserId, amount * mult);
         metrics.recordTong({ guildId, amount, won, mult, guess, viaButton: true, wasAllIn, userId: ownerUserId });
         const newWallet = getWallet(guildId, ownerUserId);
+        const totalAfterTong = newWallet.ngoc + (newWallet.lockedNgoc || 0);
         content = dice.formatTongResult({ displayName, guess, roll, sum, won, amount, mult });
-        components = newWallet.ngoc > 0 ? dice.buildTongButtons(ownerUserId, amount, guess, newWallet.ngoc) : [];
+        components = totalAfterTong > 0 ? dice.buildTongButtons(ownerUserId, amount, guess, totalAfterTong) : [];
     } else {
         const { matches, won, mult } = dice.playMat(roll, guess);
-        addNgoc(guildId, ownerUserId, won ? amount * (mult - 1) : -amount);
+        spendNgocForGame(guildId, ownerUserId, amount);
+        if (won) addNgoc(guildId, ownerUserId, amount * mult);
         metrics.recordMat({ guildId, amount, won, mult, face: guess, matches, viaButton: true, wasAllIn, userId: ownerUserId });
         const newWallet = getWallet(guildId, ownerUserId);
+        const totalAfterMat = newWallet.ngoc + (newWallet.lockedNgoc || 0);
         content = dice.formatMatResult({ displayName, face: guess, roll, matches, won, amount, mult });
-        components = newWallet.ngoc > 0 ? dice.buildMatButtons(ownerUserId, amount, guess, newWallet.ngoc) : [];
+        components = totalAfterMat > 0 ? dice.buildMatButtons(ownerUserId, amount, guess, totalAfterMat) : [];
     }
 
     await interaction.followUp({ content, components }).catch(e => log.error('dice followUp error:', e));
@@ -312,8 +321,9 @@ async function handleSlotButton(interaction) {
         userId: ownerUserId
     });
 
-    const components = play.walletAfter.ngoc > 0
-        ? [buildSlotContinueButtons(ownerUserId, play.amount, play.walletAfter.ngoc)]
+    const totalNgocAfterSlot = play.walletAfter.ngoc + (play.walletAfter.lockedNgoc || 0);
+    const components = totalNgocAfterSlot > 0
+        ? [buildSlotContinueButtons(ownerUserId, play.amount, totalNgocAfterSlot)]
         : [];
     await slotMsg.edit({
         content: `${render(sym[0], sym[1], sym[2])}\n${resultLine}`,
@@ -334,10 +344,11 @@ async function handleKhodoButton(interaction) {
     const lines = [
         `**Kho đồ của ${displayName}**`,
         `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`,
-        `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc)}**`
+        `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`
     ];
     for (const k of ITEM_KEYS) {
-        lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(w.items[k] || 0)}**`);
+        const total = (w.items[k] || 0) + (w.lockedItems[k] || 0);
+        lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(total)}**`);
     }
     await interaction.update({ content: lines.join('\n'), components: [] }).catch(e => log.error('khodo update error', e));
 }

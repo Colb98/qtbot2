@@ -1,6 +1,6 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('../config/economy');
-const { getWallet, addNgoc, fmt, renderEmote } = require('./currency');
+const { getWallet, addNgoc, spendNgocForGame, fmt, renderEmote } = require('./currency');
 const { saveData } = require('../state');
 
 const SYMBOLS = {
@@ -98,17 +98,18 @@ function spin(pityCount = 0) {
 
 function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     const w = getWallet(guildId, userId);
+    const totalNgoc = w.ngoc + (w.lockedNgoc || 0);
     let amount;
     if (isAllIn) {
-        amount = Math.min(w.ngoc, economy.SLOT_MAX_BET);
+        amount = Math.min(totalNgoc, economy.SLOT_MAX_BET);
     } else {
         amount = Math.min(requestedAmount, economy.SLOT_MAX_BET);
     }
     if (!Number.isInteger(amount) || amount <= 0) {
         return { error: 'no_ngoc' };
     }
-    if (w.ngoc < amount) {
-        return { error: 'insufficient', shortBy: amount - w.ngoc, available: w.ngoc };
+    if (totalNgoc < amount) {
+        return { error: 'insufficient', shortBy: amount - totalNgoc, available: totalNgoc };
     }
 
     const slotPityBefore = w.slotPity || 0;
@@ -118,7 +119,7 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
         amount = Math.min(amount, slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT);
         if (amount <= 0) amount = 1;
     }
-    addNgoc(guildId, userId, -amount);
+    spendNgocForGame(guildId, userId, amount);
 
     const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore);
     const payout = Math.round(amount * mult);

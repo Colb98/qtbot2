@@ -7,7 +7,7 @@ const { setUserRole } = require('../services/roles');
 const { editMessage, validateGuildMember } = require('../services/guildWar');
 const { grantIfNeeded } = require('../services/bangChienReward');
 const { addNgoc } = require('../services/currency');
-const { isMaintenance } = require('../services/maintenance');
+const { isBlockedByMaintenance } = require('../services/maintenance');
 const metrics = require('../services/metrics');
 
 module.exports = {
@@ -15,7 +15,7 @@ module.exports = {
     async execute(reaction, user) {
         try {
             if (user.bot) return;
-            if (isMaintenance()) return;
+            if (isBlockedByMaintenance(user.id, reaction.message.guild)) return;
             if (reaction.partial) await reaction.fetch();
             if (reaction.message.partial) await reaction.message.fetch();
 
