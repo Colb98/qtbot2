@@ -15,6 +15,7 @@ const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus }
 const { SYMBOLS: SLOT_SYMBOLS, playSlot, formatResultLine: formatSlotResultLine, buildContinueButtons: buildSlotContinueButtons } = require('./services/slot');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
 const dice = require('./services/dice');
+const lottery = require('./services/lottery');
 const metrics = require('./services/metrics');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const economy = require('./config/economy');
@@ -111,6 +112,7 @@ async function handleMessageCommand(msg) {
 • \`!slot <x|all>\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200.
 • \`!tong <x|all|allin> <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
 • \`!mat <x|all|allin> <1-6>\` — Đoán mặt xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6.
+• \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
@@ -140,6 +142,8 @@ async function handleMessageCommand(msg) {
 • \`!wordchain_payout\` — Trả thưởng tuần trước cho top 10 English Wordchain ngay (cron tự chạy Thứ Hai 00:00 GMT+7).
 • \`!wordchain_reset\` — Reset daily limit ngọc wordchain (20 lần/vị trí) cho toàn server (ManageGuild).
 • \`!setwordchain_noti [#channel|clear]\` — Cài kênh riêng nhận thông báo thưởng tuần wordchain (ManageGuild). Mặc định dùng kênh bot.
+• \`!setxoso_noti [#channel|clear]\` — Cài kênh thông báo xổ số tích lũy. Bắt buộc set để bot announce.
+• \`!xoso_drawnow\` — Chạy quay xổ số thủ công (test / chữa cháy nếu cron lỡ).
 
 **Guild War:**
 • \`!setup channel #channel\` — Set kênh đăng ký bang chiến.
@@ -961,6 +965,118 @@ async function handleMessageCommand(msg) {
         const totalNgocAfterDice = newW.ngoc + newW.lockedNgoc;
         const components = totalNgocAfterDice > 0 ? buildBtns(msg.author.id, amount, guess, totalNgocAfterDice) : [];
         return msg.reply({ content, components });
+    }
+
+    if (cmd === '!xoso') {
+        const sub = (parts[1] || '').toLowerCase();
+        const ngocEmote = renderEmote('ngoc');
+
+        if (sub === 'pool' || sub === '') {
+            const pool = lottery.getPool(guildId);
+            const ticketCount = lottery.getTicketCount(guildId);
+            const myCount = lottery.userTicketsThisDraw(guildId, msg.author.id).length;
+            const nextTs = lottery.nextDrawUnix();
+            const lines = [
+                `# 🎰 Xổ Số Tích Lũy`,
+                `## 💰 Pool jackpot: **${fmt(pool)}** ${ngocEmote}`,
+                `-# Vé bán đợt này: **${fmt(ticketCount)}** · Vé của bạn: **${myCount}/${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}**`,
+                ``,
+                `⏰ Đợt sau: <t:${nextTs}:F> (<t:${nextTs}:R>)`,
+                `🎟️ Giá vé: **${fmt(lottery.LOTTERY.TICKET_PRICE)}** ${ngocEmote} · Chọn 4 số trong 1-${lottery.LOTTERY.NUMBER_POOL_MAX}`,
+                `> \`!xoso <a b c d>\` — mua vé với 4 số đã chọn`,
+                `> \`!xoso bao [n]\` — mua n vé random (mặc định 1, tối đa ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt)`,
+                `> \`!xoso ve\` — xem vé của bạn`,
+                ``,
+                `🏆 4/4 = toàn bộ pool · 3/4 = ${fmt(lottery.LOTTERY.PRIZE_3_OF_4)} ${ngocEmote} · 2/4 = ${fmt(lottery.LOTTERY.PRIZE_2_OF_4)} ${ngocEmote}`,
+                `-# Nhiều người trúng jackpot: chia đều pool.`
+            ];
+            return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+        }
+
+        if (sub === 've') {
+            const tickets = lottery.userTicketsThisDraw(guildId, msg.author.id);
+            const nextTs = lottery.nextDrawUnix();
+            if (tickets.length === 0) {
+                return msg.reply(`Bạn chưa mua vé đợt này. Đợt quay: <t:${nextTs}:R>. \`!xoso bao\` để mua vé random.`);
+            }
+            const lines = [`### 🎟️ Vé xổ số của ${member.displayName} (đợt này)`];
+            for (let i = 0; i < tickets.length; i++) {
+                lines.push(`${i + 1}. ${lottery.fmtNumbers(tickets[i].numbers)}`);
+            }
+            lines.push(`-# ${tickets.length}/${lottery.LOTTERY.MAX_TICKETS_PER_DRAW} vé · Quay <t:${nextTs}:R>`);
+            return msg.reply(lines.join('\n'));
+        }
+
+        if (sub === 'bao') {
+            const count = parts[2] ? parseInt(parts[2], 10) : 1;
+            if (!Number.isInteger(count) || count <= 0) {
+                return msg.reply(`Cú pháp: \`!xoso bao [số vé]\` (mặc định 1, tối đa ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt).`);
+            }
+            const res = lottery.buyRandomTickets(guildId, msg.author.id, count);
+            if (!res.ok) {
+                if (res.error === 'limit_reached') return msg.reply(`Bạn đã mua tối đa ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW} vé đợt này.`);
+                if (res.error === 'insufficient') return msg.reply(`Cần ${fmt(res.need)} ${ngocEmote} nhưng bạn chỉ có ${fmt(res.have)}.`);
+                return msg.reply('Không thể mua vé.');
+            }
+            const nextTs = lottery.nextDrawUnix();
+            const ticketLines = res.bought.map((t, i) => `${i + 1}. ${lottery.fmtNumbers(t.numbers)}`);
+            const lines = [
+                `🎟️ **${member.displayName}** mua **${res.bought.length}** vé bao (-${fmt(res.bought.length * lottery.LOTTERY.TICKET_PRICE)} ${ngocEmote})`,
+                ...ticketLines,
+                `-# Pool: **${fmt(res.newPool)}** ${ngocEmote} · Vé của bạn: **${res.newCount}/${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}** · Quay <t:${nextTs}:R>`
+            ];
+            return msg.reply(lines.join('\n'));
+        }
+
+        // Manual numbers: !xoso 3 7 11 14
+        const rawNums = parts.slice(1);
+        if (rawNums.length !== lottery.LOTTERY.NUMBERS_PER_TICKET) {
+            return msg.reply(`Cú pháp: \`!xoso <a b c d>\` — 4 số khác nhau trong 1-${lottery.LOTTERY.NUMBER_POOL_MAX}. Hoặc dùng \`!xoso bao\`, \`!xoso pool\`, \`!xoso ve\`.`);
+        }
+        const nums = lottery.parseNumbers(rawNums);
+        if (!nums || !lottery.validateNumbers(nums)) {
+            return msg.reply(`4 số phải khác nhau và nằm trong 1-${lottery.LOTTERY.NUMBER_POOL_MAX}.`);
+        }
+        const res = lottery.buyTicket(guildId, msg.author.id, nums);
+        if (!res.ok) {
+            if (res.error === 'invalid_numbers') return msg.reply(`4 số phải khác nhau và nằm trong 1-${lottery.LOTTERY.NUMBER_POOL_MAX}.`);
+            if (res.error === 'limit_reached') return msg.reply(`Bạn đã mua tối đa ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW} vé đợt này.`);
+            if (res.error === 'insufficient') return msg.reply(`Cần ${fmt(lottery.LOTTERY.TICKET_PRICE)} ${ngocEmote} nhưng bạn chỉ có ${fmt(res.have)}.`);
+            return msg.reply('Không thể mua vé.');
+        }
+        const nextTs = lottery.nextDrawUnix();
+        return msg.reply(`🎟️ **${member.displayName}** mua 1 vé: ${lottery.fmtNumbers(res.ticket.numbers)} (-${fmt(lottery.LOTTERY.TICKET_PRICE)} ${ngocEmote})\n-# Pool: **${fmt(res.newPool)}** ${ngocEmote} · Vé của bạn: **${res.newCount}/${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}** · Quay <t:${nextTs}:R>`);
+    }
+
+    if (cmd === '!setxoso_noti') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const arg = parts[1];
+        if (!arg) {
+            const current = lottery.getNotificationChannelId(guildId);
+            return msg.reply(
+                current
+                    ? `Kênh thông báo xổ số: <#${current}>. \`!setxoso_noti #channel\` để đổi · \`!setxoso_noti clear\` để xoá.`
+                    : 'Chưa cài kênh. Dùng `!setxoso_noti #channel`.'
+            );
+        }
+        if (arg.toLowerCase() === 'clear') {
+            lottery.setNotificationChannel(guildId, null);
+            return msg.reply('✅ Đã xoá kênh thông báo xổ số.');
+        }
+        const channelId = arg.replace(/[^0-9]/g, '');
+        if (!channelId) return msg.reply('Vui lòng mention `#channel` hợp lệ hoặc `clear`.');
+        const targetChannel = await msg.guild.channels.fetch(channelId).catch(() => null);
+        if (!targetChannel) return msg.reply('Không tìm thấy kênh được chỉ định.');
+        if (targetChannel.type !== ChannelType.GuildText) return msg.reply('Kênh phải là text channel.');
+        lottery.setNotificationChannel(guildId, channelId);
+        return msg.reply(`✅ Kênh thông báo xổ số: <#${channelId}>.`);
+    }
+
+    if (cmd === '!xoso_drawnow') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const result = lottery.runDraw(guildId);
+        await lottery.announceDraw(result);
+        return msg.reply(`✅ Đã chạy quay xổ số thủ công (${result.ticketCount} vé). Kết quả ở kênh thông báo.`);
     }
 
     if (cmd === '!blockgames') {

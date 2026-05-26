@@ -1,6 +1,18 @@
-const CURRENT_VERSION = '1.12.2';
+const CURRENT_VERSION = '1.13.0';
 
 const CHANGELOG = {
+    '1.13.0': {
+        date: '2026-05-26',
+        title: 'Xổ Số Tích Lũy — Khoá ngọc tặng & jackpot 2 lần/ngày',
+        changes: [
+            '**Trò chơi mới — Xổ Số Tích Lũy:** Chọn 4 số trong 1-14, vé **300 ngọc**, tối đa **5 vé/người/đợt**. Quay **10h sáng** và **10h tối** mỗi ngày. Trúng 4/4 = toàn bộ pool jackpot (chia đều nếu nhiều người), 3/4 = 750 ngọc, 2/4 = 60 ngọc. Pool seed 40k, EV ~1.0 (gần như không đốt tiền — phân phối lại của cải).',
+            '`!xoso 3 7 11 14` mua vé · `!xoso bao [n]` mua vé random · `!xoso pool` xem pool & giờ quay · `!xoso ve` xem vé.',
+            '`!setxoso_noti #channel` (super admin) — Cài kênh announce kết quả. `!xoso_drawnow` chạy quay thủ công.',
+            '**Khoá ngọc & vật phẩm tặng:** Ngọc/vật phẩm nhận từ tặng (`!tangngoc`, `!tangthienthuong`, v.v.) bị **khoá** — vẫn dùng được như bình thường, nhưng tặng lại sẽ **không tăng Điểm Thân mật** (chỉ phần không khoá mới tăng bond). Locked ngọc tự **mở khoá khi dùng trong game** (slot, coinflip, mạt, tổng, gacha). Locked thiên thưởng đổi → locked cáo. Bán locked → ngọc bình thường.',
+            '`!maintenance` không chặn super admin và guild owner — có thể test trong khi bảo trì.',
+            'Hiển thị tổng (locked + non-locked) ngọc/vật phẩm ở `!khodo`, `!topngoc`, `!toptt`, các message "Số dư".'
+        ]
+    },
     '1.12.2': {
         date: '2026-05-26',
         title: 'Slot EV tinh chỉnh & sửa race condition nối từ / VTV',
