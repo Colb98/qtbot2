@@ -5,6 +5,7 @@ const wordchain = require('../services/wordchain');
 const wordchainEng = require('../services/wordchainEng');
 const vuaTiengViet = require('../services/vuaTiengViet');
 const arrangeCmd = require('../commands/arrange');
+const profileCmd = require('../commands/profile');
 const { getWallet, addNgoc, addItem, spendNgocForGame, renderEmote, fmt, ITEM_KEYS, ITEM_LABELS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult, tokenToSide } = require('../services/coinflip');
@@ -14,6 +15,7 @@ const metrics = require('../services/metrics');
 const economy = require('../config/economy');
 const { data, saveData } = require('../state');
 const { isBlockedByMaintenance } = require('../services/maintenance');
+const profile = require('../services/profile');
 
 module.exports = {
     name: Events.InteractionCreate,
@@ -24,8 +26,22 @@ module.exports = {
             }
             return;
         }
+        if (interaction.isStringSelectMenu()) {
+            try {
+                if (interaction.customId.startsWith('profile:')) {
+                    await profileCmd.handleComponent(interaction);
+                }
+            } catch (e) {
+                log.error('Error in select menu interaction:', e);
+            }
+            return;
+        }
         if (interaction.isButton()) {
             try {
+                if (interaction.customId.startsWith('profile:')) {
+                    await profileCmd.handleComponent(interaction);
+                    return;
+                }
                 if (interaction.customId.startsWith('arrange_')) {
                     await arrangeCmd.handleButton(interaction);
                 } else if (interaction.customId.startsWith('cf:')) {
@@ -175,7 +191,10 @@ async function handleCoinflipButton(interaction) {
     const result = Math.random() < 0.5 ? 'sap' : 'ngua';
     const won = side ? (side === result) : (Math.random() < 0.5);
     spendNgocForGame(guildId, ownerUserId, amount);
-    if (won) addNgoc(guildId, ownerUserId, amount * 2);
+    if (won) {
+        addNgoc(guildId, ownerUserId, amount * 2);
+        profile.recordWin(guildId, ownerUserId, amount * 2, 'Coinflip');
+    }
 
     const wasAllIn = action === 'allin';
     const bigWin = won && (wasAllIn || amount >= 5000);
@@ -237,7 +256,11 @@ async function handleDiceButton(interaction, game) {
     if (game === 'tong') {
         const { sum, won, mult } = dice.playTong(roll, guess);
         spendNgocForGame(guildId, ownerUserId, amount);
-        if (won) addNgoc(guildId, ownerUserId, amount * mult);
+        if (won) {
+            const payout = amount * mult;
+            addNgoc(guildId, ownerUserId, payout);
+            profile.recordWin(guildId, ownerUserId, payout, 'Tổng xúc xắc');
+        }
         metrics.recordTong({ guildId, amount, won, mult, guess, viaButton: true, wasAllIn, userId: ownerUserId });
         const newWallet = getWallet(guildId, ownerUserId);
         const totalAfterTong = newWallet.ngoc + (newWallet.lockedNgoc || 0);
@@ -246,7 +269,11 @@ async function handleDiceButton(interaction, game) {
     } else {
         const { matches, won, mult } = dice.playMat(roll, guess);
         spendNgocForGame(guildId, ownerUserId, amount);
-        if (won) addNgoc(guildId, ownerUserId, amount * mult);
+        if (won) {
+            const payout = amount * mult;
+            addNgoc(guildId, ownerUserId, payout);
+            profile.recordWin(guildId, ownerUserId, payout, 'Mặt xúc xắc');
+        }
         metrics.recordMat({ guildId, amount, won, mult, face: guess, matches, viaButton: true, wasAllIn, userId: ownerUserId });
         const newWallet = getWallet(guildId, ownerUserId);
         const totalAfterMat = newWallet.ngoc + (newWallet.lockedNgoc || 0);

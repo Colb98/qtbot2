@@ -2,6 +2,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('../config/economy');
 const { getWallet, addNgoc, spendNgocForGame, fmt, renderEmote } = require('./currency');
 const { saveData } = require('../state');
+const profile = require('./profile');
 
 const SYMBOLS = {
     M1: { emote: 'cao' },
@@ -123,7 +124,10 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
 
     const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore);
     const payout = Math.round(amount * mult);
-    if (payout > 0) addNgoc(guildId, userId, payout);
+    if (payout > 0) {
+        addNgoc(guildId, userId, payout);
+        profile.recordWin(guildId, userId, payout, 'Slot');
+    }
 
     const walletAfter = getWallet(guildId, userId);
     if (mult <= 1) {

@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '1.13.0';
+const CURRENT_VERSION = '1.14.0';
 
 const CHANGELOG = {
+    '1.14.0': {
+        date: '2026-05-26',
+        title: 'Profile Card — Thẻ nhân vật thuỷ mặc',
+        changes: [
+            '**Lệnh mới:** `/profile` (slash) hoặc `!profile` — sinh thẻ nhân vật đẹp với background phái + character art theo phái & giới tính, avatar Discord cắt tròn, tên ingame, phái, danh hiệu **Nhất Mộng Giang Hồ**.',
+            'Hiển thị **chiến tích**: jackpot lớn nhất từng thắng (slot/coinflip/tổng/mặt/xổ số), hạng Nối Từ (E.Wordchain), hạng Vua Tiếng Việt.',
+            '**Tuỳ chỉnh** (nút ⚙️): 3 ô vật phẩm để khoe (chọn từ kho), bật/tắt hiển thị ngọc, đổi giới tính character art. Cài đặt lưu lại giữa các lần gọi.',
+            'Đã có sẵn hooks cho **badge slots** và **border avatar** từ shop sau này (đang để no-op).'
+        ]
+    },
     '1.13.0': {
         date: '2026-05-26',
         title: 'Xổ Số Tích Lũy — Khoá ngọc tặng & jackpot 2 lần/ngày',

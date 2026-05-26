@@ -3,6 +3,7 @@ const client = require('../client');
 const { data, saveData } = require('../state');
 const { getWallet, addNgoc, spendNgocForGame, renderEmote, fmt } = require('./currency');
 const LOTTERY = require('../config/lottery');
+const profile = require('./profile');
 
 function ensureRoot(guildId) {
     if (!data.lottery) data.lottery = {};
@@ -158,6 +159,7 @@ function runDraw(guildId) {
         jackpotTotalPaid = jackpotPerWinner * jackpotWinners.length;
         for (const t of jackpotWinners) {
             addNgoc(guildId, t.userId, jackpotPerWinner);
+            profile.recordWin(guildId, t.userId, jackpotPerWinner, 'Xổ Số');
         }
         // Reset pool to seed (backfilled from gacha sink — practically just refilled)
         g.pool = LOTTERY.SEED_POOL;

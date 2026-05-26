@@ -23,6 +23,8 @@ const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
 const wordchainEng = require('./services/wordchainEng');
 const vuaTiengViet = require('./services/vuaTiengViet');
 const bond = require('./services/bond');
+const profileCmd = require('./commands/profile');
+const profile = require('./services/profile');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
@@ -61,6 +63,16 @@ async function handleMessageCommand(msg) {
     if (isBlockedByMaintenance(msg.author.id, msg.guild)) {
         if (!cmd.startsWith('!')) return;
         return replyEphemeral(msg, '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.');
+    }
+
+    if (cmd === '!profile') {
+        try {
+            await profileCmd.sendProfileCard(msg, msg.author);
+        } catch (e) {
+            log.error('!profile error:', e);
+            await msg.reply('Render profile lỗi.').catch(() => {});
+        }
+        return;
     }
 
     if (cmd === '!register') {
@@ -844,7 +856,10 @@ async function handleMessageCommand(msg) {
         const result = Math.random() < 0.5 ? 'sap' : 'ngua';
         const won = side ? (side === result) : (Math.random() < 0.5);
         spendNgocForGame(guildId, msg.author.id, amount);
-        if (won) addNgoc(guildId, msg.author.id, amount * 2);
+        if (won) {
+            addNgoc(guildId, msg.author.id, amount * 2);
+            profile.recordWin(guildId, msg.author.id, amount * 2, 'Coinflip');
+        }
         const newW = getWallet(guildId, msg.author.id);
         const bigWin = won && (isAll || amount >= 5000);
         metrics.recordCoinflip({ guildId, amount, won, side, viaButton: false, wasAllIn: isAll, bigWin, userId: msg.author.id });
@@ -950,7 +965,11 @@ async function handleMessageCommand(msg) {
         const roll = dice.rollDice();
         const play = isTong ? dice.playTong(roll, guess) : dice.playMat(roll, guess);
         spendNgocForGame(guildId, msg.author.id, amount);
-        if (play.won) addNgoc(guildId, msg.author.id, amount * play.mult);
+        if (play.won) {
+            const payout = amount * play.mult;
+            addNgoc(guildId, msg.author.id, payout);
+            profile.recordWin(guildId, msg.author.id, payout, isTong ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
+        }
         const newW = getWallet(guildId, msg.author.id);
 
         if (isTong) {
