@@ -59,6 +59,7 @@ async function handleMessageCommand(msg) {
     }
 
     if (isBlockedByMaintenance(msg.author.id, msg.guild)) {
+        if (!cmd.startsWith('!')) return;
         return replyEphemeral(msg, '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.');
     }
 
