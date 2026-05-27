@@ -268,6 +268,66 @@ async function drawBadgeIcon(ctx, img, cx, cy, size, accent) {
     ctx.restore();
 }
 
+// Subtle "Nhất Mộng Giang Hồ" watermark in the top-right corner. Uses
+// `difference` blend mode so the text auto-contrasts against whatever is
+// behind it: bright on dark backgrounds, dark on bright ones, without ever
+// screaming for attention. A medium-gray fill (≠ pure white) keeps the
+// inversion strength moderate.
+function drawWatermark(ctx, theme) {
+    const text = 'NHẤT MỘNG GIANG HỒ';
+    ctx.save();
+    ctx.font = `500 italic 18px ${FONT_CALLI}`;
+    setSpacing(ctx, 4);
+    const w = measure(ctx, text);
+    const x = CARD_W - w - 28;
+    const y = 18;
+
+    // Auto-contrast text via 'difference' — result ≈ |bg - fg|.
+    // fg=160 gray → ~160 on black, ~95 on white, ~32 on mid-gray.
+    ctx.globalCompositeOperation = 'difference';
+    ctx.fillStyle = 'rgb(160,160,160)';
+    ctx.fillText(text, x, y);
+
+    // Accent underline in normal blend so the brand colour still reads.
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = alphaHex(theme.accent, 0.35);
+    ctx.fillRect(x - 14, y + 14, w + 8, 1);
+
+    setSpacing(ctx, 0);
+    ctx.restore();
+}
+
+// Faded, enlarged silhouette of the character pose — drawn BEHIND the
+// regular pose as a desaturated ~50% opacity backdrop. Position constants
+// are kept inline so they're easy to tweak by hand.
+function drawCharacterSilhouette(ctx, charImg) {
+    if (!charImg) return;
+
+    // ── Tweak these ──────────────────────────────────────────────────────
+    const SIL_SCALE      = 3.0;   // multiplier vs. the pose-box contain-fit
+    const SIL_OPACITY    = 0.5;
+    const SIL_SATURATION = 0.2;   // 0 = grayscale, 1 = original
+    // Anchored at the same bottom-right point as the character pose box.
+    const POSE_BOX_X = CARD_W - 1100 + 80;   // = 580
+    const POSE_BOX_Y = 0;
+    const POSE_BOX_W = 1100;
+    const POSE_BOX_H = CARD_H;
+    // ─────────────────────────────────────────────────────────────────────
+
+    const fitScale = Math.min(POSE_BOX_W / charImg.width, POSE_BOX_H / charImg.height);
+    const w = charImg.width  * fitScale * SIL_SCALE;
+    const h = charImg.height * fitScale * SIL_SCALE;
+    const x = (POSE_BOX_X + POSE_BOX_W) - w + 0.5 * CARD_W;   // anchor right
+    const y = (POSE_BOX_Y + POSE_BOX_H) - h + 0.6 * h;   // anchor bottom
+
+    ctx.save();
+    ctx.globalAlpha = SIL_OPACITY;
+    ctx.filter = `saturate(${SIL_SATURATION})`;
+    ctx.drawImage(charImg, x, y, w, h);
+    ctx.filter = 'none';
+    ctx.restore();
+}
+
 // Decorative class emblem floating behind character — frosted-glass icon
 // with colored glow halo.
 async function drawClassEmblem(ctx, sectCode, theme) {
@@ -277,7 +337,7 @@ async function drawClassEmblem(ctx, sectCode, theme) {
     if (!icon) return;
 
     const cx = 1100, cy = 280;
-    const size = 540;
+    const size = 640;
     const haloSize = Math.round(size * 1.3);
 
     // Soft halo behind icon
@@ -302,9 +362,9 @@ async function drawClassEmblem(ctx, sectCode, theme) {
     ctx.save();
     ctx.globalAlpha = 0.22;
     ctx.shadowColor = theme.glow;
-    ctx.shadowBlur = 60;
+    // ctx.shadowBlur = 60;
     ctx.drawImage(emblem, cx - size / 2, cy - size / 2);
-    ctx.shadowBlur = 16;
+    // ctx.shadowBlur = 16;
     ctx.drawImage(emblem, cx - size / 2, cy - size / 2);
     ctx.restore();
 }
@@ -457,11 +517,18 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
     // 4. Class emblem — back layer behind character pose
     await drawClassEmblem(ctx, sectCode, theme);
 
+    // 4b. Watermark — sits above class emblem layer in the top-right
+    drawWatermark(ctx, theme);
+
     // 5. Character pose — right -80, top 0, bottom 0, width 1100,
-    //    contain-fit anchored right bottom.
+    //    contain-fit anchored right bottom. A faded oversized silhouette of
+    //    the same image is drawn first as a back-layer atmosphere.
     const gender = player.gender === 'f' ? 'f' : 'm';
     const charImg = await loadCached(path.join(CHARACTER_IMAGES, `${sectCode}_${gender}.png`));
     if (charImg) {
+        // Silhouette back-layer — 3x size, desaturated, ~0.5 opacity.
+        drawCharacterSilhouette(ctx, charImg);
+
         const boxX = CARD_W - 1100 + 80; // = 580
         const boxY = 0;
         const boxW = 1100;
@@ -568,7 +635,7 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
     drawHairline(ctx, PX, cursorY, 480, theme.accent);
     cursorY += 16;
 
-    // 6e. Item showcase row — 3 slots, feathered circular crop badges
+    // 6e. Item showcase row — 3 compact slots: icon + ×qty only.
     {
         const slotKeys = [
             player.profile && player.profile.itemSlot1,
@@ -576,7 +643,7 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
             player.profile && player.profile.itemSlot3
         ];
         const badgeSize = 64;
-        const slotW = 220;
+        const slotW = 150;            // tighter — no name label, just qty
         for (let i = 0; i < 3; i++) {
             const key = slotKeys[i];
             const sx = PX + i * slotW;
@@ -594,20 +661,15 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
             const iconImg = await loadCached(itemIconPath(key));
             await drawBadgeIcon(ctx, iconImg, cx, cy, badgeSize, theme.accent);
 
-            // Label + qty to the right of badge
-            const textX = sx + badgeSize + 12;
+            // ×qty — vertically centered next to the badge
             ctx.font = `600 22px ${FONT_CAPS}`;
             setSpacing(ctx, 0.6);
             ctx.fillStyle = theme.accent;
-            ctx.fillText(`×${fmtNum(qty)}`, textX, cy - 22);
+            const qtyText = `×${fmtNum(qty)}`;
+            const qtyW = measure(ctx, qtyText);
+            ctx.fillText(qtyText, sx + badgeSize + 10, cy - 12);
             setSpacing(ctx, 0);
-
-            const label = (ITEM_LABELS[key] || key).toUpperCase();
-            ctx.font = `400 11px ${FONT_BODY}`;
-            setSpacing(ctx, 2.4);
-            ctx.fillStyle = alphaHex('#f4ede2', 0.74);
-            ctx.fillText(truncateToWidth(ctx, label, slotW - badgeSize - 24), textX, cy + 4);
-            setSpacing(ctx, 0);
+            void qtyW;
         }
         cursorY += badgeSize + 14;
     }
@@ -617,18 +679,28 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         const ngocTotal = (player.wallet && (player.wallet.ngoc || 0) + (player.wallet.lockedNgoc || 0)) || 0;
         const x = PX;
         const y = cursorY;
-        drawNgocGlyph(ctx, x + 8, y + 9, 16, theme);
+
+        // Ngọc icon — real PNG at assets/ngoc_hq.png, falls back to the
+        // procedural octagon glyph if the file is missing.
+        const ngocIcon = await loadCached(path.join(ASSETS_BASE, 'ngoc_hq.png'));
+        const iconSize = 24;
+        if (ngocIcon) {
+            ctx.drawImage(ngocIcon, x, y - 2, iconSize, iconSize);
+        } else {
+            drawNgocGlyph(ctx, x + iconSize / 2, y + 9, 16, theme);
+        }
+
         ctx.font = `400 11px ${FONT_CAPS}`;
         setSpacing(ctx, 3.5);
         ctx.fillStyle = alphaHex('#f4ede2', 0.45);
-        ctx.fillText('NGỌC', x + 24, y + 4);
+        ctx.fillText('NGỌC', x + iconSize + 8, y + 4);
         const lblW = measure(ctx, 'NGỌC');
         setSpacing(ctx, 0);
 
         ctx.font = `600 20px ${FONT_CAPS}`;
         setSpacing(ctx, 0.4);
         ctx.fillStyle = theme.accent;
-        ctx.fillText(ngocTotal.toLocaleString('en-US'), x + 24 + lblW + 14, y - 1);
+        ctx.fillText(ngocTotal.toLocaleString('en-US'), x + iconSize + 8 + lblW + 14, y - 1);
         setSpacing(ctx, 0);
         cursorY += 28;
     }
@@ -673,47 +745,52 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
             chips.push({ glyph: 'diamond', label: 'Jackpot Lớn Nhất', rank: '★' });
         }
 
-        const chipY = PANEL_BOTTOM - 44;
-        const chipH = 32;
+        // 2-line chip: line 1 = title (small caps), line 2 = value (large).
+        // Glyph on the left, vertical divider, then stacked text on the right.
+        const chipH = 60;
+        const chipBlockW = 540;                 // total horizontal real estate
+        const chipGap = 12;
+        const chipW = Math.floor((chipBlockW - chipGap * (chips.length - 1)) / chips.length);
+        const chipY = PANEL_BOTTOM - chipH;
         let chipX = PX;
-        const gap = 10;
-        for (const a of chips) {
-            // Measure
-            const glyphSize = 12;
-            ctx.font = `500 16px ${FONT_CALLI}`;
-            const labelW = measure(ctx, a.label);
-            ctx.font = `600 10px ${FONT_CAPS}`;
-            setSpacing(ctx, 2.5);
-            const rankW = measure(ctx, a.rank);
-            setSpacing(ctx, 0);
 
-            const padX = 11;
-            const chipW = padX * 2 + glyphSize + 8 + labelW + 12 + rankW + 6;
+        for (const a of chips) {
             if (chipX + chipW > PX + PW) break; // don't overflow
 
             drawChip(ctx, chipX, chipY, chipW, chipH, theme, { gradient: false });
-            drawGlyph(ctx, a.glyph, chipX + padX + glyphSize / 2, chipY + chipH / 2, glyphSize, theme.accent);
 
-            ctx.font = `500 16px ${FONT_CALLI}`;
-            ctx.fillStyle = '#f4ede2';
-            ctx.fillText(a.label, chipX + padX + glyphSize + 8, chipY + 7);
+            // Glyph — left side
+            const glyphSize = 18;
+            drawGlyph(ctx, a.glyph, chipX + 22, chipY + chipH / 2, glyphSize, theme.accent);
 
-            // Divider line before rank
+            // Vertical divider after glyph
             ctx.save();
-            ctx.strokeStyle = alphaHex(theme.accent, 0.5);
+            ctx.strokeStyle = alphaHex(theme.accent, 0.4);
+            ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.moveTo(chipX + padX + glyphSize + 8 + labelW + 6, chipY + 6);
-            ctx.lineTo(chipX + padX + glyphSize + 8 + labelW + 6, chipY + chipH - 6);
+            ctx.moveTo(chipX + 44, chipY + 10);
+            ctx.lineTo(chipX + 44, chipY + chipH - 10);
             ctx.stroke();
             ctx.restore();
 
+            const textX = chipX + 54;
+            const textMaxW = chipW - 64;
+
+            // Line 1 — title (uppercase, letter-spaced)
             ctx.font = `600 10px ${FONT_CAPS}`;
-            setSpacing(ctx, 2.5);
-            ctx.fillStyle = theme.accent;
-            ctx.fillText(a.rank, chipX + padX + glyphSize + 8 + labelW + 14, chipY + 10);
+            setSpacing(ctx, 2);
+            ctx.fillStyle = alphaHex('#f4ede2', 0.6);
+            ctx.fillText(truncateToWidth(ctx, a.label.toUpperCase(), textMaxW), textX, chipY + 12);
             setSpacing(ctx, 0);
 
-            chipX += chipW + gap;
+            // Line 2 — value (accent, larger)
+            ctx.font = `600 20px ${FONT_CAPS}`;
+            setSpacing(ctx, 0.5);
+            ctx.fillStyle = theme.accent;
+            ctx.fillText(truncateToWidth(ctx, a.rank, textMaxW), textX, chipY + 30);
+            setSpacing(ctx, 0);
+
+            chipX += chipW + chipGap;
         }
     }
 

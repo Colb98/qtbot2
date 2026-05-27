@@ -1,6 +1,46 @@
-const CURRENT_VERSION = '1.14.0';
+const CURRENT_VERSION = '1.14.5';
 
 const CHANGELOG = {
+    '1.14.5': {
+        date: '2026-05-27',
+        title: 'Profile Card — Icon ngọc HQ',
+        changes: [
+            'Dòng Ngọc trên profile card dùng icon thật (`assets/ngoc_hq.png`) thay cho glyph vẽ thủ công.'
+        ]
+    },
+    '1.14.4': {
+        date: '2026-05-27',
+        title: 'Profile Card — Watermark tự tương phản + inventory gọn',
+        changes: [
+            'Watermark **NHẤT MỘNG GIANG HỒ** dùng blend mode `difference` để tự tương phản: sáng trên nền tối, tối trên nền sáng — luôn đọc được mà không chói.',
+            'Inventory ô vật phẩm bỏ tên — chỉ giữ icon + ×số lượng, hiển thị gọn hơn.'
+        ]
+    },
+    '1.14.3': {
+        date: '2026-05-27',
+        title: 'Profile Card — Silhouette nền + thành tựu 2 dòng',
+        changes: [
+            'Thêm silhouette nhân vật mờ (3× kích thước, giảm bão hoà ~50%, độ mờ ~50%) làm back-layer phía sau character pose.',
+            'Chip Thành Tựu (Top Nối Từ / Vua Tiếng Việt / Jackpot) đổi thành 2 dòng: dòng 1 là tiêu đề, dòng 2 là giá trị — to và dễ đọc hơn.'
+        ]
+    },
+    '1.14.2': {
+        date: '2026-05-27',
+        title: 'Profile Card — Giới hạn 5 lần/ngày',
+        changes: [
+            'Mỗi người chỉ được tạo **5 profile card / ngày** (reset 00:00 GMT+7). Bao gồm cả `/profile` lần đầu và mỗi lần bấm **Xong** trong tuỳ chỉnh. Super admin không bị giới hạn.',
+            'Khi đạt giới hạn, bấm **Xong** vẫn lưu các thiết lập (vật phẩm, ngọc, giới tính, tên) — chỉ không render card mới cho đến khi reset.'
+        ]
+    },
+    '1.14.1': {
+        date: '2026-05-27',
+        title: 'Profile Card — Đổi tên, watermark, tối ưu render',
+        changes: [
+            '`/profile` ⚙️ Tuỳ chỉnh: thêm nút **✏️ Đổi tên** — đổi tên hiển thị trên card (override tên ingame), để trống để dùng lại tên ingame.',
+            'Card chỉ render khi bấm **Xong** (trước đây render lại mỗi lần đổi vật phẩm/ngọc/giới tính) — giảm tải compute đáng kể.',
+            'Thêm watermark **NHẤT MỘNG GIANG HỒ** mờ ở góc trên bên phải card.'
+        ]
+    },
     '1.14.0': {
         date: '2026-05-26',
         title: 'Profile Card — Thẻ nhân vật thuỷ mặc',

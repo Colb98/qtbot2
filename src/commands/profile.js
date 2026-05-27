@@ -2,22 +2,35 @@ const {
     SlashCommandBuilder, MessageFlags,
     AttachmentBuilder,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
-    StringSelectMenuBuilder, StringSelectMenuOptionBuilder
+    StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
+    ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 const { data } = require('../state');
 const { getWallet, ITEM_LABELS, ITEM_KEYS } = require('../services/currency');
 const profile = require('../services/profile');
 const profileCard = require('../services/profileCard');
+const { isSuperAdmin } = require('../utils');
 const log = require('../../logger');
 
 const NONE_VALUE = '__none__';
 
+// ── Daily render-cap gate ──────────────────────────────────────────────────
+// Returns null if rendering is allowed (and consumes a slot for non-admins),
+// or a Vietnamese user-facing error string when the cap is exhausted.
+function tryConsumeRenderQuota(guildId, userId) {
+    if (isSuperAdmin(userId)) return null;
+    const res = profile.consumeCardRender(guildId, userId);
+    if (res.ok) return null;
+    return `⛔ Bạn đã đạt giới hạn **${res.used}/${res.limit}** lần tạo profile card hôm nay. Reset lúc **00:00 GMT+7**.`;
+}
+
 // ── Build player object from live data ─────────────────────────────────────
 function buildPlayer(guildId, userId) {
     const reg = data.registrations && data.registrations[guildId] && data.registrations[guildId][userId];
-    const ingame = (reg && reg.ingame) || (reg && reg.displayName) || (reg && reg.tag) || 'Vô Danh';
-    const sect = reg && reg.class;
     const prof = profile.getProfile(guildId, userId);
+    const ingame = prof.displayName
+        || (reg && reg.ingame) || (reg && reg.displayName) || (reg && reg.tag) || 'Vô Danh';
+    const sect = reg && reg.class;
     const wallet = getWallet(guildId, userId);
     const stats = profileCard.computeStats(guildId, userId, prof);
     return { userId, ingame, sect, gender: prof.gender, wallet, profile: prof, stats };
@@ -83,9 +96,13 @@ function buildConfigComponents(userId, wallet, prof) {
             .setLabel(prof.gender === 'f' ? 'Giới tính: Nữ' : 'Giới tính: Nam')
             .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
+            .setCustomId(`profile:name:${userId}`)
+            .setLabel('✏️ Đổi tên')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
             .setCustomId(`profile:done:${userId}`)
             .setLabel('Xong')
-            .setStyle(ButtonStyle.Secondary)
+            .setStyle(ButtonStyle.Success)
     );
 
     return [slot1, slot2, slot3, toggleRow];
@@ -100,6 +117,16 @@ async function sendProfileCard(ctx, user) {
         const content = 'Lệnh này chỉ dùng trong máy chủ.';
         if (ctx.isChatInputCommand) return ctx.reply({ content, flags: MessageFlags.Ephemeral });
         return ctx.reply(content);
+    }
+
+    // Daily render quota — must check BEFORE deferReply so we can use a
+    // standard ephemeral reply on rejection.
+    const quotaError = tryConsumeRenderQuota(guildId, user.id);
+    if (quotaError) {
+        if (ctx.isChatInputCommand && ctx.isChatInputCommand()) {
+            return ctx.reply({ content: quotaError, flags: MessageFlags.Ephemeral });
+        }
+        return ctx.reply(quotaError);
     }
 
     // Discord-style "thinking" while we render
@@ -122,18 +149,12 @@ async function sendProfileCard(ctx, user) {
     }
 }
 
-// Update an already-posted card after a setting change.
-async function updatePostedCard(interaction) {
-    const guildId = interaction.guildId;
-    const userId = interaction.user.id;
-    const attachment = await renderCardAttachment(interaction.user, guildId);
-    const customizeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`profile:open:${userId}`)
-            .setLabel('⚙️ Tuỳ chỉnh')
-            .setStyle(ButtonStyle.Secondary)
-    );
-    await interaction.message.edit({ files: [attachment], attachments: [], components: [customizeRow] }).catch(e => log.warn(`profile: edit failed: ${e.message}`));
+// Refresh just the components on the ephemeral config UI — no image render.
+async function refreshConfigComponents(interaction, guildId, ownerUserId) {
+    const wallet = getWallet(guildId, ownerUserId);
+    const prof = profile.getProfile(guildId, ownerUserId);
+    const components = buildConfigComponents(ownerUserId, wallet, prof);
+    await interaction.editReply({ components }).catch(() => {});
 }
 
 // Handle all component interactions whose customId starts with `profile:`.
@@ -153,7 +174,7 @@ async function handleComponent(interaction) {
         const prof = profile.getProfile(guildId, ownerUserId);
         const components = buildConfigComponents(ownerUserId, wallet, prof);
         return interaction.reply({
-            content: '⚙️ **Tuỳ chỉnh profile** — chọn vật phẩm cho 3 ô, bật/tắt ngọc, đổi giới tính. Card sẽ tự cập nhật.',
+            content: '⚙️ **Tuỳ chỉnh profile** — chọn vật phẩm, bật/tắt ngọc, đổi giới tính, đổi tên. Bấm **Xong** để render card.',
             components,
             flags: MessageFlags.Ephemeral
         });
@@ -172,20 +193,7 @@ async function handleComponent(interaction) {
             return interaction.reply({ content: `Lỗi: ${e.message}`, flags: MessageFlags.Ephemeral });
         }
         await interaction.deferUpdate().catch(() => {});
-        // Re-render the originating card if this is from a message component on the card.
-        // The config UI is ephemeral; find the original card by walking up the channel
-        // history is unreliable, so we just send a small "updated" toast and let the
-        // user re-call /profile to see. But better UX: update the same ephemeral
-        // message's placeholder and trigger a fresh card render as a follow-up.
-        const wallet = getWallet(guildId, ownerUserId);
-        const prof = profile.getProfile(guildId, ownerUserId);
-        const components = buildConfigComponents(ownerUserId, wallet, prof);
-        await interaction.editReply({ components });
-        // Also send updated card as ephemeral follow-up preview
-        try {
-            const attachment = await renderCardAttachment(interaction.user, guildId);
-            await interaction.followUp({ content: '✅ Đã cập nhật. Preview:', files: [attachment], flags: MessageFlags.Ephemeral });
-        } catch (e) { log.warn(`profile: preview render failed: ${e.message}`); }
+        await refreshConfigComponents(interaction, guildId, ownerUserId);
         return;
     }
 
@@ -193,13 +201,7 @@ async function handleComponent(interaction) {
         const prof = profile.getProfile(guildId, ownerUserId);
         profile.setShowNgoc(guildId, ownerUserId, !prof.showNgoc);
         await interaction.deferUpdate().catch(() => {});
-        const wallet = getWallet(guildId, ownerUserId);
-        const next = profile.getProfile(guildId, ownerUserId);
-        await interaction.editReply({ components: buildConfigComponents(ownerUserId, wallet, next) });
-        try {
-            const attachment = await renderCardAttachment(interaction.user, guildId);
-            await interaction.followUp({ content: '✅ Đã cập nhật. Preview:', files: [attachment], flags: MessageFlags.Ephemeral });
-        } catch (e) { log.warn(`profile: preview render failed: ${e.message}`); }
+        await refreshConfigComponents(interaction, guildId, ownerUserId);
         return;
     }
 
@@ -207,18 +209,64 @@ async function handleComponent(interaction) {
         const prof = profile.getProfile(guildId, ownerUserId);
         profile.setGender(guildId, ownerUserId, prof.gender === 'm' ? 'f' : 'm');
         await interaction.deferUpdate().catch(() => {});
-        const wallet = getWallet(guildId, ownerUserId);
-        const next = profile.getProfile(guildId, ownerUserId);
-        await interaction.editReply({ components: buildConfigComponents(ownerUserId, wallet, next) });
+        await refreshConfigComponents(interaction, guildId, ownerUserId);
+        return;
+    }
+
+    if (action === 'name') {
+        const prof = profile.getProfile(guildId, ownerUserId);
+        const reg = data.registrations && data.registrations[guildId] && data.registrations[guildId][ownerUserId];
+        const current = prof.displayName || (reg && reg.ingame) || '';
+        const modal = new ModalBuilder()
+            .setCustomId(`profile:name_submit:${ownerUserId}`)
+            .setTitle('Đổi tên hiển thị trên card');
+        const input = new TextInputBuilder()
+            .setCustomId('name')
+            .setLabel('Tên hiển thị (để trống = dùng tên ingame)')
+            .setStyle(TextInputStyle.Short)
+            .setMinLength(0)
+            .setMaxLength(32)
+            .setRequired(false)
+            .setValue(current);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        await interaction.showModal(modal).catch((e) => log.warn(`profile: showModal failed: ${e.message}`));
+        return;
+    }
+
+    if (action === 'name_submit') {
+        const raw = interaction.fields.getTextInputValue('name') || '';
         try {
-            const attachment = await renderCardAttachment(interaction.user, guildId);
-            await interaction.followUp({ content: '✅ Đã đổi giới tính. Preview:', files: [attachment], flags: MessageFlags.Ephemeral });
-        } catch (e) { log.warn(`profile: preview render failed: ${e.message}`); }
+            profile.setDisplayName(guildId, ownerUserId, raw.trim() === '' ? null : raw);
+        } catch (e) {
+            return interaction.reply({ content: `Lỗi: ${e.message}`, flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferUpdate().catch(() => {});
+        await refreshConfigComponents(interaction, guildId, ownerUserId);
         return;
     }
 
     if (action === 'done') {
-        await interaction.update({ content: '✅ Đã lưu. Dùng `/profile` để xem card công khai.', components: [] }).catch(() => {});
+        const quotaError = tryConsumeRenderQuota(guildId, ownerUserId);
+        if (quotaError) {
+            await interaction.update({
+                content: `✅ Đã lưu thiết lập.\n${quotaError}\nDùng \`/profile\` ngày mai để tạo card.`,
+                components: []
+            }).catch(() => {});
+            return;
+        }
+        await interaction.deferUpdate().catch(() => {});
+        try {
+            const attachment = await renderCardAttachment(interaction.user, guildId);
+            await interaction.editReply({
+                content: '✅ Đã lưu. Dùng `/profile` để khoe card công khai.',
+                files: [attachment],
+                attachments: [],
+                components: []
+            });
+        } catch (e) {
+            log.warn(`profile: done render failed: ${e.message}`);
+            await interaction.editReply({ content: '✅ Đã lưu (render lỗi).', components: [] }).catch(() => {});
+        }
         return;
     }
 

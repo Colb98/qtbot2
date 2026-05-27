@@ -36,6 +36,16 @@ module.exports = {
             }
             return;
         }
+        if (interaction.isModalSubmit && interaction.isModalSubmit()) {
+            try {
+                if (interaction.customId.startsWith('profile:')) {
+                    await profileCmd.handleComponent(interaction);
+                }
+            } catch (e) {
+                log.error('Error in modal submit interaction:', e);
+            }
+            return;
+        }
         if (interaction.isButton()) {
             try {
                 if (interaction.customId.startsWith('profile:')) {

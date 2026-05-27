@@ -16,10 +16,15 @@
 // }
 
 const { data, saveData } = require('../state');
+const { todayStr } = require('./currency');
 
 const DEFAULT_TITLE = 'Nhất Mộng Giang Hồ';
 const DEFAULT_BORDER = null;          // null → draw procedural ink-wash ring
 const GENDERS = ['m', 'f'];
+const DISPLAY_NAME_MIN = 2;
+const DISPLAY_NAME_MAX = 32;
+const DISPLAY_NAME_RE = /^[\p{L}\p{N} _-]+$/u;
+const DAILY_CARD_RENDER_LIMIT = 5;     // non-super-admin cap, resets 00:00 GMT+7
 
 const VALID_ITEM_KEYS = new Set(['nhuom', 'dieu', 'cao', 'cao5', 'cao9', 'kythuong', 'thienthuong', 'phuonghoang1', 'phuonghoang2', 'thantrang']);
 
@@ -31,6 +36,7 @@ function ensureRoot() {
 function defaults() {
     return {
         gender: 'm',
+        displayName: null,            // overrides registrations[].ingame on card if set
         itemSlot1: null,
         itemSlot2: null,
         itemSlot3: null,
@@ -38,7 +44,9 @@ function defaults() {
         biggestJackpot: null,
         selectedTitle: null,
         selectedBorder: null,
-        badgeSlots: [null, null, null]
+        badgeSlots: [null, null, null],
+        // Daily card-render cap (non-super-admin only). Resets at 00:00 GMT+7.
+        cardRenderCap: { date: null, count: 0 }
     };
 }
 
@@ -50,7 +58,40 @@ function getProfile(guildId, userId) {
     const d = defaults();
     for (const k of Object.keys(d)) if (p[k] === undefined) p[k] = d[k];
     if (!Array.isArray(p.badgeSlots) || p.badgeSlots.length !== 3) p.badgeSlots = [null, null, null];
+    if (!p.cardRenderCap || typeof p.cardRenderCap !== 'object') p.cardRenderCap = { date: null, count: 0 };
     return p;
+}
+
+// Returns the current daily card-render usage for `userId`, rolling over the
+// counter when the GMT+7 date has changed. Does not mutate the count.
+function getCardRenderStatus(guildId, userId) {
+    const p = getProfile(guildId, userId);
+    const today = todayStr();
+    const count = (p.cardRenderCap && p.cardRenderCap.date === today) ? (p.cardRenderCap.count || 0) : 0;
+    return { date: today, used: count, limit: DAILY_CARD_RENDER_LIMIT, remaining: Math.max(0, DAILY_CARD_RENDER_LIMIT - count) };
+}
+
+// Atomically check-and-increment the daily card-render counter. Returns
+// `{ ok, used, limit, remaining }`. When `ok === false`, the counter was not
+// incremented and the caller should refuse the render. Callers that want to
+// bypass the cap (super-admin) should simply not call this function.
+function consumeCardRender(guildId, userId) {
+    const p = getProfile(guildId, userId);
+    const today = todayStr();
+    if (!p.cardRenderCap || p.cardRenderCap.date !== today) {
+        p.cardRenderCap = { date: today, count: 0 };
+    }
+    if (p.cardRenderCap.count >= DAILY_CARD_RENDER_LIMIT) {
+        return { ok: false, used: p.cardRenderCap.count, limit: DAILY_CARD_RENDER_LIMIT, remaining: 0 };
+    }
+    p.cardRenderCap.count += 1;
+    saveData();
+    return {
+        ok: true,
+        used: p.cardRenderCap.count,
+        limit: DAILY_CARD_RENDER_LIMIT,
+        remaining: DAILY_CARD_RENDER_LIMIT - p.cardRenderCap.count
+    };
 }
 
 function setGender(guildId, userId, gender) {
@@ -73,6 +114,25 @@ function setItemSlot(guildId, userId, slotNum, itemKey) {
 function setShowNgoc(guildId, userId, show) {
     const p = getProfile(guildId, userId);
     p.showNgoc = !!show;
+    saveData();
+    return p;
+}
+
+function setDisplayName(guildId, userId, name) {
+    const p = getProfile(guildId, userId);
+    if (name === null || name === undefined || name === '') {
+        p.displayName = null;
+        saveData();
+        return p;
+    }
+    const cleaned = String(name).replace(/[\x00-\x1F\x7F]/g, '').trim();
+    if (cleaned.length < DISPLAY_NAME_MIN || cleaned.length > DISPLAY_NAME_MAX) {
+        throw new Error(`Tên phải dài từ ${DISPLAY_NAME_MIN} đến ${DISPLAY_NAME_MAX} ký tự.`);
+    }
+    if (!DISPLAY_NAME_RE.test(cleaned)) {
+        throw new Error('Tên chỉ được dùng chữ cái, số, dấu cách, gạch dưới hoặc gạch ngang.');
+    }
+    p.displayName = cleaned;
     saveData();
     return p;
 }
@@ -106,6 +166,10 @@ module.exports = {
     setGender,
     setItemSlot,
     setShowNgoc,
+    setDisplayName,
     recordWin,
-    getBiggestJackpot
+    getBiggestJackpot,
+    getCardRenderStatus,
+    consumeCardRender,
+    DAILY_CARD_RENDER_LIMIT
 };
