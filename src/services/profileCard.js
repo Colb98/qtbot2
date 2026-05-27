@@ -444,6 +444,35 @@ function drawNgocGlyph(ctx, cx, cy, size, theme) {
     ctx.restore();
 }
 
+// Heart silhouette via two bezier lobes joining at the bottom point.
+// Used as the bullet for bond-leaderboard rows.
+function drawHeartGlyph(ctx, cx, cy, size, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    const s = size;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + s * 0.36);
+    ctx.bezierCurveTo(cx + s * 0.62, cy + s * 0.02, cx + s * 0.62, cy - s * 0.55, cx, cy - s * 0.1);
+    ctx.bezierCurveTo(cx - s * 0.62, cy - s * 0.55, cx - s * 0.62, cy + s * 0.02, cx, cy + s * 0.36);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+}
+
+// Map a bond score to a visual tier: color/weight/italic/glow escalate as
+// the relationship deepens (plain white → cream → gold → pink → crimson +
+// flame glow). Mirrors the bond emoji ladder in config/economy.js.
+function bondTierStyle(score) {
+    if (score >= 10_000_000) return { color: '#ff2a4a', weight: 800, italic: true,  shadow: 'rgba(255,40,60,0.6)' };  // ❤️‍🔥
+    if (score >=  5_000_000) return { color: '#ff3d6e', weight: 700, italic: true,  shadow: 'rgba(255,80,110,0.45)' }; // 💞
+    if (score >=  1_000_000) return { color: '#ff66a8', weight: 700, italic: false };                                 // 💕
+    if (score >=    500_000) return { color: '#ff8fc0', weight: 700, italic: false };                                 // 💝
+    if (score >=    200_000) return { color: '#ffb14d', weight: 600, italic: false };                                 // ❤️ (rose-gold)
+    if (score >=     50_000) return { color: '#ffd166', weight: 600, italic: false };                                 // 🥰 (gold)
+    if (score >=     10_000) return { color: '#f4e7c4', weight: 500, italic: false };                                 // 🫶 (cream)
+    return { color: alphaHex('#f4ede2', 0.82), weight: 400, italic: false };                                          // plain
+}
+
 // Border-with-glass-fill chip (used for prestige + achievement chips).
 function drawChip(ctx, x, y, w, h, theme, { gradient = true } = {}) {
     ctx.save();
@@ -643,7 +672,7 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
             player.profile && player.profile.itemSlot3
         ];
         const badgeSize = 64;
-        const slotW = 150;            // tighter — no name label, just qty
+        const slotW = 210;
         for (let i = 0; i < 3; i++) {
             const key = slotKeys[i];
             const sx = PX + i * slotW;
@@ -661,15 +690,20 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
             const iconImg = await loadCached(itemIconPath(key));
             await drawBadgeIcon(ctx, iconImg, cx, cy, badgeSize, theme.accent);
 
-            // ×qty — vertically centered next to the badge
+            // Label + qty to the right of badge
+            const textX = sx + badgeSize + 12;
             ctx.font = `600 22px ${FONT_CAPS}`;
             setSpacing(ctx, 0.6);
             ctx.fillStyle = theme.accent;
-            const qtyText = `×${fmtNum(qty)}`;
-            const qtyW = measure(ctx, qtyText);
-            ctx.fillText(qtyText, sx + badgeSize + 10, cy - 12);
+            ctx.fillText(`×${fmtNum(qty)}`, textX, cy - 22);
             setSpacing(ctx, 0);
-            void qtyW;
+
+            const label = (ITEM_LABELS[key] || key).toUpperCase();
+            ctx.font = `400 11px ${FONT_BODY}`;
+            setSpacing(ctx, 2.4);
+            ctx.fillStyle = alphaHex('#f4ede2', 0.74);
+            ctx.fillText(truncateToWidth(ctx, label, slotW - badgeSize - 24), textX, cy + 4);
+            setSpacing(ctx, 0);
         }
         cursorY += badgeSize + 14;
     }
@@ -703,6 +737,67 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         ctx.fillText(ngocTotal.toLocaleString('en-US'), x + iconSize + 8 + lblW + 14, y - 1);
         setSpacing(ctx, 0);
         cursorY += 28;
+    }
+
+    // 6f.5 Top-3 Bond leaderboard — between inventory/ngọc and achievements.
+    // Names are pre-resolved by the caller into player.stats.topBonds.
+    if (player.stats && Array.isArray(player.stats.topBonds) && player.stats.topBonds.length > 0) {
+        const bonds = player.stats.topBonds.slice(0, 3);
+
+        // Section header — hairline above, label + trailing rule (mirrors "THÀNH TỰU").
+        drawHairline(ctx, PX, cursorY, 480, theme.accent);
+        cursorY += 12;
+        ctx.font = `600 11px ${FONT_CAPS}`;
+        setSpacing(ctx, 4.5);
+        ctx.fillStyle = alphaHex('#f4ede2', 0.45);
+        ctx.fillText('ĐIỂM THÂN MẬT', PX, cursorY);
+        const bondLblW = measure(ctx, 'ĐIỂM THÂN MẬT');
+        setSpacing(ctx, 0);
+        ctx.save();
+        ctx.fillStyle = alphaHex(theme.accent, 0.22);
+        ctx.fillRect(PX + bondLblW + 10, cursorY + 6, 480 - bondLblW - 10, 1);
+        ctx.restore();
+        cursorY += 18;
+
+        // Rows
+        const rowH = 24;
+        const blockW = 520;
+        const nameMaxW = blockW * 0.62;
+        for (let i = 0; i < bonds.length; i++) {
+            const b = bonds[i];
+            const style = bondTierStyle(b.score || 0);
+            const rowY = cursorY + i * rowH;
+
+            // Heart bullet in tier color
+            drawHeartGlyph(ctx, PX + 7, rowY + 9, 12, style.color);
+
+            const nameSize  = style.weight >= 700 ? 16 : 15;
+            const scoreSize = style.weight >= 700 ? 16 : 14;
+            const italic = style.italic ? 'italic ' : '';
+
+            if (style.shadow) {
+                ctx.save();
+                ctx.shadowColor = style.shadow;
+                ctx.shadowBlur = 8;
+            }
+
+            // Name (left)
+            ctx.font = `${style.weight} ${italic}${nameSize}px ${FONT_BODY}`;
+            ctx.fillStyle = style.color;
+            const name = b.name || 'Vô Danh';
+            ctx.fillText(truncateToWidth(ctx, name, nameMaxW), PX + 22, rowY);
+
+            // Score (right-aligned within the block)
+            const scoreText = fmtNum(b.score || 0);
+            ctx.font = `${style.weight} ${italic}${scoreSize}px ${FONT_CAPS}`;
+            setSpacing(ctx, 0.3);
+            const scoreW = measure(ctx, scoreText);
+            ctx.fillText(scoreText, PX + blockW - scoreW, rowY);
+            setSpacing(ctx, 0);
+
+            if (style.shadow) ctx.restore();
+        }
+        cursorY += rowH * bonds.length + 8;
     }
 
     // 6g. Bottom block — achievements section anchored to panel bottom
@@ -824,10 +919,13 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
     return canvas.toBuffer('image/png');
 }
 
-// Stats computation — unchanged.
+// Stats computation. `topBonds` is populated with raw { otherId, score, name:null }
+// entries — callers should patch in display names before render (the renderer
+// has no Discord context to resolve members).
 function computeStats(guildId, userId, profileData) {
     let wordchainRank = null, wordchainTotal = null, wordchainBest = null;
     let vtvRank = null, vtvTotal = null, vtvWords = null;
+    let topBonds = [];
     try {
         const wce = require('./wordchainEng');
         const top = wce.getLifetimeTop(guildId, 9999);
@@ -848,10 +946,17 @@ function computeStats(guildId, userId, profileData) {
             }
         }
     } catch (e) { /* service not available */ }
+    try {
+        const bond = require('./bond');
+        topBonds = bond.listBondsFor(guildId, userId, 3).map(r => ({
+            otherId: r.otherId, score: r.score, name: null
+        }));
+    } catch (e) { /* service not available */ }
     return {
         biggestJackpot: profileData && profileData.biggestJackpot,
         wordchainRank, wordchainTotal, wordchainBest,
-        vtvRank, vtvTotal, vtvWords
+        vtvRank, vtvTotal, vtvWords,
+        topBonds
     };
 }
 

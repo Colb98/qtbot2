@@ -36,9 +36,29 @@ function buildPlayer(guildId, userId) {
     return { userId, ingame, sect, gender: prof.gender, wallet, profile: prof, stats };
 }
 
+// Resolve a Discord-side display name for a userId. Prefers the registration
+// ingame name (synchronous, common case) before falling back to a guild
+// members fetch, so we typically avoid any network call.
+async function resolveDisplayName(guild, guildId, userId) {
+    const reg = data.registrations && data.registrations[guildId] && data.registrations[guildId][userId];
+    if (reg && (reg.ingame || reg.displayName)) return reg.ingame || reg.displayName;
+    if (guild) {
+        const m = await guild.members.fetch(userId).catch(() => null);
+        if (m) return m.displayName;
+    }
+    return 'Vô Danh';
+}
+
 // ── Render the card image attachment ───────────────────────────────────────
-async function renderCardAttachment(user, guildId) {
+async function renderCardAttachment(user, guildId, guild) {
     const player = buildPlayer(guildId, user.id);
+    // Patch in display names for bond partners — the renderer has no
+    // Discord context to do this itself.
+    if (player.stats && Array.isArray(player.stats.topBonds)) {
+        for (const b of player.stats.topBonds) {
+            b.name = await resolveDisplayName(guild, guildId, b.otherId);
+        }
+    }
     const png = await profileCard.renderProfileCard(player);
     return new AttachmentBuilder(png, { name: `profile-${user.id}.png` });
 }
@@ -134,7 +154,7 @@ async function sendProfileCard(ctx, user) {
         await ctx.deferReply();
     }
 
-    const attachment = await renderCardAttachment(user, guildId);
+    const attachment = await renderCardAttachment(user, guildId, ctx.guild);
     const customizeRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId(`profile:open:${user.id}`)
@@ -256,7 +276,7 @@ async function handleComponent(interaction) {
         }
         await interaction.deferUpdate().catch(() => {});
         try {
-            const attachment = await renderCardAttachment(interaction.user, guildId);
+            const attachment = await renderCardAttachment(interaction.user, guildId, interaction.guild);
             await interaction.editReply({
                 content: '✅ Đã lưu. Dùng `/profile` để khoe card công khai.',
                 files: [attachment],

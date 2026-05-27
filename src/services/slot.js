@@ -167,6 +167,13 @@ function formatResultLine({ mult, payout, outcomeName }) {
     return `😢 **${outcomeName}**! Tiếc quá, không trúng gì.`;
 }
 
+function formatResultShort({ mult, payout, outcomeName }) {
+    if (mult === 0) return 'Thua';
+    const ngocEmote = renderEmote('ngoc');
+    if (mult >= 6) return `**${outcomeName} — x${mult}** (+${fmt(payout)} ${ngocEmote})`;
+    return `x${mult} (+${fmt(payout)} ${ngocEmote})`;
+}
+
 function buildContinueButtons(userId, lastAmount, walletNgoc) {
     const allInAmount = Math.min(walletNgoc, economy.SLOT_MAX_BET);
     const halfRaw = Math.floor(lastAmount / 2);
@@ -203,4 +210,4 @@ function buildContinueButtons(userId, lastAmount, walletNgoc) {
     );
 }
 
-module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD, playSlot, formatResultLine, buildContinueButtons };
+module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD, playSlot, formatResultLine, formatResultShort, buildContinueButtons };

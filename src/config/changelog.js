@@ -1,6 +1,22 @@
-const CURRENT_VERSION = '1.14.5';
+const CURRENT_VERSION = '1.14.7';
 
 const CHANGELOG = {
+    '1.14.7': {
+        date: '2026-05-27',
+        title: 'Slot — Quay nhiều lượt cùng lúc',
+        changes: [
+            '`!slot <x|all> [n]` — thêm tham số tuỳ chọn `n` (1-10) để quay nhiều lượt cùng lúc. Vd: `!slot 500 10` trừ 5000 ngọc và quay 10 lần.',
+            'Tất cả các lượt hiển thị chung trong 1 tin nhắn, animate đồng thời (vẫn chỉ 3 lần edit). Kết quả liệt kê dạng danh sách + tổng cược/thắng.'
+        ]
+    },
+    '1.14.6': {
+        date: '2026-05-27',
+        title: 'Profile Card — Top 3 Điểm Thân Mật',
+        changes: [
+            'Profile card thêm khu **ĐIỂM THÂN MẬT** (giữa inventory và Thành Tựu): hiển thị top 3 liên kết mạnh nhất của bạn.',
+            'Style chữ thay đổi theo bond level — thấp: trắng nhạt regular → cao: vàng → hồng → đỏ rực + bold italic + glow.'
+        ]
+    },
     '1.14.5': {
         date: '2026-05-27',
         title: 'Profile Card — Icon ngọc HQ',
