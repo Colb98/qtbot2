@@ -205,6 +205,7 @@ async function handleCoinflipButton(interaction) {
         addNgoc(guildId, ownerUserId, amount * 2);
         profile.recordWin(guildId, ownerUserId, amount * 2, 'Coinflip');
     }
+    profile.recordGame(guildId, ownerUserId, 'coinflip', amount, won ? amount * 2 : 0);
 
     const wasAllIn = action === 'allin';
     const bigWin = won && (wasAllIn || amount >= 5000);
@@ -266,11 +267,12 @@ async function handleDiceButton(interaction, game) {
     if (game === 'tong') {
         const { sum, won, mult } = dice.playTong(roll, guess);
         spendNgocForGame(guildId, ownerUserId, amount);
+        const tongPayout = won ? amount * mult : 0;
         if (won) {
-            const payout = amount * mult;
-            addNgoc(guildId, ownerUserId, payout);
-            profile.recordWin(guildId, ownerUserId, payout, 'Tổng xúc xắc');
+            addNgoc(guildId, ownerUserId, tongPayout);
+            profile.recordWin(guildId, ownerUserId, tongPayout, 'Tổng xúc xắc');
         }
+        profile.recordGame(guildId, ownerUserId, 'tong', amount, tongPayout);
         metrics.recordTong({ guildId, amount, won, mult, guess, viaButton: true, wasAllIn, userId: ownerUserId });
         const newWallet = getWallet(guildId, ownerUserId);
         const totalAfterTong = newWallet.ngoc + (newWallet.lockedNgoc || 0);
@@ -279,11 +281,12 @@ async function handleDiceButton(interaction, game) {
     } else {
         const { matches, won, mult } = dice.playMat(roll, guess);
         spendNgocForGame(guildId, ownerUserId, amount);
+        const matPayout = won ? amount * mult : 0;
         if (won) {
-            const payout = amount * mult;
-            addNgoc(guildId, ownerUserId, payout);
-            profile.recordWin(guildId, ownerUserId, payout, 'Mặt xúc xắc');
+            addNgoc(guildId, ownerUserId, matPayout);
+            profile.recordWin(guildId, ownerUserId, matPayout, 'Mặt xúc xắc');
         }
+        profile.recordGame(guildId, ownerUserId, 'mat', amount, matPayout);
         metrics.recordMat({ guildId, amount, won, mult, face: guess, matches, viaButton: true, wasAllIn, userId: ownerUserId });
         const newWallet = getWallet(guildId, ownerUserId);
         const totalAfterMat = newWallet.ngoc + (newWallet.lockedNgoc || 0);

@@ -157,6 +157,50 @@ function getBiggestJackpot(guildId, userId) {
     return p.biggestJackpot;
 }
 
+const GAME_KEYS = ['slot', 'coinflip', 'tong', 'mat'];
+const GAME_LABELS = {
+    slot: 'Slot',
+    coinflip: 'Coinflip',
+    tong: 'Tổng',
+    mat: 'Mặt'
+};
+
+function ensureGameStats(p) {
+    if (!p.gameStats || typeof p.gameStats !== 'object') p.gameStats = {};
+    for (const k of GAME_KEYS) {
+        if (!p.gameStats[k] || typeof p.gameStats[k] !== 'object') {
+            p.gameStats[k] = { plays: 0, totalBet: 0, totalPayout: 0 };
+        }
+        const g = p.gameStats[k];
+        if (typeof g.plays !== 'number') g.plays = 0;
+        if (typeof g.totalBet !== 'number') g.totalBet = 0;
+        if (typeof g.totalPayout !== 'number') g.totalPayout = 0;
+    }
+    return p.gameStats;
+}
+
+// Record one game play. `bet` is what the player wagered, `payout` is what
+// they got back (0 on a loss; bet*mult on a win — for coinflip pass the full
+// returned amount, i.e. 2*bet on win, 0 on loss).
+function recordGame(guildId, userId, game, bet, payout) {
+    if (!guildId || !userId) return;
+    if (!GAME_KEYS.includes(game)) return;
+    if (!Number.isFinite(bet) || bet < 0) bet = 0;
+    if (!Number.isFinite(payout) || payout < 0) payout = 0;
+    const p = getProfile(guildId, userId);
+    const stats = ensureGameStats(p);
+    const g = stats[game];
+    g.plays += 1;
+    g.totalBet += bet;
+    g.totalPayout += payout;
+    saveData();
+}
+
+function getGameStats(guildId, userId) {
+    const p = getProfile(guildId, userId);
+    return ensureGameStats(p);
+}
+
 module.exports = {
     DEFAULT_TITLE,
     DEFAULT_BORDER,
@@ -168,6 +212,10 @@ module.exports = {
     setShowNgoc,
     setDisplayName,
     recordWin,
+    recordGame,
+    getGameStats,
+    GAME_KEYS,
+    GAME_LABELS,
     getBiggestJackpot,
     getCardRenderStatus,
     consumeCardRender,

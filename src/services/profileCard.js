@@ -148,6 +148,14 @@ function classIconPath(sectCode) {
 // ── Helpers ───────────────────────────────────────────────────────────────
 function fmtNum(n) { return Number(n).toLocaleString('en-US'); }
 
+// Compact number (1.2M, 12.3K, 999). Used in tight stat rows.
+function fmtNumShort(n) {
+    const x = Math.abs(Number(n) || 0);
+    if (x >= 1_000_000) return (x / 1_000_000).toFixed(x >= 10_000_000 ? 0 : 1).replace(/\.0$/, '') + 'M';
+    if (x >= 1_000)     return (x / 1_000).toFixed(x >= 10_000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+    return String(Math.round(x));
+}
+
 // Letter-spaced text. Canvas supports ctx.letterSpacing but it requires CSS
 // length string; we just pass `${px}px`.
 function setSpacing(ctx, px) {
@@ -800,6 +808,84 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         cursorY += rowH * bonds.length + 8;
     }
 
+    // 6f.7 Game stats block — between bonds and achievements.
+    if (player.stats && player.stats.gameStats) {
+        const gs = player.stats.gameStats;
+        const GAME_VI = { slot: 'Slot', coinflip: 'Coinflip', tong: 'Tổng', mat: 'Mặt' };
+        const order = ['slot', 'coinflip', 'tong', 'mat'];
+        const rows = [];
+        let totalPlays = 0, totalBet = 0, totalPayout = 0;
+        for (const k of order) {
+            const g = gs[k] || { plays: 0, totalBet: 0, totalPayout: 0 };
+            totalPlays += g.plays;
+            totalBet += g.totalBet;
+            totalPayout += g.totalPayout;
+            if (g.plays > 0) rows.push({ key: k, ...g });
+        }
+        if (rows.length > 0) {
+            // Section header — hairline above + label + trailing rule (matches BOND/THÀNH TỰU).
+            drawHairline(ctx, PX, cursorY, 480, theme.accent);
+            cursorY += 12;
+            ctx.font = `600 11px ${FONT_CAPS}`;
+            setSpacing(ctx, 4.5);
+            ctx.fillStyle = alphaHex('#f4ede2', 0.45);
+            ctx.fillText('THỐNG KÊ GAME', PX, cursorY);
+            const gsLblW = measure(ctx, 'THỐNG KÊ GAME');
+            setSpacing(ctx, 0);
+            ctx.save();
+            ctx.fillStyle = alphaHex(theme.accent, 0.22);
+            ctx.fillRect(PX + gsLblW + 10, cursorY + 6, 480 - gsLblW - 10, 1);
+            ctx.restore();
+            cursorY += 16;
+
+            const rowH = 15;
+            const blockW = 540;
+            // Per-game rows
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                const y = cursorY + i * rowH;
+                const net = r.totalPayout - r.totalBet;
+                const avg = r.plays > 0 ? Math.round(r.totalBet / r.plays) : 0;
+
+                ctx.font = `600 11px ${FONT_BODY}`;
+                ctx.fillStyle = alphaHex('#f4ede2', 0.82);
+                ctx.fillText(GAME_VI[r.key], PX, y);
+
+                ctx.font = `400 11px ${FONT_BODY}`;
+                ctx.fillStyle = alphaHex('#f4ede2', 0.58);
+                const mid = `${fmtNum(r.plays)} lần · cược ${fmtNumShort(r.totalBet)} · avg ${fmtNumShort(avg)}`;
+                ctx.fillText(mid, PX + 78, y);
+
+                const sign = net >= 0 ? '+' : '−';
+                const netText = `${sign}${fmtNumShort(Math.abs(net))}`;
+                ctx.font = `600 11px ${FONT_CAPS}`;
+                ctx.fillStyle = net >= 0 ? '#7fe8c0' : '#ff7a8a';
+                const netW = measure(ctx, netText);
+                ctx.fillText(netText, PX + blockW - netW, y);
+            }
+            cursorY += rowH * rows.length + 2;
+
+            // Total row
+            const totalNet = totalPayout - totalBet;
+            const sign = totalNet >= 0 ? '+' : '−';
+            ctx.font = `600 10px ${FONT_CAPS}`;
+            setSpacing(ctx, 2);
+            ctx.fillStyle = alphaHex('#f4ede2', 0.55);
+            ctx.fillText('TỔNG CỘNG', PX, cursorY);
+            setSpacing(ctx, 0);
+            ctx.font = `400 11px ${FONT_BODY}`;
+            ctx.fillStyle = alphaHex('#f4ede2', 0.58);
+            const totalMid = `${fmtNum(totalPlays)} lần · cược ${fmtNumShort(totalBet)}`;
+            ctx.fillText(totalMid, PX + 78, cursorY);
+            const totalNetText = `${sign}${fmtNumShort(Math.abs(totalNet))}`;
+            ctx.font = `700 12px ${FONT_CAPS}`;
+            ctx.fillStyle = totalNet >= 0 ? '#7fe8c0' : '#ff7a8a';
+            const totalNetW = measure(ctx, totalNetText);
+            ctx.fillText(totalNetText, PX + blockW - totalNetW, cursorY);
+            cursorY += rowH + 4;
+        }
+    }
+
     // 6g. Bottom block — achievements section anchored to panel bottom
     const PANEL_BOTTOM = CARD_H - 36;
     {
@@ -952,11 +1038,17 @@ function computeStats(guildId, userId, profileData) {
             otherId: r.otherId, score: r.score, name: null
         }));
     } catch (e) { /* service not available */ }
+    let gameStats = null;
+    try {
+        const prof = require('./profile');
+        gameStats = prof.getGameStats(guildId, userId);
+    } catch (e) { /* service not available */ }
     return {
         biggestJackpot: profileData && profileData.biggestJackpot,
         wordchainRank, wordchainTotal, wordchainBest,
         vtvRank, vtvTotal, vtvWords,
-        topBonds
+        topBonds,
+        gameStats
     };
 }
 

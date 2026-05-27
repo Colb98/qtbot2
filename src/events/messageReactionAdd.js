@@ -6,9 +6,10 @@ const { isAbsent, isParticipant, isValidTimeToRegister } = require('../utils');
 const { setUserRole } = require('../services/roles');
 const { editMessage, validateGuildMember } = require('../services/guildWar');
 const { grantIfNeeded } = require('../services/bangChienReward');
-const { addNgoc } = require('../services/currency');
+const { addNgoc, fmt, renderEmote } = require('../services/currency');
 const { isBlockedByMaintenance } = require('../services/maintenance');
 const metrics = require('../services/metrics');
+const lixiSvc = require('../services/lixi');
 
 module.exports = {
     name: Events.MessageReactionAdd,
@@ -39,6 +40,40 @@ module.exports = {
             const member = await reaction.message.guild.members.fetch(user.id);
 
             log.info(`Reaction added by ${user.id} on message ${reaction.message.id}: ${reaction.emoji.name}`);
+
+            const lixi = lixiSvc.getLixi(reaction.message.id);
+            if (lixi) {
+                if (reaction.emoji.name === lixiSvc.LIXI_EMOJI) {
+                    const res = lixiSvc.claim(reaction.message.id, user.id);
+                    if (res.ok) {
+                        addNgoc(lixi.guildId, user.id, res.amount);
+                        const ngocEmote = renderEmote('ngoc');
+                        const claimedCount = lixi.claimOrder.length;
+                        await reaction.message.channel.send({
+                            content: `🧧 **${member.displayName}** nhận được **${fmt(res.amount)}** ${ngocEmote} từ lì xì (${claimedCount}/${lixi.people}).`,
+                            allowedMentions: { parse: [] }
+                        }).catch(() => {});
+                        if (res.exhausted) {
+                            const lines = [`🧧 **Lì xì đã hết!** Tổng kết:`];
+                            for (let i = 0; i < lixi.claimOrder.length; i++) {
+                                const uid = lixi.claimOrder[i];
+                                let nm = uid;
+                                try {
+                                    const m = await reaction.message.guild.members.fetch(uid).catch(() => null);
+                                    if (m) nm = m.displayName;
+                                } catch (e) { /* ignore */ }
+                                lines.push(`${i + 1}. **${nm}** — ${fmt(lixi.claimed[uid])} ${ngocEmote}`);
+                            }
+                            await reaction.message.channel.send({
+                                content: lines.join('\n'),
+                                allowedMentions: { parse: [] }
+                            }).catch(() => {});
+                            lixiSvc.deleteLixi(reaction.message.id);
+                        }
+                    }
+                }
+                return;
+            }
 
             const giveaway = data.gaNgocGiveaway && data.gaNgocGiveaway[reaction.message.id];
             if (giveaway) {

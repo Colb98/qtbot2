@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '1.14.7';
+const CURRENT_VERSION = '1.15.0';
 
 const CHANGELOG = {
+    '1.15.0': {
+        date: '2026-05-27',
+        title: 'Slot pity ngẫu nhiên + Thống kê game + Lì xì',
+        changes: [
+            'Slot pity threshold giờ random **20–40** mỗi chuỗi thua. Roll mới ở chuỗi sau — khó canh hơn.',
+            'Profile card thêm khu **THỐNG KÊ GAME**: số lượt chơi từng mode (Slot/Coinflip/Tổng/Mặt), avg bet, tổng bet, NET income (xanh/đỏ), và dòng tổng cộng.',
+            '`!lixi <tổng> <số người>` — chia tổng ngọc thành N phần random, mỗi phần ≥ floor(tổng / 2N). React 🧧 để nhận (1 lần/người, không gồm chủ lì xì).'
+        ]
+    },
     '1.14.7': {
         date: '2026-05-27',
         title: 'Slot — Quay nhiều lượt cùng lúc',

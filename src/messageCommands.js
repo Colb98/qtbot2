@@ -25,6 +25,7 @@ const vuaTiengViet = require('./services/vuaTiengViet');
 const bond = require('./services/bond');
 const profileCmd = require('./commands/profile');
 const profile = require('./services/profile');
+const lixiSvc = require('./services/lixi');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
@@ -111,6 +112,7 @@ async function handleMessageCommand(msg) {
 • \`!tangngoc @user <n|all>\` / \`!tangthienthuong @user [n|all]\` — Tặng ngọc/thiên thưởng (+ Điểm Thân mật).
 • \`!tangcao\` / \`!tangcao5\` / \`!tangcao9\` / \`!tangdieu @user [n|all]\` — Tặng vật phẩm (+ Điểm Thân mật).
 • \`!tangphuongbang\` / \`!tangphuonghoa\` / \`!tangthantrang @user [n|all]\` — Tặng trang phục (+ Điểm Thân mật).
+• \`!lixi <tổng> <số người>\` — Lì xì: chia tổng ngọc thành N phần random, mỗi phần ≥ floor(tổng / 2N). React 🧧 để nhận.
 • \`!banthienthuong <n|all>\` / \`!bancao <n|all>\` — Bán đổi ngọc.
 • \`!bankythuong\` / \`!bandieu\` / \`!bannhuom <n|all>\` — Bán low-tier (giá ${fmt(economy.SELL_PRICE_NGOC.kythuong)}/${fmt(economy.SELL_PRICE_NGOC.dieu)}/${fmt(economy.SELL_PRICE_NGOC.nhuom)} ngọc).
 • \`!doicao5 <n|all>\` / \`!doicao9 <n|all>\` — Đổi ${economy.CAO_PER_CAO5} cáo → 1 cáo 5 đuôi; ${economy.CAO5_PER_CAO9} cáo 5 đuôi → 1 cáo 9 đuôi.
@@ -734,6 +736,47 @@ async function handleMessageCommand(msg) {
         return msg.reply(`✅ GA ngọc **${fmt(amount)}** đã được đăng lên ${targetChannel}`);
     }
 
+    if (cmd === '!lixi') {
+        const totalArg = parseInt(parts[1], 10);
+        const peopleArg = parseInt(parts[2], 10);
+        const usage = `Cú pháp: \`!lixi <tổng ngọc> <số người>\` (tối đa ${lixiSvc.LIXI_MAX_PEOPLE} người). Mỗi phần ≥ floor(tổng / (2·số người)).`;
+        if (!Number.isInteger(totalArg) || totalArg <= 0 || !Number.isInteger(peopleArg) || peopleArg <= 0) {
+            return msg.reply(usage);
+        }
+        if (peopleArg > lixiSvc.LIXI_MAX_PEOPLE) {
+            return msg.reply(`Số người tối đa là ${lixiSvc.LIXI_MAX_PEOPLE}.`);
+        }
+        if (totalArg < peopleArg) {
+            return msg.reply(`Tổng ngọc phải ≥ số người (mỗi phần ≥ 1). Cần ít nhất ${fmt(peopleArg)} ngọc.`);
+        }
+        const w = getWallet(guildId, msg.author.id);
+        const haveNgoc = w.ngoc + (w.lockedNgoc || 0);
+        if (haveNgoc < totalArg) {
+            return msg.reply(`Bạn cần ${fmt(totalArg)} ${renderEmote('ngoc')} nhưng chỉ có ${fmt(haveNgoc)}.`);
+        }
+
+        let parts_;
+        try { parts_ = lixiSvc.splitLixi(totalArg, peopleArg); }
+        catch (e) { return msg.reply(`Không tạo được lì xì: ${e.message}`); }
+
+        spendNgocForGame(guildId, msg.author.id, totalArg);
+
+        const ngocEmote = renderEmote('ngoc');
+        const minPart = Math.floor(totalArg / (2 * peopleArg));
+        const intro = [
+            `# 🧧 Lì xì từ **${member.displayName}** 🧧`,
+            `**${fmt(totalArg)}** ${ngocEmote} chia cho **${fmt(peopleArg)}** người — mỗi phần ≥ **${fmt(Math.max(1, minPart))}**.`,
+            `React ${lixiSvc.LIXI_EMOJI} để nhận (1 lần/người, không gồm chủ lì xì).`
+        ].join('\n');
+        const sent = await msg.channel.send({ content: intro });
+        try { await sent.react(lixiSvc.LIXI_EMOJI); } catch (e) { log.warn('lixi react failed', e); }
+        lixiSvc.createLixi({
+            messageId: sent.id, channelId: sent.channel.id, guildId,
+            authorId: msg.author.id, total: totalArg, people: peopleArg, parts: parts_
+        });
+        return;
+    }
+
     if (cmd === '!pity') {
         const w = getWallet(guildId, msg.author.id);
         const { ttLeft, ktLeft } = getPityStatus(w.pity);
@@ -860,6 +903,7 @@ async function handleMessageCommand(msg) {
             addNgoc(guildId, msg.author.id, amount * 2);
             profile.recordWin(guildId, msg.author.id, amount * 2, 'Coinflip');
         }
+        profile.recordGame(guildId, msg.author.id, 'coinflip', amount, won ? amount * 2 : 0);
         const newW = getWallet(guildId, msg.author.id);
         const bigWin = won && (isAll || amount >= 5000);
         metrics.recordCoinflip({ guildId, amount, won, side, viaButton: false, wasAllIn: isAll, bigWin, userId: msg.author.id });
@@ -947,11 +991,12 @@ async function handleMessageCommand(msg) {
         const roll = dice.rollDice();
         const play = isTong ? dice.playTong(roll, guess) : dice.playMat(roll, guess);
         spendNgocForGame(guildId, msg.author.id, amount);
+        const tongMatPayout = play.won ? amount * play.mult : 0;
         if (play.won) {
-            const payout = amount * play.mult;
-            addNgoc(guildId, msg.author.id, payout);
-            profile.recordWin(guildId, msg.author.id, payout, isTong ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
+            addNgoc(guildId, msg.author.id, tongMatPayout);
+            profile.recordWin(guildId, msg.author.id, tongMatPayout, isTong ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
         }
+        profile.recordGame(guildId, msg.author.id, isTong ? 'tong' : 'mat', amount, tongMatPayout);
         const newW = getWallet(guildId, msg.author.id);
 
         if (isTong) {

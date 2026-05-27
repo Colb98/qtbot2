@@ -72,7 +72,21 @@ function buildReels(outcome) {
     return pool;
 }
 
-const PITY_THRESHOLD = 20;
+const PITY_MIN = 20;
+const PITY_MAX = 40;
+// Legacy export — represents the lower bound; actual threshold is randomized per streak.
+const PITY_THRESHOLD = PITY_MIN;
+
+function rollPityThreshold() {
+    return PITY_MIN + Math.floor(Math.random() * (PITY_MAX - PITY_MIN + 1));
+}
+
+function ensurePityThreshold(w) {
+    if (!Number.isInteger(w.slotPityThreshold) || w.slotPityThreshold < PITY_MIN || w.slotPityThreshold > PITY_MAX) {
+        w.slotPityThreshold = rollPityThreshold();
+    }
+    return w.slotPityThreshold;
+}
 
 function pickFromPool(pool) {
     const totalW = pool.reduce((a, p) => a + p.weight, 0);
@@ -84,10 +98,10 @@ function pickFromPool(pool) {
     return pool[pool.length - 1];
 }
 
-function spin(pityCount = 0) {
+function spin(pityCount = 0, threshold = PITY_MIN) {
     let outcome;
     let pityTriggered = false;
-    if (pityCount >= PITY_THRESHOLD) {
+    if (pityCount >= threshold) {
         outcome = pickFromPool(POOL.filter(p => p.mult >= 3));
         pityTriggered = true;
     } else {
@@ -115,19 +129,21 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
 
     const slotPityBefore = w.slotPity || 0;
     const slotStreakMaxBet = w.slotStreakMaxBet || 0;
-    const pityCapApplied = slotPityBefore >= PITY_THRESHOLD && slotStreakMaxBet > 0 && amount > slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT;
-    if (slotPityBefore >= PITY_THRESHOLD && slotStreakMaxBet > 0) {
+    const pityThreshold = ensurePityThreshold(w);
+    const pityCapApplied = slotPityBefore >= pityThreshold && slotStreakMaxBet > 0 && amount > slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT;
+    if (slotPityBefore >= pityThreshold && slotStreakMaxBet > 0) {
         amount = Math.min(amount, slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT);
         if (amount <= 0) amount = 1;
     }
     spendNgocForGame(guildId, userId, amount);
 
-    const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore);
+    const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore, pityThreshold);
     const payout = Math.round(amount * mult);
     if (payout > 0) {
         addNgoc(guildId, userId, payout);
         profile.recordWin(guildId, userId, payout, 'Slot');
     }
+    profile.recordGame(guildId, userId, 'slot', amount, payout);
 
     const walletAfter = getWallet(guildId, userId);
     if (mult <= 1) {
@@ -136,12 +152,13 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     } else {
         walletAfter.slotPity = 0;
         walletAfter.slotStreakMaxBet = 0;
+        walletAfter.slotPityThreshold = 0;
     }
     saveData();
 
     return {
         amount, payout, mult, outcomeName, spinResult,
-        pityTriggered: slotPityBefore >= PITY_THRESHOLD,
+        pityTriggered: slotPityBefore >= pityThreshold,
         pityCapApplied,
         walletAfter
     };
