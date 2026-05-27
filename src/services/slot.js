@@ -174,40 +174,141 @@ function formatResultShort({ mult, payout, outcomeName }) {
     return `x${mult} (+${fmt(payout)} ${ngocEmote})`;
 }
 
-function buildContinueButtons(userId, lastAmount, walletNgoc) {
-    const allInAmount = Math.min(walletNgoc, economy.SLOT_MAX_BET);
+const SLOT_MAX_ROLLS = 5;
+
+async function runMultiRoll({ guildId, userId, displayName, requestedAmount, isAll, rolls, sendInitial, log, metrics }) {
+    let perRollForAll = null;
+    if (rolls > 1) {
+        const w = getWallet(guildId, userId);
+        const totalNgocWallet = w.ngoc + (w.lockedNgoc || 0);
+        if (isAll) {
+            perRollForAll = Math.min(Math.floor(totalNgocWallet / rolls), economy.SLOT_MAX_BET);
+            if (perRollForAll <= 0) return { error: 'no_ngoc', available: totalNgocWallet };
+        } else {
+            const cappedPerRoll = Math.min(requestedAmount, economy.SLOT_MAX_BET);
+            const needed = cappedPerRoll * rolls;
+            if (totalNgocWallet < needed) {
+                return { error: 'insufficient', needed, available: totalNgocWallet };
+            }
+        }
+    }
+
+    const plays = [];
+    for (let i = 0; i < rolls; i++) {
+        const play = playSlot({
+            guildId, userId,
+            requestedAmount: isAll ? perRollForAll : requestedAmount,
+            isAllIn: isAll && rolls === 1
+        });
+        if (play.error) {
+            if (plays.length === 0) return { error: play.error, available: play.available };
+            break;
+        }
+        plays.push(play);
+    }
+    if (plays.length === 0) return { error: 'no_plays' };
+
+    const anim = renderEmote('slotanim');
+    const ngocEmote = renderEmote('ngoc');
+    const symsList = plays.map(p => [
+        renderEmote(SYMBOLS[p.spinResult[0]].emote),
+        renderEmote(SYMBOLS[p.spinResult[1]].emote),
+        renderEmote(SYMBOLS[p.spinResult[2]].emote)
+    ]);
+    const totalAmount = plays.reduce((a, p) => a + p.amount, 0);
+    const totalPayout = plays.reduce((a, p) => a + p.payout, 0);
+
+    let header, render;
+    if (plays.length === 1) {
+        header = `🎰 **${displayName}** quay slot (-${fmt(plays[0].amount)} ${ngocEmote})`;
+        render = (state) => `${header}\n[ ${state[0][0]} | ${state[0][1]} | ${state[0][2]} ]`;
+    } else {
+        header = `🎰 **${displayName}** quay slot x${plays.length} (-${fmt(totalAmount)} ${ngocEmote})`;
+        render = (state) => `${header}\n` + state.map((s, i) => `\`${String(i + 1).padStart(2)}.\` ${s[0]} | ${s[1]} | ${s[2]}`).join('\n');
+    }
+
+    const stateAnim = symsList.map(() => [anim, anim, anim]);
+    const state1 = symsList.map(s => [s[0], anim, anim]);
+    const state2 = symsList.map(s => [s[0], anim, s[2]]);
+    const stateFinal = symsList;
+
+    const slotMsg = await sendInitial(render(stateAnim));
+    await new Promise(r => setTimeout(r, 500));
+    await slotMsg.edit(render(state1)).catch(e => log && log.error && log.error('slot edit r1', e));
+    await new Promise(r => setTimeout(r, 500));
+    await slotMsg.edit(render(state2)).catch(e => log && log.error && log.error('slot edit r3', e));
+    await new Promise(r => setTimeout(r, 750));
+
+    if (metrics && metrics.recordSlot) {
+        for (const play of plays) {
+            metrics.recordSlot({
+                guildId, amount: play.amount, payout: play.payout,
+                outcomeName: play.outcomeName, pityTriggered: play.pityTriggered,
+                pityCapApplied: play.pityCapApplied, userId
+            });
+        }
+    }
+
+    let resultBlock;
+    if (plays.length === 1) {
+        resultBlock = formatResultLine({ mult: plays[0].mult, payout: plays[0].payout, outcomeName: plays[0].outcomeName });
+    } else {
+        const lines = plays.map((p, i) => `\`${String(i + 1).padStart(2)}.\` ${formatResultShort({ mult: p.mult, payout: p.payout, outcomeName: p.outcomeName })}`);
+        const net = totalPayout - totalAmount;
+        const sign = net >= 0 ? '+' : '−';
+        lines.push(`**Tổng:** cược ${fmt(totalAmount)} → thắng ${fmt(totalPayout)} ${ngocEmote} (${sign}${fmt(Math.abs(net))})`);
+        resultBlock = lines.join('\n');
+    }
+
+    const lastPlay = plays[plays.length - 1];
+    const totalNgocAfter = lastPlay.walletAfter.ngoc + (lastPlay.walletAfter.lockedNgoc || 0);
+    const components = totalNgocAfter > 0
+        ? [buildContinueButtons(userId, lastPlay.amount, totalNgocAfter, plays.length)]
+        : [];
+    await slotMsg.edit({
+        content: `${render(stateFinal)}\n${resultBlock}`,
+        components
+    }).catch(e => log && log.error && log.error('slot edit final', e));
+
+    return { plays, totalAmount, totalPayout };
+}
+
+function buildContinueButtons(userId, lastAmount, walletNgoc, rolls = 1) {
+    const allInPerRoll = Math.min(Math.floor(walletNgoc / rolls), economy.SLOT_MAX_BET);
     const halfRaw = Math.floor(lastAmount / 2);
     const half = Math.max(1, halfRaw);
     const doubleTarget = lastAmount * 2;
     const doubleBet = Math.min(doubleTarget, economy.SLOT_MAX_BET);
 
-    const canAgain = walletNgoc >= lastAmount;
-    const canHalf = halfRaw >= 1 && walletNgoc >= half;
-    const canDouble = walletNgoc >= doubleBet && doubleBet > lastAmount;
-    const canAllIn = allInAmount > 0;
+    const canAgain = walletNgoc >= lastAmount * rolls;
+    const canHalf = halfRaw >= 1 && walletNgoc >= half * rolls;
+    const canDouble = walletNgoc >= doubleBet * rolls && doubleBet > lastAmount;
+    const canAllIn = allInPerRoll > 0;
+
+    const suffix = rolls > 1 ? ` x${rolls}` : '';
 
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId(`slot:tiep:${userId}:${lastAmount}`)
-            .setLabel(`Tiếp (${fmt(lastAmount)})`)
+            .setCustomId(`slot:tiep:${userId}:${lastAmount}:${rolls}`)
+            .setLabel(`Tiếp (${fmt(lastAmount)}${suffix})`)
             .setStyle(ButtonStyle.Primary)
             .setDisabled(!canAgain),
         new ButtonBuilder()
-            .setCustomId(`slot:half:${userId}:${half}`)
-            .setLabel(`x0.5 (${fmt(half)})`)
+            .setCustomId(`slot:half:${userId}:${half}:${rolls}`)
+            .setLabel(`x0.5 (${fmt(half)}${suffix})`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(!canHalf),
         new ButtonBuilder()
-            .setCustomId(`slot:double:${userId}:${doubleBet}`)
-            .setLabel(`x2 (${fmt(doubleBet)})`)
+            .setCustomId(`slot:double:${userId}:${doubleBet}:${rolls}`)
+            .setLabel(`x2 (${fmt(doubleBet)}${suffix})`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(!canDouble),
         new ButtonBuilder()
-            .setCustomId(`slot:allin:${userId}:${allInAmount}`)
-            .setLabel(`ALL IN (${fmt(allInAmount)})`)
+            .setCustomId(`slot:allin:${userId}:${allInPerRoll}:${rolls}`)
+            .setLabel(`ALL IN (${fmt(allInPerRoll)}${suffix})`)
             .setStyle(ButtonStyle.Danger)
             .setDisabled(!canAllIn)
     );
 }
 
-module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD, playSlot, formatResultLine, formatResultShort, buildContinueButtons };
+module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD, SLOT_MAX_ROLLS, playSlot, formatResultLine, formatResultShort, buildContinueButtons, runMultiRoll };

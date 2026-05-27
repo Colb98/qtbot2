@@ -12,7 +12,7 @@ const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
 const { getWallet, addNganphieu, addNgoc, addItem, addLockedNgoc, addLockedItem, spendNgocForGame, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
 const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
-const { SYMBOLS: SLOT_SYMBOLS, playSlot, formatResultLine: formatSlotResultLine, formatResultShort: formatSlotResultShort, buildContinueButtons: buildSlotContinueButtons } = require('./services/slot');
+const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('./services/slot');
 const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
 const dice = require('./services/dice');
 const lottery = require('./services/lottery');
@@ -122,7 +122,7 @@ async function handleMessageCommand(msg) {
 
 **Mini Games:**
 • \`!coinflip [sap|ngua] <x|all>\` — Cược ngọc 50/50, tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
-• \`!slot <x|all> [n]\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200. Có thể quay nhiều lượt cùng lúc (n tối đa 3, vd: \`!slot 500 3\` = 1500 ngọc).
+• \`!slot <x|all> [n]\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200. Có thể quay nhiều lượt cùng lúc (\`n\` tối đa 5, vd: \`!slot 500 5\` = 2500 ngọc).
 • \`!tong <x|all|allin> <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
 • \`!mat <x|all|allin> <1-6>\` — Đoán mặt xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6.
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
@@ -870,7 +870,6 @@ async function handleMessageCommand(msg) {
     }
 
     if (cmd === '!slot') {
-        const SLOT_MAX_ROLLS = 3;
         const isAll = parts[1] === 'all';
         let rawAmount = null;
         if (!isAll) {
@@ -892,102 +891,16 @@ async function handleMessageCommand(msg) {
             return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
         }
 
-        // For multi-roll with explicit amount, validate total cost upfront.
-        // For multi-roll with `all`, compute a single per-roll amount split across rolls.
-        let perRollForAll = null;
-        if (rolls > 1) {
-            const w = getWallet(guildId, msg.author.id);
-            const totalNgocWallet = w.ngoc + (w.lockedNgoc || 0);
-            if (isAll) {
-                perRollForAll = Math.min(Math.floor(totalNgocWallet / rolls), economy.SLOT_MAX_BET);
-                if (perRollForAll <= 0) return msg.reply('Bạn không đủ ngọc để quay nhiều lượt.');
-            } else {
-                const cappedPerRoll = Math.min(rawAmount, economy.SLOT_MAX_BET);
-                const needed = cappedPerRoll * rolls;
-                if (totalNgocWallet < needed) {
-                    return msg.reply(`Bạn cần ${fmt(needed)} ngọc nhưng chỉ có ${fmt(totalNgocWallet)}.`);
-                }
-            }
+        const result = await runSlotMultiRoll({
+            guildId, userId: msg.author.id, displayName: member.displayName,
+            requestedAmount: rawAmount, isAll, rolls,
+            sendInitial: (content) => msg.reply(content),
+            log, metrics
+        });
+        if (result.error === 'no_ngoc') return msg.reply('Bạn không có ngọc để chơi slot.');
+        if (result.error === 'insufficient') {
+            return msg.reply(`Bạn cần ${fmt(result.needed || rawAmount)} ngọc nhưng chỉ có ${fmt(result.available)}.`);
         }
-
-        const plays = [];
-        for (let i = 0; i < rolls; i++) {
-            const play = playSlot({
-                guildId,
-                userId: msg.author.id,
-                requestedAmount: isAll ? perRollForAll : rawAmount,
-                isAllIn: isAll && rolls === 1
-            });
-            if (play.error) {
-                if (plays.length === 0) {
-                    if (play.error === 'no_ngoc') return msg.reply('Bạn không có ngọc để chơi slot.');
-                    if (play.error === 'insufficient') return msg.reply(`Bạn cần ${fmt(rawAmount)} ngọc nhưng chỉ có ${fmt(play.available)}.`);
-                }
-                break;
-            }
-            plays.push(play);
-        }
-        if (plays.length === 0) return;
-
-        const anim = renderEmote('slotanim');
-        const symsList = plays.map(p => [
-            renderEmote(SLOT_SYMBOLS[p.spinResult[0]].emote),
-            renderEmote(SLOT_SYMBOLS[p.spinResult[1]].emote),
-            renderEmote(SLOT_SYMBOLS[p.spinResult[2]].emote)
-        ]);
-        const totalAmount = plays.reduce((a, p) => a + p.amount, 0);
-        const totalPayout = plays.reduce((a, p) => a + p.payout, 0);
-        const ngocEmote = renderEmote('ngoc');
-
-        let header, render;
-        if (plays.length === 1) {
-            header = `🎰 **${member.displayName}** quay slot (-${fmt(plays[0].amount)} ${ngocEmote})`;
-            render = (state) => `${header}\n[ ${state[0][0]} | ${state[0][1]} | ${state[0][2]} ]`;
-        } else {
-            header = `🎰 **${member.displayName}** quay slot x${plays.length} (-${fmt(totalAmount)} ${ngocEmote})`;
-            render = (state) => `${header}\n` + state.map((s, i) => `\`${String(i + 1).padStart(2)}.\` ${s[0]} | ${s[1]} | ${s[2]}`).join('\n');
-        }
-
-        const stateAnim = symsList.map(() => [anim, anim, anim]);
-        const state1 = symsList.map(s => [s[0], anim, anim]);
-        const state2 = symsList.map(s => [s[0], anim, s[2]]);
-        const stateFinal = symsList;
-
-        const slotMsg = await msg.reply(render(stateAnim));
-        await new Promise(r => setTimeout(r, 500));
-        await slotMsg.edit(render(state1)).catch(e => log.error('slot edit r1', e));
-        await new Promise(r => setTimeout(r, 500));
-        await slotMsg.edit(render(state2)).catch(e => log.error('slot edit r3', e));
-        await new Promise(r => setTimeout(r, 750));
-
-        for (const play of plays) {
-            metrics.recordSlot({
-                guildId, amount: play.amount, payout: play.payout,
-                outcomeName: play.outcomeName, pityTriggered: play.pityTriggered,
-                pityCapApplied: play.pityCapApplied, userId: msg.author.id
-            });
-        }
-
-        let resultBlock;
-        if (plays.length === 1) {
-            resultBlock = formatSlotResultLine({ mult: plays[0].mult, payout: plays[0].payout, outcomeName: plays[0].outcomeName });
-        } else {
-            const lines = plays.map((p, i) => `\`${String(i + 1).padStart(2)}.\` ${formatSlotResultShort({ mult: p.mult, payout: p.payout, outcomeName: p.outcomeName })}`);
-            const net = totalPayout - totalAmount;
-            const sign = net >= 0 ? '+' : '−';
-            lines.push(`**Tổng:** cược ${fmt(totalAmount)} → thắng ${fmt(totalPayout)} ${ngocEmote} (${sign}${fmt(Math.abs(net))})`);
-            resultBlock = lines.join('\n');
-        }
-
-        const lastPlay = plays[plays.length - 1];
-        const totalNgocAfterSlot = lastPlay.walletAfter.ngoc + (lastPlay.walletAfter.lockedNgoc || 0);
-        const components = totalNgocAfterSlot > 0
-            ? [buildSlotContinueButtons(msg.author.id, lastPlay.amount, totalNgocAfterSlot)]
-            : [];
-        await slotMsg.edit({
-            content: `${render(stateFinal)}\n${resultBlock}`,
-            components
-        }).catch(e => log.error('slot edit final', e));
         return;
     }
 
