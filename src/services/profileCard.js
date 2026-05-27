@@ -54,12 +54,15 @@ function registerFonts() {
     reg('BeVietnamPro-Regular.ttf',           'BeVietnamPro');
     reg('BeVietnamPro-Medium.ttf',            'BeVietnamPro');
     reg('BeVietnamPro-SemiBold.ttf',          'BeVietnamPro');
+    // Variable font — one file covers all weights. Used for bond names.
+    reg('Nunito-VF.ttf',                      'Nunito');
     _fontsRegistered = true;
 }
 
 const FONT_BODY = `BeVietnamPro, NotoSans, NotoSansCJK, sans-serif`;
 const FONT_CALLI = `CormorantGaramond, NotoSans, serif`;
 const FONT_CAPS = `Cinzel, BeVietnamPro, NotoSans, serif`;
+const FONT_BONDS = `Nunito, BeVietnamPro, NotoSans, sans-serif`;
 
 // ── Per-sect theme ────────────────────────────────────────────────────────
 // Accent / glow / deep / nameShadow are tuned per sect to match the bg art.
@@ -299,7 +302,8 @@ function drawWatermark(ctx, theme) {
     // Accent underline in normal blend so the brand colour still reads.
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = alphaHex(theme.accent, 0.35);
-    ctx.fillRect(x - 14, y + 14, w + 8, 1);
+    ctx.fillRect(x - 14, y + 18, w + 8, 1);
+    ctx.fillRect(x - 20, y + 20, w + 8, 1);
 
     setSpacing(ctx, 0);
     ctx.restore();
@@ -551,6 +555,58 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         ctx.fillRect(0, 0, CARD_W, CARD_H);
     }
 
+    // 3b. Info panel backdrop — rounded dark rect behind the left content
+    //     for legibility. Right edge feathered so it blends into the
+    //     character art without a hard seam.
+    {
+        const panelX = 24, panelY = 24;
+        const panelW = 760, panelH = CARD_H - 48;
+        const r = 18;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(panelX + r, panelY);
+        ctx.lineTo(panelX + panelW - r, panelY);
+        ctx.quadraticCurveTo(panelX + panelW, panelY, panelX + panelW, panelY + r);
+        ctx.lineTo(panelX + panelW, panelY + panelH - r);
+        ctx.quadraticCurveTo(panelX + panelW, panelY + panelH, panelX + panelW - r, panelY + panelH);
+        ctx.lineTo(panelX + r, panelY + panelH);
+        ctx.quadraticCurveTo(panelX, panelY + panelH, panelX, panelY + panelH - r);
+        ctx.lineTo(panelX, panelY + r);
+        ctx.quadraticCurveTo(panelX, panelY, panelX + r, panelY);
+        ctx.closePath();
+        ctx.clip();
+
+        const grad = ctx.createLinearGradient(panelX, 0, panelX + panelW, 0);
+        grad.addColorStop(0, 'rgba(10,7,5,0.78)');
+        grad.addColorStop(0.55, 'rgba(10,7,5,0.7)');
+        grad.addColorStop(0.82, 'rgba(10,7,5,0.32)');
+        grad.addColorStop(1, 'rgba(10,7,5,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(panelX, panelY, panelW, panelH);
+        ctx.restore();
+
+        // Faint accent border along the panel outline for definition.
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(panelX + r, panelY);
+        ctx.lineTo(panelX + panelW - r, panelY);
+        ctx.quadraticCurveTo(panelX + panelW, panelY, panelX + panelW, panelY + r);
+        ctx.lineTo(panelX + panelW, panelY + panelH - r);
+        ctx.quadraticCurveTo(panelX + panelW, panelY + panelH, panelX + panelW - r, panelY + panelH);
+        ctx.lineTo(panelX + r, panelY + panelH);
+        ctx.quadraticCurveTo(panelX, panelY + panelH, panelX, panelY + panelH - r);
+        ctx.lineTo(panelX, panelY + r);
+        ctx.quadraticCurveTo(panelX, panelY, panelX + r, panelY);
+        const borderGrad = ctx.createLinearGradient(panelX, 0, panelX + panelW, 0);
+        borderGrad.addColorStop(0, alphaHex(theme.accent, 0.32));
+        borderGrad.addColorStop(0.7, alphaHex(theme.accent, 0.18));
+        borderGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.strokeStyle = borderGrad;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+    }
+
     // 4. Class emblem — back layer behind character pose
     await drawClassEmblem(ctx, sectCode, theme);
 
@@ -747,142 +803,159 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         cursorY += 28;
     }
 
-    // 6f.5 Top-3 Bond leaderboard — between inventory/ngọc and achievements.
-    // Names are pre-resolved by the caller into player.stats.topBonds.
-    if (player.stats && Array.isArray(player.stats.topBonds) && player.stats.topBonds.length > 0) {
-        const bonds = player.stats.topBonds.slice(0, 3);
+    // 6f.5 Bonds (left col) + Game stats (right col) — share the same vertical
+    // band between inventory/ngọc and achievements. Each column shows its own
+    // header + rows, advancing independently; cursorY ends at max(left,right).
+    {
+        const bonds = (player.stats && Array.isArray(player.stats.topBonds))
+            ? player.stats.topBonds.slice(0, 3)
+            : [];
 
-        // Section header — hairline above, label + trailing rule (mirrors "THÀNH TỰU").
-        drawHairline(ctx, PX, cursorY, 480, theme.accent);
-        cursorY += 12;
-        ctx.font = `600 11px ${FONT_CAPS}`;
-        setSpacing(ctx, 4.5);
-        ctx.fillStyle = alphaHex('#f4ede2', 0.45);
-        ctx.fillText('ĐIỂM THÂN MẬT', PX, cursorY);
-        const bondLblW = measure(ctx, 'ĐIỂM THÂN MẬT');
-        setSpacing(ctx, 0);
-        ctx.save();
-        ctx.fillStyle = alphaHex(theme.accent, 0.22);
-        ctx.fillRect(PX + bondLblW + 10, cursorY + 6, 480 - bondLblW - 10, 1);
-        ctx.restore();
-        cursorY += 18;
+        const gameRows = [];
+        let totalPlays = 0, totalBet = 0, totalPayout = 0;
+        if (player.stats && player.stats.gameStats) {
+            const gs = player.stats.gameStats;
+            for (const k of ['slot', 'coinflip', 'tong', 'mat']) {
+                const g = gs[k] || { plays: 0, totalBet: 0, totalPayout: 0 };
+                totalPlays += g.plays;
+                totalBet += g.totalBet;
+                totalPayout += g.totalPayout;
+                if (g.plays > 0) gameRows.push({ key: k, ...g });
+            }
+        }
+        const hasBonds = bonds.length > 0;
+        const hasStats = gameRows.length > 0;
 
-        // Rows
-        const rowH = 24;
-        const blockW = 520;
-        const nameMaxW = blockW * 0.62;
-        for (let i = 0; i < bonds.length; i++) {
-            const b = bonds[i];
-            const style = bondTierStyle(b.score || 0);
-            const rowY = cursorY + i * rowH;
+        if (hasBonds || hasStats) {
+            // Shared hairline across both columns
+            drawHairline(ctx, PX, cursorY, 540, theme.accent);
+            cursorY += 12;
 
-            // Heart bullet in tier color
-            drawHeartGlyph(ctx, PX + 7, rowY + 9, 12, style.color);
+            const colW = 260;
+            const leftX = PX;
+            const rightX = PX + 280;
+            let leftY = cursorY;
+            let rightY = cursorY;
 
-            const nameSize  = style.weight >= 700 ? 16 : 15;
-            const scoreSize = style.weight >= 700 ? 16 : 14;
-            const italic = style.italic ? 'italic ' : '';
-
-            if (style.shadow) {
+            // ── Left column header — ĐIỂM THÂN MẬT
+            if (hasBonds) {
+                ctx.font = `600 11px ${FONT_CAPS}`;
+                setSpacing(ctx, 4.5);
+                ctx.fillStyle = alphaHex('#f4ede2', 0.45);
+                ctx.fillText('ĐIỂM THÂN MẬT', leftX, leftY);
+                const lw = measure(ctx, 'ĐIỂM THÂN MẬT');
+                setSpacing(ctx, 0);
                 ctx.save();
-                ctx.shadowColor = style.shadow;
-                ctx.shadowBlur = 8;
+                ctx.fillStyle = alphaHex(theme.accent, 0.22);
+                ctx.fillRect(leftX + lw + 10, leftY + 6, colW - lw - 10, 1);
+                ctx.restore();
+                leftY += 18;
             }
 
-            // Name (left)
-            ctx.font = `${style.weight} ${italic}${nameSize}px ${FONT_BODY}`;
-            ctx.fillStyle = style.color;
-            const name = b.name || 'Vô Danh';
-            ctx.fillText(truncateToWidth(ctx, name, nameMaxW), PX + 22, rowY);
+            // ── Right column header — THỐNG KÊ GAME
+            if (hasStats) {
+                ctx.font = `600 11px ${FONT_CAPS}`;
+                setSpacing(ctx, 4.5);
+                ctx.fillStyle = alphaHex('#f4ede2', 0.45);
+                ctx.fillText('THỐNG KÊ GAME', rightX, rightY);
+                const lw = measure(ctx, 'THỐNG KÊ GAME');
+                setSpacing(ctx, 0);
+                ctx.save();
+                ctx.fillStyle = alphaHex(theme.accent, 0.22);
+                ctx.fillRect(rightX + lw + 10, rightY + 6, colW - lw - 10, 1);
+                ctx.restore();
+                rightY += 18;
+            }
 
-            // Score (right-aligned within the block)
-            const scoreText = fmtNum(b.score || 0);
-            ctx.font = `${style.weight} ${italic}${scoreSize}px ${FONT_CAPS}`;
-            setSpacing(ctx, 0.3);
-            const scoreW = measure(ctx, scoreText);
-            ctx.fillText(scoreText, PX + blockW - scoreW, rowY);
-            setSpacing(ctx, 0);
+            // ── Bond rows (Nunito font, no italic, regular/bold per tier)
+            const bondRowH = 20;
+            const bondNameMaxW = colW * 0.58;
+            for (let i = 0; i < bonds.length; i++) {
+                const b = bonds[i];
+                const style = bondTierStyle(b.score || 0);
+                const rowY = leftY + i * bondRowH;
 
-            if (style.shadow) ctx.restore();
-        }
-        cursorY += rowH * bonds.length + 8;
-    }
+                drawHeartGlyph(ctx, leftX + 7, rowY + 8, 11, style.color);
 
-    // 6f.7 Game stats block — between bonds and achievements.
-    if (player.stats && player.stats.gameStats) {
-        const gs = player.stats.gameStats;
-        const GAME_VI = { slot: 'Slot', coinflip: 'Coinflip', tong: 'Tổng', mat: 'Mặt' };
-        const order = ['slot', 'coinflip', 'tong', 'mat'];
-        const rows = [];
-        let totalPlays = 0, totalBet = 0, totalPayout = 0;
-        for (const k of order) {
-            const g = gs[k] || { plays: 0, totalBet: 0, totalPayout: 0 };
-            totalPlays += g.plays;
-            totalBet += g.totalBet;
-            totalPayout += g.totalPayout;
-            if (g.plays > 0) rows.push({ key: k, ...g });
-        }
-        if (rows.length > 0) {
-            // Section header — hairline above + label + trailing rule (matches BOND/THÀNH TỰU).
-            drawHairline(ctx, PX, cursorY, 480, theme.accent);
-            cursorY += 12;
-            ctx.font = `600 11px ${FONT_CAPS}`;
-            setSpacing(ctx, 4.5);
-            ctx.fillStyle = alphaHex('#f4ede2', 0.45);
-            ctx.fillText('THỐNG KÊ GAME', PX, cursorY);
-            const gsLblW = measure(ctx, 'THỐNG KÊ GAME');
-            setSpacing(ctx, 0);
-            ctx.save();
-            ctx.fillStyle = alphaHex(theme.accent, 0.22);
-            ctx.fillRect(PX + gsLblW + 10, cursorY + 6, 480 - gsLblW - 10, 1);
-            ctx.restore();
-            cursorY += 16;
+                const nameSize  = style.weight >= 700 ? 14 : 13;
+                const scoreSize = style.weight >= 700 ? 14 : 13;
 
-            const rowH = 15;
-            const blockW = 540;
-            // Per-game rows
-            for (let i = 0; i < rows.length; i++) {
-                const r = rows[i];
-                const y = cursorY + i * rowH;
+                if (style.shadow) {
+                    ctx.save();
+                    ctx.shadowColor = style.shadow;
+                    ctx.shadowBlur = 8;
+                }
+
+                // Name — Nunito, weight per tier, no italic
+                ctx.font = `${style.weight} ${nameSize}px ${FONT_BONDS}`;
+                ctx.fillStyle = style.color;
+                const name = b.name || 'Vô Danh';
+                ctx.fillText(truncateToWidth(ctx, name, bondNameMaxW), leftX + 22, rowY);
+
+                // Score (right-aligned, short format) — still in caps font for consistency
+                const scoreText = fmtNumShort(b.score || 0);
+                ctx.font = `${style.weight} ${scoreSize}px ${FONT_CAPS}`;
+                setSpacing(ctx, 0.3);
+                const sw = measure(ctx, scoreText);
+                ctx.fillText(scoreText, leftX + colW - sw, rowY);
+                setSpacing(ctx, 0);
+
+                if (style.shadow) ctx.restore();
+            }
+            leftY += bondRowH * bonds.length;
+
+            // ── Game stat rows
+            const gameRowH = 15;
+            const GAME_VI = { slot: 'Slot', coinflip: 'Coin', tong: 'Tổng', mat: 'Mặt' };
+            for (let i = 0; i < gameRows.length; i++) {
+                const r = gameRows[i];
+                const rowY = rightY + i * gameRowH;
                 const net = r.totalPayout - r.totalBet;
-                const avg = r.plays > 0 ? Math.round(r.totalBet / r.plays) : 0;
 
                 ctx.font = `600 11px ${FONT_BODY}`;
                 ctx.fillStyle = alphaHex('#f4ede2', 0.82);
-                ctx.fillText(GAME_VI[r.key], PX, y);
+                ctx.fillText(GAME_VI[r.key], rightX, rowY);
 
-                ctx.font = `400 11px ${FONT_BODY}`;
+                ctx.font = `400 10px ${FONT_BODY}`;
                 ctx.fillStyle = alphaHex('#f4ede2', 0.58);
-                const mid = `${fmtNum(r.plays)} lần · cược ${fmtNumShort(r.totalBet)} · avg ${fmtNumShort(avg)}`;
-                ctx.fillText(mid, PX + 78, y);
+                const mid = `${fmtNum(r.plays)}× · ${fmtNumShort(r.totalBet)}`;
+                ctx.fillText(mid, rightX + 46, rowY);
 
                 const sign = net >= 0 ? '+' : '−';
                 const netText = `${sign}${fmtNumShort(Math.abs(net))}`;
                 ctx.font = `600 11px ${FONT_CAPS}`;
                 ctx.fillStyle = net >= 0 ? '#7fe8c0' : '#ff7a8a';
                 const netW = measure(ctx, netText);
-                ctx.fillText(netText, PX + blockW - netW, y);
+                ctx.fillText(netText, rightX + colW - netW, rowY);
             }
-            cursorY += rowH * rows.length + 2;
+            rightY += gameRowH * gameRows.length + 2;
 
-            // Total row
-            const totalNet = totalPayout - totalBet;
-            const sign = totalNet >= 0 ? '+' : '−';
-            ctx.font = `600 10px ${FONT_CAPS}`;
-            setSpacing(ctx, 2);
-            ctx.fillStyle = alphaHex('#f4ede2', 0.55);
-            ctx.fillText('TỔNG CỘNG', PX, cursorY);
-            setSpacing(ctx, 0);
-            ctx.font = `400 11px ${FONT_BODY}`;
-            ctx.fillStyle = alphaHex('#f4ede2', 0.58);
-            const totalMid = `${fmtNum(totalPlays)} lần · cược ${fmtNumShort(totalBet)}`;
-            ctx.fillText(totalMid, PX + 78, cursorY);
-            const totalNetText = `${sign}${fmtNumShort(Math.abs(totalNet))}`;
-            ctx.font = `700 12px ${FONT_CAPS}`;
-            ctx.fillStyle = totalNet >= 0 ? '#7fe8c0' : '#ff7a8a';
-            const totalNetW = measure(ctx, totalNetText);
-            ctx.fillText(totalNetText, PX + blockW - totalNetW, cursorY);
-            cursorY += rowH + 4;
+            // ── Total row (only when stats present)
+            if (hasStats) {
+                const totalNet = totalPayout - totalBet;
+                const sign = totalNet >= 0 ? '+' : '−';
+                const avg = totalPlays > 0 ? Math.round(totalBet / totalPlays) : 0;
+
+                ctx.font = `600 10px ${FONT_CAPS}`;
+                setSpacing(ctx, 1.5);
+                ctx.fillStyle = alphaHex('#f4ede2', 0.55);
+                ctx.fillText('TỔNG', rightX, rightY);
+                setSpacing(ctx, 0);
+
+                ctx.font = `400 10px ${FONT_BODY}`;
+                ctx.fillStyle = alphaHex('#f4ede2', 0.58);
+                const tmid = `${fmtNum(totalPlays)}× · ${fmtNumShort(totalBet)} · avg ${fmtNumShort(avg)}`;
+                ctx.fillText(tmid, rightX + 46, rightY);
+
+                const tnetText = `${sign}${fmtNumShort(Math.abs(totalNet))}`;
+                ctx.font = `700 12px ${FONT_CAPS}`;
+                ctx.fillStyle = totalNet >= 0 ? '#7fe8c0' : '#ff7a8a';
+                const tnw = measure(ctx, tnetText);
+                ctx.fillText(tnetText, rightX + colW - tnw, rightY);
+                rightY += gameRowH + 2;
+            }
+
+            cursorY = Math.max(leftY, rightY) + 8;
         }
     }
 
@@ -923,7 +996,7 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         if (stats.biggestJackpot && stats.biggestJackpot.amount > 0) {
             chips.push({ glyph: 'diamond', label: 'Jackpot Lớn Nhất', rank: fmtNum(stats.biggestJackpot.amount) });
         } else {
-            chips.push({ glyph: 'diamond', label: 'Jackpot Lớn Nhất', rank: '★' });
+            chips.push({ glyph: 'diamond', label: 'Jackpot Lớn Nhất', rank: '—' });
         }
 
         // 2-line chip: line 1 = title (small caps), line 2 = value (large).

@@ -27,3 +27,4 @@ Thumbs.db
 *.log
 npm-debug.log*
 test
+assets/profile_card/sample/*
