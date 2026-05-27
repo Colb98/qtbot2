@@ -5,7 +5,7 @@ const CHANGELOG = {
         date: '2026-05-27',
         title: 'Slot — Quay nhiều lượt cùng lúc',
         changes: [
-            '`!slot <x|all> [n]` — thêm tham số tuỳ chọn `n` (1-10) để quay nhiều lượt cùng lúc. Vd: `!slot 500 10` trừ 5000 ngọc và quay 10 lần.',
+            '`!slot <x|all> [n]` — thêm tham số tuỳ chọn `n` (1-5) để quay nhiều lượt cùng lúc. Vd: `!slot 500 5` trừ 2500 ngọc và quay 5 lần.',
             'Tất cả các lượt hiển thị chung trong 1 tin nhắn, animate đồng thời (vẫn chỉ 3 lần edit). Kết quả liệt kê dạng danh sách + tổng cược/thắng.'
         ]
     },

@@ -122,7 +122,7 @@ async function handleMessageCommand(msg) {
 
 **Mini Games:**
 • \`!coinflip [sap|ngua] <x|all>\` — Cược ngọc 50/50, tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
-• \`!slot <x|all> [n]\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200. Có thể quay nhiều lượt cùng lúc (n tối đa 10, vd: \`!slot 500 10\` = 5000 ngọc).
+• \`!slot <x|all> [n]\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200. Có thể quay nhiều lượt cùng lúc (n tối đa 5, vd: \`!slot 500 5\` = 2500 ngọc).
 • \`!tong <x|all|allin> <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
 • \`!mat <x|all|allin> <1-6>\` — Đoán mặt xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6.
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
@@ -870,7 +870,7 @@ async function handleMessageCommand(msg) {
     }
 
     if (cmd === '!slot') {
-        const SLOT_MAX_ROLLS = 10;
+        const SLOT_MAX_ROLLS = 5;
         const isAll = parts[1] === 'all';
         let rawAmount = null;
         if (!isAll) {
