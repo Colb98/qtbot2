@@ -37,7 +37,7 @@ const fs = require('fs');
 const path = require('path');
 const metrics = require('../services/metrics');
 const profile = require('../services/profile');
-const { data, flushSync } = require('../state');
+const { data, saveData, flushSync } = require('../state');
 
 const GAMES = ['slot', 'coinflip', 'tong', 'mat'];
 
@@ -78,6 +78,9 @@ function summarizeStats(stats) {
 
 (function main() {
     const args = parseArgs(process.argv);
+    if (args.write) {
+        console.log(`⚠️  STOP THE BOT before --write, otherwise it will overwrite this script's changes on its next save.\n`);
+    }
     const buckets = metrics.listBuckets();
     if (buckets.length === 0) {
         console.error('No metrics buckets found in metrics/ — nothing to import.');
@@ -192,8 +195,13 @@ function summarizeStats(stats) {
     }
 
     if (args.write) {
+        // saveData() marks the in-memory state dirty so flushSync() will
+        // actually write — without it, our direct p.gameStats mutations are
+        // invisible to the persistence layer and the changes vanish on exit.
+        saveData();
         flushSync();
         console.log(`\n✅ Wrote backfilled gameStats to data.json (${args.reset ? 'reset+set' : 'additive'} mode).`);
+        console.log(`⚠️  If the bot was running during this script, restart it now — its in-memory data will overwrite this file on its next save.`);
     } else {
         console.log(`\nDry run — pass --write to apply.`);
         console.log(`Recommended: --reset --write (so re-running is idempotent).`);
