@@ -1,6 +1,22 @@
-const CURRENT_VERSION = '1.15.0';
+const CURRENT_VERSION = '1.15.2';
 
 const CHANGELOG = {
+    '1.15.2': {
+        date: '2026-05-27',
+        title: 'Tổng / Mặt — nút cho cược nhiều cửa',
+        changes: [
+            'Kết quả cược nhiều cửa giờ có nút: **🎲 Tiếp** (cược lại đúng các cửa & mức cũ), **💰 All-in** (cược lại các cửa, mức = min(max/cửa, ngọc ví ÷ số cửa)), **✏️ Đổi cửa** (nhập tay bộ cửa mới), và lưới nút cược 1 cửa như cũ.'
+        ]
+    },
+    '1.15.1': {
+        date: '2026-05-27',
+        title: 'Tổng / Mặt — cược nhiều cửa cùng lúc',
+        changes: [
+            '`!tong` và `!mat` cho cược **nhiều cửa** một lần với cùng mức cược/cửa. VD: `!tong 200 10 11` trừ 400 ngọc, ra 10 hoặc 11 thì thắng 200 × 8 = 1.600 ngọc. Luật mỗi cửa giữ nguyên.',
+            'Các cửa cược phải khác nhau (không trùng). `!tong all 10 11` chia đều ngọc trong ví cho các cửa (tối đa mức cược/cửa).',
+            'Cược 1 cửa vẫn có nút chơi lại / all-in như cũ; cược nhiều cửa hiển thị kết quả tổng hợp từng cửa.'
+        ]
+    },
     '1.15.0': {
         date: '2026-05-27',
         title: 'Slot pity ngẫu nhiên + Thống kê game + Lì xì',

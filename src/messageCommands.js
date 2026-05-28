@@ -125,8 +125,8 @@ async function handleMessageCommand(msg) {
 **Mini Games:**
 • \`!coinflip [sap|ngua] <x|all>\` — Cược ngọc 50/50, tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
 • \`!slot <x|all> [n]\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200. Có thể quay nhiều lượt cùng lúc (\`n\` tối đa 5, vd: \`!slot 500 5\` = 2500 ngọc).
-• \`!tong <x|all|allin> <3-18>\` — Đoán tổng 3 xúc xắc, tối đa ${fmt(economy.TONG_MAX_BET)}/lượt. Trúng x8–x200.
-• \`!mat <x|all|allin> <1-6>\` — Đoán mặt xuất hiện trong 3 xúc xắc, tối đa ${fmt(economy.MAT_MAX_BET)}/lượt. Trúng x2/x4/x6.
+• \`!tong <x|all> <3-18> [3-18 ...]\` — Đoán tổng 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.TONG_MAX_BET)}, vd \`!tong 200 10 11\`). Trúng x8–x200.
+• \`!mat <x|all> <1-6> [1-6 ...]\` — Đoán mặt xuất hiện trong 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.MAT_MAX_BET)}, vd \`!mat 200 5 6\`). Trúng x2/x4/x6.
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
@@ -956,7 +956,8 @@ async function handleMessageCommand(msg) {
         const guessMax = isTong ? 18 : 6;
         const cmdLabel = isTong ? '!tong' : '!mat';
         const guessLabel = isTong ? 'tổng (3-18)' : 'mặt (1-6)';
-        const syntax = `Cú pháp: \`${cmdLabel} <số ngọc|all> <${guessLabel}>\` hoặc \`${cmdLabel} allin <${guessLabel}>\` (tối đa ${fmt(maxBet)} ngọc/lượt).`;
+        const example = isTong ? `${cmdLabel} 200 10 11` : `${cmdLabel} 200 5 6`;
+        const syntax = `Cú pháp: \`${cmdLabel} <số ngọc|all> <${guessLabel}> [${guessLabel} ...]\` — cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(maxBet)} ngọc). VD: \`${example}\`.`;
 
         if (parts.length < 3) return msg.reply(syntax);
         const token1 = parts[1].toLowerCase();
@@ -966,10 +967,20 @@ async function handleMessageCommand(msg) {
             rawAmount = parseInt(token1, 10);
             if (!Number.isInteger(rawAmount) || rawAmount <= 0) return msg.reply(syntax);
         }
-        const guess = parseInt(parts[2], 10);
-        if (!Number.isInteger(guess) || guess < guessMin || guess > guessMax) {
-            return msg.reply(`${isTong ? 'Tổng' : 'Mặt'} phải là số nguyên từ ${guessMin} đến ${guessMax}.`);
+
+        // Parse one or more guesses; all must be unique integers in range.
+        const guesses = [];
+        for (const t of parts.slice(2)) {
+            const g = parseInt(t, 10);
+            if (!Number.isInteger(g) || g < guessMin || g > guessMax) {
+                return msg.reply(`${isTong ? 'Tổng' : 'Mặt'} phải là số nguyên từ ${guessMin} đến ${guessMax}.`);
+            }
+            guesses.push(g);
         }
+        if (new Set(guesses).size !== guesses.length) {
+            return msg.reply(`Các ${isTong ? 'tổng' : 'mặt'} cược phải khác nhau (không trùng).`);
+        }
+        const nBets = guesses.length;
 
         const cd = checkGameCooldown(msg.author.id);
         if (cd.onCooldown) {
@@ -979,38 +990,61 @@ async function handleMessageCommand(msg) {
 
         const w = getWallet(guildId, msg.author.id);
         const totalNgocDice = w.ngoc + w.lockedNgoc;
-        let amount;
+        let amountPer;
         if (isAll) {
-            amount = Math.min(totalNgocDice, maxBet);
-            if (amount <= 0) return msg.reply('Bạn không có ngọc để chơi.');
+            // Distribute the wallet across the chosen cửa, capped per cửa.
+            amountPer = Math.min(Math.floor(totalNgocDice / nBets), maxBet);
+            if (amountPer <= 0) return msg.reply('Bạn không có đủ ngọc để chơi.');
         } else {
-            amount = Math.min(rawAmount, maxBet);
-            if (totalNgocDice < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(totalNgocDice)}.`);
+            amountPer = Math.min(rawAmount, maxBet);
+            if (totalNgocDice < amountPer * nBets) {
+                return msg.reply(`Bạn cần ${fmt(amountPer * nBets)} ngọc (${fmt(amountPer)} × ${nBets} cửa) nhưng chỉ có ${fmt(totalNgocDice)}.`);
+            }
         }
+        const totalCost = amountPer * nBets;
 
         const roll = dice.rollDice();
-        const play = isTong ? dice.playTong(roll, guess) : dice.playMat(roll, guess);
-        spendNgocForGame(guildId, msg.author.id, amount);
-        const tongMatPayout = play.won ? amount * play.mult : 0;
-        if (play.won) {
-            addNgoc(guildId, msg.author.id, tongMatPayout);
-            profile.recordWin(guildId, msg.author.id, tongMatPayout, isTong ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
+        const play = isTong
+            ? dice.playTongMulti(roll, guesses, amountPer)
+            : dice.playMatMulti(roll, guesses, amountPer);
+
+        spendNgocForGame(guildId, msg.author.id, totalCost);
+        if (play.totalPayout > 0) {
+            addNgoc(guildId, msg.author.id, play.totalPayout);
+            profile.recordWin(guildId, msg.author.id, play.totalPayout, isTong ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
         }
-        profile.recordGame(guildId, msg.author.id, isTong ? 'tong' : 'mat', amount, tongMatPayout);
+        profile.recordGame(guildId, msg.author.id, game, totalCost, play.totalPayout);
         const newW = getWallet(guildId, msg.author.id);
 
-        if (isTong) {
-            metrics.recordTong({ guildId, amount, won: play.won, mult: play.mult, guess, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
-        } else {
-            metrics.recordMat({ guildId, amount, won: play.won, mult: play.mult, face: guess, matches: play.matches, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
+        // One metrics record per cửa — each is a bet of amountPer.
+        for (const r of play.results) {
+            if (isTong) {
+                metrics.recordTong({ guildId, amount: amountPer, won: r.won, mult: r.mult, guess: r.guess, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
+            } else {
+                metrics.recordMat({ guildId, amount: amountPer, won: r.won, mult: r.mult, face: r.face, matches: r.matches, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
+            }
         }
 
-        const content = isTong
-            ? dice.formatTongResult({ displayName: member.displayName, guess, roll, sum: play.sum, won: play.won, amount, mult: play.mult })
-            : dice.formatMatResult({ displayName: member.displayName, face: guess, roll, matches: play.matches, won: play.won, amount, mult: play.mult });
-        const buildBtns = isTong ? dice.buildTongButtons : dice.buildMatButtons;
         const totalNgocAfterDice = newW.ngoc + newW.lockedNgoc;
-        const components = totalNgocAfterDice > 0 ? buildBtns(msg.author.id, amount, guess, totalNgocAfterDice) : [];
+
+        // Single cửa → keep the familiar result + interactive replay buttons.
+        if (nBets === 1) {
+            const g = guesses[0];
+            const r = play.results[0];
+            const content = isTong
+                ? dice.formatTongResult({ displayName: member.displayName, guess: g, roll, sum: play.sum, won: r.won, amount: amountPer, mult: r.mult })
+                : dice.formatMatResult({ displayName: member.displayName, face: g, roll, matches: r.matches, won: r.won, amount: amountPer, mult: r.mult });
+            const buildBtns = isTong ? dice.buildTongButtons : dice.buildMatButtons;
+            const components = totalNgocAfterDice > 0 ? buildBtns(msg.author.id, amountPer, g, totalNgocAfterDice) : [];
+            return msg.reply({ content, components });
+        }
+
+        // Multi cửa → rich aggregate result + multi-cửa replay buttons.
+        const content = isTong
+            ? dice.formatTongResultMulti({ displayName: member.displayName, roll, sum: play.sum, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout })
+            : dice.formatMatResultMulti({ displayName: member.displayName, roll, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout });
+        const buildMulti = isTong ? dice.buildTongButtonsMulti : dice.buildMatButtonsMulti;
+        const components = totalNgocAfterDice > 0 ? buildMulti(msg.author.id, amountPer, guesses, totalNgocAfterDice) : [];
         return msg.reply({ content, components });
     }
 

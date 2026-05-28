@@ -1,4 +1,4 @@
-const { Events, MessageFlags, ActionRowBuilder, ButtonBuilder, AttachmentBuilder } = require('discord.js');
+const { Events, MessageFlags, ActionRowBuilder, ButtonBuilder, AttachmentBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const path = require('path');
 const log = require('../../logger');
 const wordchain = require('../services/wordchain');
@@ -40,6 +40,10 @@ module.exports = {
             try {
                 if (interaction.customId.startsWith('profile:')) {
                     await profileCmd.handleComponent(interaction);
+                } else if (interaction.customId.startsWith('tong:meditsub:')) {
+                    await handleDiceModal(interaction, 'tong');
+                } else if (interaction.customId.startsWith('mat:meditsub:')) {
+                    await handleDiceModal(interaction, 'mat');
                 }
             } catch (e) {
                 log.error('Error in modal submit interaction:', e);
@@ -220,15 +224,160 @@ async function handleCoinflipButton(interaction) {
     await interaction.followUp({ content, components }).catch(e => log.error('cf followUp error:', e));
 }
 
-async function handleDiceButton(interaction, game) {
-    const [, action, ownerUserId, amountStr, guessStr] = interaction.customId.split(':');
+// Disable every button on the message that triggered `interaction`.
+async function disableMessageButtons(interaction) {
+    const disabledRows = (interaction.message.components || []).map(rowComp => {
+        const ar = new ActionRowBuilder();
+        for (const btn of rowComp.components) {
+            ar.addComponents(ButtonBuilder.from(btn.toJSON()).setDisabled(true));
+        }
+        return ar;
+    });
+    if (disabledRows.length) {
+        await interaction.editReply({ components: disabledRows }).catch(e => log.error('dice disable error:', e));
+    }
+}
+
+// Play a multi-cửa bet and post the aggregate result + multi buttons.
+async function runDiceMultiBet(interaction, game, guesses, amountPer, wasAllIn) {
+    const guildId = interaction.guildId;
+    const ownerUserId = interaction.user.id;
+    const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
+    const displayName = member ? member.displayName : interaction.user.username;
+    const totalCost = amountPer * guesses.length;
+    const roll = dice.rollDice();
+    const play = game === 'tong'
+        ? dice.playTongMulti(roll, guesses, amountPer)
+        : dice.playMatMulti(roll, guesses, amountPer);
+
+    spendNgocForGame(guildId, ownerUserId, totalCost);
+    if (play.totalPayout > 0) {
+        addNgoc(guildId, ownerUserId, play.totalPayout);
+        profile.recordWin(guildId, ownerUserId, play.totalPayout, game === 'tong' ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
+    }
+    profile.recordGame(guildId, ownerUserId, game, totalCost, play.totalPayout);
+    for (const r of play.results) {
+        if (game === 'tong') {
+            metrics.recordTong({ guildId, amount: amountPer, won: r.won, mult: r.mult, guess: r.guess, viaButton: true, wasAllIn, userId: ownerUserId });
+        } else {
+            metrics.recordMat({ guildId, amount: amountPer, won: r.won, mult: r.mult, face: r.face, matches: r.matches, viaButton: true, wasAllIn, userId: ownerUserId });
+        }
+    }
+
+    const newWallet = getWallet(guildId, ownerUserId);
+    const totalAfter = newWallet.ngoc + (newWallet.lockedNgoc || 0);
+    const content = game === 'tong'
+        ? dice.formatTongResultMulti({ displayName, roll, sum: play.sum, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout })
+        : dice.formatMatResultMulti({ displayName, roll, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout });
+    const buildMulti = game === 'tong' ? dice.buildTongButtonsMulti : dice.buildMatButtonsMulti;
+    const components = totalAfter > 0 ? buildMulti(ownerUserId, amountPer, guesses, totalAfter) : [];
+    await interaction.followUp({ content, components }).catch(e => log.error('dice multi followUp error:', e));
+}
+
+// Open the "Đổi cửa" modal for manual entry of a new set of cửa.
+async function showDiceMultiModal(interaction, game, amountPer) {
+    const isTong = game === 'tong';
+    const modal = new ModalBuilder()
+        .setCustomId(`${game}:meditsub:${interaction.user.id}:${amountPer}`)
+        .setTitle(isTong ? 'Cược nhiều tổng' : 'Cược nhiều mặt');
+    const input = new TextInputBuilder()
+        .setCustomId('guesses')
+        .setLabel(isTong ? 'Các tổng 3-18, cách nhau dấu cách' : 'Các mặt 1-6, cách nhau dấu cách')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder(isTong ? '10 11 12' : '5 6')
+        .setRequired(true)
+        .setMaxLength(60);
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    await interaction.showModal(modal).catch(e => log.warn(`dice modal failed: ${e.message}`));
+}
+
+// Modal submit → parse the typed cửa and replay a multi-bet at the same stake.
+async function handleDiceModal(interaction, game) {
+    const parts = interaction.customId.split(':');
+    const ownerUserId = parts[2];
+    const amountPer = parseInt(parts[3], 10);
     if (interaction.user.id !== ownerUserId) {
         return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
     }
-    const guess = parseInt(guessStr, 10);
     const guildId = interaction.guildId;
+    const isTong = game === 'tong';
+    const guessMin = isTong ? 3 : 1;
+    const guessMax = isTong ? 18 : 6;
+    const maxBet = isTong ? economy.TONG_MAX_BET : economy.MAT_MAX_BET;
+
+    const raw = interaction.fields.getTextInputValue('guesses') || '';
+    const tokens = raw.trim().split(/[\s,]+/).filter(Boolean);
+    const guesses = [];
+    for (const t of tokens) {
+        const g = parseInt(t, 10);
+        if (!Number.isInteger(g) || g < guessMin || g > guessMax) {
+            return interaction.reply({ content: `${isTong ? 'Tổng' : 'Mặt'} phải là số nguyên từ ${guessMin} đến ${guessMax}.`, flags: MessageFlags.Ephemeral });
+        }
+        guesses.push(g);
+    }
+    if (guesses.length === 0) {
+        return interaction.reply({ content: 'Vui lòng nhập ít nhất 1 cửa.', flags: MessageFlags.Ephemeral });
+    }
+    if (new Set(guesses).size !== guesses.length) {
+        return interaction.reply({ content: `Các ${isTong ? 'tổng' : 'mặt'} cược phải khác nhau (không trùng).`, flags: MessageFlags.Ephemeral });
+    }
+    const amt = Math.min(amountPer, maxBet);
+    if (!Number.isInteger(amt) || amt <= 0) {
+        return interaction.reply({ content: 'Mức cược không hợp lệ.', flags: MessageFlags.Ephemeral });
+    }
     const wallet = getWallet(guildId, ownerUserId);
+    const totalNgocDice = wallet.ngoc + (wallet.lockedNgoc || 0);
+    if (totalNgocDice < amt * guesses.length) {
+        return interaction.reply({ content: `Bạn cần ${fmt(amt * guesses.length)} ngọc (${fmt(amt)} × ${guesses.length} cửa) nhưng chỉ có ${fmt(totalNgocDice)}.`, flags: MessageFlags.Ephemeral });
+    }
+    await interaction.deferUpdate().catch(() => {});
+    return runDiceMultiBet(interaction, game, guesses, amt, false);
+}
+
+async function handleDiceButton(interaction, game) {
+    const parts = interaction.customId.split(':');
+    const action = parts[1];
+    const ownerUserId = parts[2];
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    const guildId = interaction.guildId;
     const maxBet = game === 'tong' ? economy.TONG_MAX_BET : economy.MAT_MAX_BET;
+
+    // ── Multi-cửa actions ──────────────────────────────────────────────────
+    if (action === 'medit') {
+        const amountPer = parseInt(parts[3], 10);
+        return showDiceMultiModal(interaction, game, amountPer);
+    }
+    if (action === 'mcont' || action === 'mallin') {
+        const w = getWallet(guildId, ownerUserId);
+        const total = w.ngoc + (w.lockedNgoc || 0);
+        let guesses, amountPer, wasAllIn;
+        if (action === 'mcont') {
+            amountPer = parseInt(parts[3], 10);
+            guesses = (parts[4] || '').split('.').map(Number).filter(Number.isFinite);
+            wasAllIn = false;
+        } else {
+            guesses = (parts[3] || '').split('.').map(Number).filter(Number.isFinite);
+            amountPer = guesses.length ? Math.min(Math.floor(total / guesses.length), maxBet) : 0;
+            wasAllIn = true;
+        }
+        if (!guesses.length || !Number.isInteger(amountPer) || amountPer <= 0) {
+            return interaction.reply({ content: 'Bạn không đủ ngọc để chơi.', flags: MessageFlags.Ephemeral });
+        }
+        if (total < amountPer * guesses.length) {
+            return interaction.reply({ content: `Bạn chỉ có ${fmt(total)} ngọc, không đủ cược ${fmt(amountPer * guesses.length)}.`, flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferUpdate().catch(e => log.error('dice defer error:', e));
+        await disableMessageButtons(interaction);
+        return runDiceMultiBet(interaction, game, guesses, amountPer, wasAllIn);
+    }
+
+    // ── Single-cửa actions (bet / again / allin) — original behavior ────────
+    const amountStr = parts[3];
+    const guessStr = parts[4];
+    const guess = parseInt(guessStr, 10);
+    const wallet = getWallet(guildId, ownerUserId);
 
     const totalNgocDice = wallet.ngoc + (wallet.lockedNgoc || 0);
     let amount;
@@ -245,17 +394,7 @@ async function handleDiceButton(interaction, game) {
     }
 
     await interaction.deferUpdate().catch(e => log.error('dice defer error:', e));
-
-    const disabledRows = (interaction.message.components || []).map(rowComp => {
-        const ar = new ActionRowBuilder();
-        for (const btn of rowComp.components) {
-            ar.addComponents(ButtonBuilder.from(btn.toJSON()).setDisabled(true));
-        }
-        return ar;
-    });
-    if (disabledRows.length) {
-        await interaction.editReply({ components: disabledRows }).catch(e => log.error('dice disable error:', e));
-    }
+    await disableMessageButtons(interaction);
 
     const roll = dice.rollDice();
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
