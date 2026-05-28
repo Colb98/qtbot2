@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '1.15.5';
+const CURRENT_VERSION = '1.15.6';
 
 const CHANGELOG = {
+    '1.15.6': {
+        date: '2026-05-28',
+        title: 'Phân giải cáo → thiên thưởng',
+        changes: [
+            '`!phangiaicao <n|all>` — phân giải 1 cáo → 3 thiên thưởng (chiều ngược của `!doithienthuong`). Trạng thái khoá được giữ nguyên: cáo khoá tách thành thiên thưởng khoá.'
+        ]
+    },
     '1.15.5': {
         date: '2026-05-28',
         title: 'Slot — Vá lỗ hổng cap pity (mean thay vì max)',

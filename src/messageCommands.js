@@ -106,6 +106,7 @@ async function handleMessageCommand(msg) {
 • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
 • \`!doingoc <n|all>\` — Đổi ngân phiếu → ngọc.
 • \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo.
+• \`!phangiaicao <n|all>\` — Phân giải 1 cáo → ${economy.TT_PER_CAO} thiên thưởng (chiều ngược lại của \`!doithienthuong\`).
 • \`!gacha [1-100|all]\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Pity lượt 20 (KT+) / 200 (TT).
 • \`!pity\` — Xem lượt còn lại đến pity.
 • \`!toptt\` / \`!topngoc\` — Bảng xếp hạng.
@@ -440,6 +441,36 @@ async function handleMessageCommand(msg) {
         saveData();
         const w2 = getWallet(guildId, msg.author.id);
         return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote('cao')}. Số dư: ${fmt(w2.items.thienthuong)} thiên thưởng, ${fmt(w2.items.cao)} cáo.`);
+    }
+
+    // Reverse of !doithienthuong: dismantle cáo → 3 thiên thưởng each.
+    // Non-locked cáo dismantle into non-locked TT, locked cáo into locked TT.
+    if (cmd === '!phangiaicao') {
+        const w = getWallet(guildId, msg.author.id);
+        const totalCao = w.items.cao + w.lockedItems.cao;
+        const usage = `Cú pháp: \`!phangiaicao <số lượng cáo|all>\` — phân giải 1 cáo → ${economy.TT_PER_CAO} thiên thưởng.`;
+        let n;
+        if (parts[1] === 'all') {
+            n = totalCao;
+            if (n <= 0) return msg.reply('Bạn không có cáo để phân giải.');
+        } else {
+            n = parseInt(parts[1], 10);
+            if (!Number.isInteger(n) || n <= 0) return msg.reply(usage);
+            if (totalCao < n) return msg.reply(`Bạn chỉ có ${fmt(totalCao)} ${renderEmote('cao')}, không đủ phân giải ${fmt(n)}.`);
+        }
+        const nonLockedCaoUsed = Math.min(n, w.items.cao);
+        const lockedCaoUsed = n - nonLockedCaoUsed;
+        w.items.cao -= nonLockedCaoUsed;
+        w.lockedItems.cao -= lockedCaoUsed;
+        const nonLockedTTGained = nonLockedCaoUsed * economy.TT_PER_CAO;
+        const lockedTTGained = lockedCaoUsed * economy.TT_PER_CAO;
+        w.items.thienthuong += nonLockedTTGained;
+        w.lockedItems.thienthuong += lockedTTGained;
+        saveData();
+        const w2 = getWallet(guildId, msg.author.id);
+        const totalTTGained = nonLockedTTGained + lockedTTGained;
+        const lockedNote = lockedTTGained > 0 ? ` (có ${fmt(lockedTTGained)} thiên thưởng khoá)` : '';
+        return msg.reply(`Đã phân giải ${fmt(n)} ${renderEmote('cao')} → ${fmt(totalTTGained)} ${renderEmote('thienthuong')}${lockedNote}. Số dư: ${fmt(w2.items.cao)} cáo, ${fmt(w2.items.thienthuong)} thiên thưởng.`);
     }
 
     if (cmd === '!tangthienthuong' || cmd === '!tangcao' || cmd === '!tangcao5' || cmd === '!tangcao9' || cmd === '!tangdieu'
