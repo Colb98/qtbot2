@@ -123,16 +123,22 @@ function resetDailyCaps(guildId) {
 
 // ── Leaderboard ────────────────────────────────────────────────────────────
 
+// `lastNgocAt` is the timestamp of the most recent ngoc gain. Tied scores
+// rank by *whoever reached the score first* (earlier timestamp = higher),
+// replacing the old "fewer words wins ties" rule. Legacy entries without
+// `lastNgocAt` default to 0 (treated as earliest) so they keep ranking high.
 function updateLifetime(guildId, userId, ngoc) {
     ensureRoot();
     if (!data.vuaTiengViet.lifetime[guildId]) data.vuaTiengViet.lifetime[guildId] = {};
     const existing = data.vuaTiengViet.lifetime[guildId][userId];
+    const now = Date.now();
     if (!existing || typeof existing === 'number') {
         const oldWords = typeof existing === 'number' ? existing : 0;
-        data.vuaTiengViet.lifetime[guildId][userId] = { ngoc, words: oldWords + 1 };
+        data.vuaTiengViet.lifetime[guildId][userId] = { ngoc, words: oldWords + 1, lastNgocAt: ngoc > 0 ? now : 0 };
     } else {
         existing.ngoc  = (existing.ngoc  || 0) + ngoc;
         existing.words = (existing.words || 0) + 1;
+        if (ngoc > 0) existing.lastNgocAt = now;
     }
 }
 
@@ -141,12 +147,21 @@ function updateWeekly(guildId, userId, ngoc) {
     if (!data.vuaTiengViet.weekly[guildId]) data.vuaTiengViet.weekly[guildId] = {};
     const week = weekStr();
     const entry = data.vuaTiengViet.weekly[guildId][userId];
+    const now = Date.now();
     if (!entry || entry.week !== week) {
-        data.vuaTiengViet.weekly[guildId][userId] = { week, ngoc, words: 1 };
+        data.vuaTiengViet.weekly[guildId][userId] = { week, ngoc, words: 1, lastNgocAt: ngoc > 0 ? now : 0 };
     } else {
         entry.ngoc  = (entry.ngoc  || 0) + ngoc;
         entry.words = (entry.words || 0) + 1;
+        if (ngoc > 0) entry.lastNgocAt = now;
     }
+}
+
+// Tied ngoc → earlier `lastNgocAt` ranks higher (reached the score first).
+function compareLeaderboardEntries(a, b) {
+    const d = (b[1].ngoc || 0) - (a[1].ngoc || 0);
+    if (d !== 0) return d;
+    return (a[1].lastNgocAt || 0) - (b[1].lastNgocAt || 0);
 }
 
 function getLifetimeTop(guildId, limit = 10) {
@@ -154,12 +169,9 @@ function getLifetimeTop(guildId, limit = 10) {
     const scores = data.vuaTiengViet.lifetime[guildId];
     if (!scores) return [];
     return Object.entries(scores)
-        .map(([uid, v]) => [uid, typeof v === 'number' ? { ngoc: 0, words: v } : v])
+        .map(([uid, v]) => [uid, typeof v === 'number' ? { ngoc: 0, words: v, lastNgocAt: 0 } : v])
         .filter(([, v]) => (v.ngoc || 0) > 0 || (v.words || 0) > 0)
-        .sort((a, b) => {
-            const d = (b[1].ngoc || 0) - (a[1].ngoc || 0);
-            return d !== 0 ? d : (a[1].words || 0) - (b[1].words || 0);
-        })
+        .sort(compareLeaderboardEntries)
         .slice(0, limit);
 }
 
@@ -173,12 +185,31 @@ function getWeeklyTopForWeek(guildId, week, limit = 10) {
     if (!scores) return [];
     return Object.entries(scores)
         .filter(([, e]) => e && e.week === week && ((e.ngoc || 0) > 0 || (e.words || 0) > 0))
-        .map(([uid, e]) => [uid, { ngoc: e.ngoc || 0, words: e.words || 0 }])
-        .sort((a, b) => {
-            const d = b[1].ngoc - a[1].ngoc;
-            return d !== 0 ? d : a[1].words - b[1].words;
-        })
+        .map(([uid, e]) => [uid, { ngoc: e.ngoc || 0, words: e.words || 0, lastNgocAt: e.lastNgocAt || 0 }])
+        .sort(compareLeaderboardEntries)
         .slice(0, limit);
+}
+
+// Super-admin: adjust a player's lifetime ngoc by `delta` (signed). Negative
+// delta clamps the resulting ngoc at 0. Does NOT touch `lastNgocAt` so the
+// player's tiebreaker position is preserved.
+function adminAdjustLifetime(guildId, userId, delta) {
+    ensureRoot();
+    if (!Number.isInteger(delta) || delta === 0) {
+        throw new Error('delta phải là số nguyên khác 0');
+    }
+    if (!data.vuaTiengViet.lifetime[guildId]) data.vuaTiengViet.lifetime[guildId] = {};
+    let entry = data.vuaTiengViet.lifetime[guildId][userId];
+    if (!entry || typeof entry === 'number') {
+        const oldWords = typeof entry === 'number' ? entry : 0;
+        entry = { ngoc: 0, words: oldWords, lastNgocAt: 0 };
+        data.vuaTiengViet.lifetime[guildId][userId] = entry;
+    }
+    const before = entry.ngoc || 0;
+    const after = Math.max(0, before + delta);
+    entry.ngoc = after;
+    saveData();
+    return { before, after, delta, applied: after - before };
 }
 
 // ── Weekly payout ──────────────────────────────────────────────────────────
@@ -651,5 +682,6 @@ module.exports = {
     scheduleWeeklyPayout,
     runWeeklyPayout,
     isOptedOut,
-    toggleOptOut
+    toggleOptOut,
+    adminAdjustLifetime
 };

@@ -4,6 +4,7 @@ const { data, saveData } = require('../state');
 const { getWallet, addNgoc, spendNgocForGame, renderEmote, fmt } = require('./currency');
 const LOTTERY = require('../config/lottery');
 const profile = require('./profile');
+const { chunkMessage } = require('../utils');
 
 function ensureRoot(guildId) {
     if (!data.lottery) data.lottery = {};
@@ -253,8 +254,13 @@ async function announceDraw(result) {
     lines.push(`⏰ Đợt sau: <t:${nextTs}:F> (<t:${nextTs}:R>)`);
     lines.push(`🎟️ Mua vé: \`!xoso bao\` · \`!xoso <4 số 1-${LOTTERY.NUMBER_POOL_MAX}>\``);
 
-    await channel.send({ content: lines.join('\n'), allowedMentions: { users: [] } })
-        .catch(e => log.warn('lottery: announce send failed', e));
+    // Big draws (lots of jackpot/3of4/2of4 winners) easily blow past Discord's
+    // 2000-char message limit, so split on blank-line / line boundaries.
+    const chunks = chunkMessage(lines.join('\n'));
+    for (const chunk of chunks) {
+        await channel.send({ content: chunk, allowedMentions: { users: [] } })
+            .catch(e => log.warn('lottery: announce send failed', e));
+    }
 }
 
 // ── Schedule ────────────────────────────────────────────────────────────────

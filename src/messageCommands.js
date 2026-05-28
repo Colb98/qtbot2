@@ -159,6 +159,7 @@ async function handleMessageCommand(msg) {
 • \`!setwordchain_noti [#channel|clear]\` — Cài kênh riêng nhận thông báo thưởng tuần wordchain (ManageGuild). Mặc định dùng kênh bot.
 • \`!setxoso_noti [#channel|clear]\` — Cài kênh thông báo xổ số tích lũy. Bắt buộc set để bot announce.
 • \`!xoso_drawnow\` — Chạy quay xổ số thủ công (test / chữa cháy nếu cron lỡ).
+• \`!vtv_fixscore @user <±delta>\` — Cộng/trừ điểm lifetime Vua Tiếng Việt của 1 người (vd \`+5000\` / \`-3000\`).
 
 **Guild War:**
 • \`!setup channel #channel\` — Set kênh đăng ký bang chiến.
@@ -1340,6 +1341,27 @@ async function handleMessageCommand(msg) {
         if (!isSuperAdmin(msg.author.id)) return;
         const count = vuaTiengViet.resetDailyCaps(guildId);
         return msg.reply(`✅ Đã reset cap ngày Vua Tiếng Việt cho **${count}** người trong server.`);
+    }
+
+    if (cmd === '!vtv_fixscore') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const mention = parts[1];
+        const deltaStr = parts[2];
+        const usage = 'Cú pháp: `!vtv_fixscore @user <delta>` — delta là số nguyên có dấu (+ cộng, - trừ) vào điểm lifetime Vua Tiếng Việt.';
+        if (!mention || deltaStr === undefined) return msg.reply(usage);
+        const targetId = mention.replace(/[^0-9]/g, '');
+        if (!targetId) return msg.reply('Vui lòng mention user hợp lệ.');
+        const delta = parseInt(deltaStr, 10);
+        if (!Number.isInteger(delta) || delta === 0) return msg.reply('Delta phải là số nguyên khác 0 (vd `+5000` hoặc `-3000`).');
+        const targetMember = await msg.guild.members.fetch(targetId).catch(() => null);
+        const name = targetMember ? targetMember.displayName : targetId;
+        try {
+            const res = vuaTiengViet.adminAdjustLifetime(guildId, targetId, delta);
+            const sign = res.applied >= 0 ? '+' : '';
+            return msg.reply(`✅ ${name}: **${fmt(res.before)}** → **${fmt(res.after)}** ${renderEmote('ngoc')} (${sign}${fmt(res.applied)}).`);
+        } catch (e) {
+            return msg.reply(`Lỗi: ${e.message}`);
+        }
     }
 
     if (cmd === '!upload_ingame_emotes') {

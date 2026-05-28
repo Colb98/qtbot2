@@ -1,6 +1,24 @@
-const CURRENT_VERSION = '1.15.3';
+const CURRENT_VERSION = '1.15.5';
 
 const CHANGELOG = {
+    '1.15.5': {
+        date: '2026-05-28',
+        title: 'Slot — Vá lỗ hổng cap pity (mean thay vì max)',
+        changes: [
+            'Cap khi pity bắn giờ tính theo **mức cược trung bình** của chuỗi thua (`tổng cược trong streak / số lượt streak × 2`), thay vì `max(stake) × 2` như trước.',
+            'Khoá exploit: trước đây có thể cược 1 lần `MAX_BET/2` trong chuỗi 100-ngọc rồi đổ `MAX_BET` đúng lúc pity bắn để nhận pay-out đầy. Giờ 1 cú "primer" duy nhất sẽ bị amortize qua cả streak, cap rớt về ~2× trung bình thực.',
+            'Wallet cũ (giữa chuỗi thua) được tự backfill `slotStreakTotalBet` từ `slotStreakMaxBet × slotPity` ở lần chơi kế tiếp — không reset streak người chơi.'
+        ]
+    },
+    '1.15.4': {
+        date: '2026-05-28',
+        title: 'Xổ số chunk dài + VTV fix điểm + tiebreak theo thời gian',
+        changes: [
+            'Kết quả `!xoso` (announce) tự cắt thành nhiều tin khi vượt 2000 ký tự (jackpot đông người không bị Discord cắt nữa).',
+            '`!vtv_fixscore @user <±delta>` (super admin) — cộng/trừ điểm lifetime Vua Tiếng Việt của 1 người (clamp tại 0). Vd `!vtv_fixscore @ai +5000`.',
+            'Bỏ tiebreaker theo **số từ** ở bảng xếp hạng Vua Tiếng Việt (lifetime & tuần): khi điểm bằng nhau, **người đạt điểm trước** sẽ xếp trên (theo timestamp của lần kiếm ngọc gần nhất).'
+        ]
+    },
     '1.15.3': {
         date: '2026-05-27',
         title: 'Coinflip — tung nhiều lần cùng lúc',

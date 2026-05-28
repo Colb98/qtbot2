@@ -128,11 +128,24 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     }
 
     const slotPityBefore = w.slotPity || 0;
-    const slotStreakMaxBet = w.slotStreakMaxBet || 0;
+    // Migrate legacy `slotStreakMaxBet`-only wallets into the new
+    // `slotStreakTotalBet` field. Conservative backfill assumes every prior
+    // streak play was at the recorded max (gives the same effective avg).
+    if (w.slotStreakTotalBet === undefined && slotPityBefore > 0) {
+        w.slotStreakTotalBet = (w.slotStreakMaxBet || 0) * slotPityBefore;
+    }
+    const slotStreakTotalBet = w.slotStreakTotalBet || 0;
     const pityThreshold = ensurePityThreshold(w);
-    const pityCapApplied = slotPityBefore >= pityThreshold && slotStreakMaxBet > 0 && amount > slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT;
-    if (slotPityBefore >= pityThreshold && slotStreakMaxBet > 0) {
-        amount = Math.min(amount, slotStreakMaxBet * economy.SLOT_PITY_CAP_MULT);
+
+    // Cap pity-fire bets at `mean streak stake × SLOT_PITY_CAP_MULT`. Using
+    // the mean instead of max defeats the "one big mid-bet" exploit: a single
+    // 2500 stake in a streak of 100s no longer unlocks a 5000 pity payout,
+    // because the average is still ~100.
+    const streakAvg = slotPityBefore > 0 ? slotStreakTotalBet / slotPityBefore : 0;
+    const pityCap = Math.floor(streakAvg * economy.SLOT_PITY_CAP_MULT);
+    const pityCapApplied = slotPityBefore >= pityThreshold && streakAvg > 0 && amount > pityCap;
+    if (slotPityBefore >= pityThreshold && streakAvg > 0) {
+        amount = Math.min(amount, pityCap);
         if (amount <= 0) amount = 1;
     }
     spendNgocForGame(guildId, userId, amount);
@@ -148,9 +161,12 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     const walletAfter = getWallet(guildId, userId);
     if (mult <= 1) {
         walletAfter.slotPity = slotPityBefore + 1;
-        walletAfter.slotStreakMaxBet = Math.max(slotStreakMaxBet, amount);
+        walletAfter.slotStreakTotalBet = slotStreakTotalBet + amount;
+        // Keep slotStreakMaxBet in sync for any legacy readers / metrics.
+        walletAfter.slotStreakMaxBet = Math.max(w.slotStreakMaxBet || 0, amount);
     } else {
         walletAfter.slotPity = 0;
+        walletAfter.slotStreakTotalBet = 0;
         walletAfter.slotStreakMaxBet = 0;
         walletAfter.slotPityThreshold = 0;
     }
