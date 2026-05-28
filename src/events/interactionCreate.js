@@ -8,7 +8,7 @@ const arrangeCmd = require('../commands/arrange');
 const profileCmd = require('../commands/profile');
 const { getWallet, addNgoc, addItem, spendNgocForGame, renderEmote, fmt, ITEM_KEYS, ITEM_LABELS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
-const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult, tokenToSide } = require('../services/coinflip');
+const { tokenToSide, runMultiFlip: runCoinflipMulti } = require('../services/coinflip');
 const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('../services/slot');
 const dice = require('../services/dice');
 const metrics = require('../services/metrics');
@@ -168,60 +168,52 @@ module.exports = {
 };
 
 async function handleCoinflipButton(interaction) {
-    const [, action, ownerUserId, amountStr, sideToken] = interaction.customId.split(':');
+    const parts = interaction.customId.split(':');
+    const [, action, ownerUserId, amountStr, sideToken] = parts;
     if (interaction.user.id !== ownerUserId) {
         return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
     }
     const side = tokenToSide(sideToken);
+    const flips = parts[5] ? Math.max(1, parseInt(parts[5], 10) || 1) : 1;
     const guildId = interaction.guildId;
-    const wallet = getWallet(guildId, ownerUserId);
+    const isAll = action === 'allin';
 
+    // Pre-flight affordability check so we can reply ephemerally before deferring.
+    const wallet = getWallet(guildId, ownerUserId);
     const totalNgocCf = wallet.ngoc + (wallet.lockedNgoc || 0);
-    let amount;
-    if (action === 'allin') {
-        amount = Math.min(totalNgocCf, economy.COINFLIP_MAX_BET);
-    } else {
-        amount = Math.min(parseInt(amountStr, 10), economy.COINFLIP_MAX_BET);
-    }
-    if (!Number.isInteger(amount) || amount <= 0) {
+    const perFlip = isAll
+        ? Math.min(Math.floor(totalNgocCf / flips), economy.COINFLIP_MAX_BET)
+        : Math.min(parseInt(amountStr, 10), economy.COINFLIP_MAX_BET);
+    if (!Number.isInteger(perFlip) || perFlip <= 0) {
         return interaction.reply({ content: 'Bạn không có ngọc để chơi.', flags: MessageFlags.Ephemeral });
     }
-    if (totalNgocCf < amount) {
-        return interaction.reply({ content: `Bạn chỉ có ${fmt(totalNgocCf)} ngọc, không đủ cược ${fmt(amount)}.`, flags: MessageFlags.Ephemeral });
+    if (totalNgocCf < perFlip * flips) {
+        return interaction.reply({ content: `Bạn chỉ có ${fmt(totalNgocCf)} ngọc, không đủ cược ${fmt(perFlip * flips)}.`, flags: MessageFlags.Ephemeral });
     }
 
     await interaction.deferUpdate().catch(e => log.error('cf defer error:', e));
 
-    const disabledRow = new ActionRowBuilder();
-    if (interaction.message.components[0]) {
-        for (const btn of interaction.message.components[0].components) {
-            const newBtn = ButtonBuilder.from(btn.toJSON());
-            newBtn.setDisabled(true);
-            disabledRow.addComponents(newBtn);
+    const disabledRows = (interaction.message.components || []).map(rowComp => {
+        const ar = new ActionRowBuilder();
+        for (const btn of rowComp.components) {
+            ar.addComponents(ButtonBuilder.from(btn.toJSON()).setDisabled(true));
         }
-        await interaction.editReply({ components: [disabledRow] }).catch(e => log.error('cf disable error:', e));
+        return ar;
+    });
+    if (disabledRows.length) {
+        await interaction.editReply({ components: disabledRows }).catch(e => log.error('cf disable error:', e));
     }
-
-    const result = Math.random() < 0.5 ? 'sap' : 'ngua';
-    const won = side ? (side === result) : (Math.random() < 0.5);
-    spendNgocForGame(guildId, ownerUserId, amount);
-    if (won) {
-        addNgoc(guildId, ownerUserId, amount * 2);
-        profile.recordWin(guildId, ownerUserId, amount * 2, 'Coinflip');
-    }
-    profile.recordGame(guildId, ownerUserId, 'coinflip', amount, won ? amount * 2 : 0);
-
-    const wasAllIn = action === 'allin';
-    const bigWin = won && (wasAllIn || amount >= 5000);
-    metrics.recordCoinflip({ guildId, amount, won, side, viaButton: true, wasAllIn, bigWin, userId: ownerUserId });
 
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
-    const newWallet = getWallet(guildId, ownerUserId);
-    const content = formatCoinflipResult({ displayName, side, result, won, amount, wasAllIn });
-    const totalNgocAfterCf = newWallet.ngoc + (newWallet.lockedNgoc || 0);
-    const components = totalNgocAfterCf > 0 ? [buildCoinflipButtons(ownerUserId, amount, side, totalNgocAfterCf)] : [];
-    await interaction.followUp({ content, components }).catch(e => log.error('cf followUp error:', e));
+    const res = runCoinflipMulti({
+        guildId, userId: ownerUserId, displayName,
+        side, isAll, requestedAmount: perFlip, flips, viaButton: true, metrics
+    });
+    if (res.error) {
+        return interaction.followUp({ content: 'Không đủ ngọc để chơi.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+    await interaction.followUp({ content: res.content, components: res.components }).catch(e => log.error('cf followUp error:', e));
 }
 
 // Disable every button on the message that triggered `interaction`.

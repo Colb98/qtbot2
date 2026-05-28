@@ -13,7 +13,7 @@ const { testSendReminders } = require('./services/scheduler');
 const { getWallet, addNganphieu, addNgoc, addItem, addLockedNgoc, addLockedItem, spendNgocForGame, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
 const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
 const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('./services/slot');
-const { buildContinueButtons: buildCoinflipButtons, formatResult: formatCoinflipResult } = require('./services/coinflip');
+const { runMultiFlip: runCoinflipMulti, COINFLIP_MAX_FLIPS } = require('./services/coinflip');
 const dice = require('./services/dice');
 const lottery = require('./services/lottery');
 const metrics = require('./services/metrics');
@@ -123,7 +123,7 @@ async function handleMessageCommand(msg) {
 • \`!bond [@user]\` — Xem Điểm Thân mật (top 10 hoặc cụ thể với 1 user).
 
 **Mini Games:**
-• \`!coinflip [sap|ngua] <x|all>\` — Cược ngọc 50/50, tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lượt.
+• \`!coinflip [sap|ngua] <x|all> [số lần]\` — Cược ngọc 50/50, tối đa ${fmt(economy.COINFLIP_MAX_BET)}/lần. Tung nhiều lần cùng lúc (\`số lần\` tối đa ${COINFLIP_MAX_FLIPS}, vd \`!coinflip 500 5\` = 2500 ngọc).
 • \`!slot <x|all> [n]\` — Slot 3 reels, tối đa ${fmt(economy.SLOT_MAX_BET)}/lượt. Jackpot x200. Có thể quay nhiều lượt cùng lúc (\`n\` tối đa 5, vd: \`!slot 500 5\` = 2500 ngọc).
 • \`!tong <x|all> <3-18> [3-18 ...]\` — Đoán tổng 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.TONG_MAX_BET)}, vd \`!tong 200 10 11\`). Trúng x8–x200.
 • \`!mat <x|all> <1-6> [1-6 ...]\` — Đoán mặt xuất hiện trong 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.MAT_MAX_BET)}, vd \`!mat 200 5 6\`). Trúng x2/x4/x6.
@@ -866,19 +866,27 @@ async function handleMessageCommand(msg) {
 
     if (cmd === '!coinflip') {
         let side = null;
-        let amountStr;
+        let amountStr, flipsStr;
         if (parts[1] === 'sap' || parts[1] === 'ngua') {
             side = parts[1];
             amountStr = parts[2];
+            flipsStr = parts[3];
         } else {
             amountStr = parts[1];
+            flipsStr = parts[2];
         }
+        const syntax = `Cú pháp: \`!coinflip <số ngọc|all> [số lần]\` hoặc \`!coinflip <sap|ngua> <số ngọc|all> [số lần]\` (tối đa ${fmt(economy.COINFLIP_MAX_BET)} ngọc/lần, ${COINFLIP_MAX_FLIPS} lần).`;
         const isAll = amountStr === 'all';
         let rawAmount = null;
         if (!isAll) {
             rawAmount = parseInt(amountStr, 10);
-            if (!Number.isInteger(rawAmount) || rawAmount <= 0) {
-                return msg.reply(`Cú pháp: \`!coinflip <số ngọc|all>\` hoặc \`!coinflip <sap|ngua> <số ngọc|all>\` (tối đa ${fmt(economy.COINFLIP_MAX_BET)} ngọc).`);
+            if (!Number.isInteger(rawAmount) || rawAmount <= 0) return msg.reply(syntax);
+        }
+        let flips = 1;
+        if (flipsStr !== undefined) {
+            flips = parseInt(flipsStr, 10);
+            if (!Number.isInteger(flips) || flips < 1 || flips > COINFLIP_MAX_FLIPS) {
+                return msg.reply(`Số lần tung phải là số nguyên từ 1 đến ${COINFLIP_MAX_FLIPS}.`);
             }
         }
         const cd = checkGameCooldown(msg.author.id);
@@ -886,31 +894,13 @@ async function handleMessageCommand(msg) {
             const secLeft = Math.ceil(cd.msLeft / 1000);
             return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
         }
-        const w = getWallet(guildId, msg.author.id);
-        const totalNgocCf = w.ngoc + w.lockedNgoc;
-        let amount;
-        if (isAll) {
-            amount = Math.min(totalNgocCf, economy.COINFLIP_MAX_BET);
-            if (amount <= 0) return msg.reply('Bạn không có ngọc để chơi.');
-        } else {
-            amount = Math.min(rawAmount, economy.COINFLIP_MAX_BET);
-            if (totalNgocCf < amount) return msg.reply(`Bạn cần ${fmt(amount)} ngọc nhưng chỉ có ${fmt(totalNgocCf)}.`);
-        }
-        const result = Math.random() < 0.5 ? 'sap' : 'ngua';
-        const won = side ? (side === result) : (Math.random() < 0.5);
-        spendNgocForGame(guildId, msg.author.id, amount);
-        if (won) {
-            addNgoc(guildId, msg.author.id, amount * 2);
-            profile.recordWin(guildId, msg.author.id, amount * 2, 'Coinflip');
-        }
-        profile.recordGame(guildId, msg.author.id, 'coinflip', amount, won ? amount * 2 : 0);
-        const newW = getWallet(guildId, msg.author.id);
-        const bigWin = won && (isAll || amount >= 5000);
-        metrics.recordCoinflip({ guildId, amount, won, side, viaButton: false, wasAllIn: isAll, bigWin, userId: msg.author.id });
-        const content = formatCoinflipResult({ displayName: member.displayName, side, result, won, amount, wasAllIn: isAll });
-        const totalNgocAfterCf = newW.ngoc + newW.lockedNgoc;
-        const components = totalNgocAfterCf > 0 ? [buildCoinflipButtons(msg.author.id, amount, side, totalNgocAfterCf)] : [];
-        return msg.reply({ content, components });
+        const res = runCoinflipMulti({
+            guildId, userId: msg.author.id, displayName: member.displayName,
+            side, isAll, requestedAmount: rawAmount, flips, viaButton: false, metrics
+        });
+        if (res.error === 'no_ngoc') return msg.reply('Bạn không có ngọc để chơi.');
+        if (res.error === 'insufficient') return msg.reply(`Bạn cần ${fmt(res.needed)} ngọc nhưng chỉ có ${fmt(res.available)}.`);
+        return msg.reply({ content: res.content, components: res.components });
     }
 
     if (cmd === '!slot') {

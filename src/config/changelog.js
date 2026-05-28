@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '1.15.2';
+const CURRENT_VERSION = '1.15.3';
 
 const CHANGELOG = {
+    '1.15.3': {
+        date: '2026-05-27',
+        title: 'Coinflip — tung nhiều lần cùng lúc',
+        changes: [
+            '`!coinflip <x|all> [số lần]` (hoặc `!coinflip <sap|ngua> <x|all> [số lần]`) — thêm tham số tuỳ chọn số lần (1-5). Vd: `!coinflip 500 5` trừ 2500 ngọc, tung 5 lần. Mỗi lần ăn/thua riêng, hiển thị danh sách + tổng net.',
+            'Nút **Tiếp / x0.5 / x2 / ALL IN** giữ nguyên số lần đang tung (vd đang tung x5 → bấm x2 sẽ tung tiếp 5 lần với gấp đôi cược/lần).'
+        ]
+    },
     '1.15.2': {
         date: '2026-05-27',
         title: 'Tổng / Mặt — nút cho cược nhiều cửa',
