@@ -133,6 +133,13 @@ const DEFAULTS = {
         NGOC_PER_LEVEL_STEP: 10,
         NGOC_PER_CORRECT_MAX: 200,
         DAILY_CAP: 6000,
+        // Weekly leaderboard payout (ranked by highest level reached), same tiers
+        // as Vua Tiếng Việt / Wordchain.
+        WEEKLY_REWARDS: [
+            { from: 1, to: 1,  ngoc: 15000 },
+            { from: 2, to: 3,  ngoc: 8000  },
+            { from: 4, to: 10, ngoc: 4000  }
+        ],
         LADDER: [
             { nums: 2, min: 1, max: 20, ops: ['+', '-'],      timeS: 20 }, // L1
             { nums: 2, min: 1, max: 50, ops: ['+', '-'],      timeS: 20 }, // L2

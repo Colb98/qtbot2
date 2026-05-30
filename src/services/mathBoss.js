@@ -197,9 +197,14 @@ async function resolveTurn(session, thread, { timedOut }) {
         return endRaid(session, thread, { victory: false });
     }
 
-    // Boss attacks (only if still alive and someone is alive to hit).
+    // Boss only retaliates on an imperfect turn. Solve every equation in the turn
+    // and the boss takes its damage but does NOT counterattack — so flawless play
+    // can win without losing HP, while misses still hurt.
+    const allSolved = session.solvedThisTurn >= session.equations.length;
     const living = livingPlayers(session);
-    if (living.length > 0) {
+    if (allSolved) {
+        await thread.send(`🛡️ Cả đội giải đúng **hết** — boss không kịp phản đòn!`).catch(() => {});
+    } else if (living.length > 0) {
         let attackLine;
         if (c.MOVESET === 'aoe' && Math.random() < c.AOE_CHANCE) {
             for (const p of living) p.hp -= c.BOSS_ATK;
@@ -298,6 +303,7 @@ async function startSession({ channel, invokerId, invokerName, tier }) {
         content:
             `${info.emoji} **${info.label}** xuất hiện! HP **${c.BOSS_HP}** · ${c.EQ} phép tính/lượt · ⏱️ ${c.TIME_S}s/lượt\n` +
             `🩸 Mỗi người máu **${c.PLAYER_HP}** · 🛡️ Moveset: ${moveset}\n` +
+            `✅ Giải **đúng hết** phép tính trong lượt → boss **không phản đòn** lượt đó (chỉ trượt mới ăn đòn).\n` +
             `🏆 Hạ boss → chia **${fmt(c.NGOC_POOL)}** ${renderEmote('ngoc')} theo sát thương (cap ${fmt(economy.MATHBOSS.NGOC_DAILY_CAP)}/ngày/người).\n` +
             `Gõ đáp án để đánh. Người mới có thể **vào giữa trận** (bấm nút) — máu bằng người cao nhất đang sống.`,
         components: [joinRow],

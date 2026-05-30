@@ -134,7 +134,7 @@ async function handleMessageCommand(msg) {
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
-• \`!flashmath\` — Tạo thread **Flash Math**: trả lời nhanh phép tính, ai đúng trước nhận ngọc. Độ khó tăng mỗi ${economy.FLASHMATH.QUESTIONS_PER_LEVEL} câu. Cap ${fmt(economy.FLASHMATH.DAILY_CAP)} ${renderEmote('ngoc')}/ngày. \`!flashmath_top\` xem BXH, \`!flashmath_cap\` xem cap.
+• \`!flashmath\` — Tạo thread **Flash Math**: trả lời nhanh phép tính, ai đúng trước nhận ngọc. **Sai/hết giờ là kết thúc** — BXH xếp theo cấp cao nhất. Cap ${fmt(economy.FLASHMATH.DAILY_CAP)} ${renderEmote('ngoc')}/ngày. \`!flashmath_top\` (tuần) / \`!flashmath_top lifetime\` xem BXH, \`!flashmath_cap\` xem cap. Thưởng tuần: Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k.
 • \`!boss <small|medium|big>\` — Triệu hồi **Boss toán học** để solo hoặc cả nhóm cùng đánh (giải phép tính = sát thương). Thưởng chia theo sát thương, cap ${fmt(economy.MATHBOSS.NGOC_DAILY_CAP)} ${renderEmote('ngoc')}/ngày.
 
 **Khác:**
@@ -1319,19 +1319,53 @@ async function handleMessageCommand(msg) {
     }
 
     if (cmd === '!flashmath_top' || cmd === '!flash_top') {
-        const top = flashMath.getTopScores(guildId, 10);
-        const lines = ['🏆 **Top Flash Math** (tổng câu đúng)'];
+        const mode = (parts[1] || '').toLowerCase();
+        const isLifetime = mode === 'lifetime' || mode === 'life' || mode === 'all' || mode === 'l';
+        const top = isLifetime
+            ? flashMath.getLifetimeTop(guildId, 10)
+            : flashMath.getWeeklyTop(guildId, 10);
+        const header = isLifetime
+            ? `🏆 **Top Flash Math — Lifetime** (cấp cao nhất)`
+            : `🏆 **Top Flash Math — Tuần này** (cấp cao nhất)`;
+        const lines = [header];
         if (top.length === 0) {
             lines.push('_Chưa có ai trên bảng xếp hạng._');
         } else {
             for (let i = 0; i < top.length; i++) {
-                const [userId, score] = top[i];
+                const [userId, v] = top[i];
                 let name = userId;
                 try { const m = await msg.guild.members.fetch(userId).catch(() => null); if (m) name = m.displayName; } catch (e) { /* ignore */ }
-                lines.push(`${i + 1}. **${name}** — **${fmt(score)}** câu`);
+                lines.push(`${i + 1}. **${name}** — Cấp **${v.level || 0}**`);
+            }
+        }
+        if (!isLifetime) {
+            const table = flashMath.getWeeklyRewardTable();
+            if (table && table.length > 0) {
+                lines.push('');
+                lines.push(`🎁 **Thưởng tuần (reset Thứ Hai 00:00 GMT+7)**`);
+                for (const tier of table) {
+                    const range = tier.from === tier.to ? `Top ${tier.from}` : `Top ${tier.from}-${tier.to}`;
+                    lines.push(`• ${range}: **${fmt(tier.ngoc)}** ${renderEmote('ngoc')}`);
+                }
+                lines.push(`Gõ \`!flashmath_top lifetime\` để xem bảng all-time.`);
             }
         }
         return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+    }
+
+    if (cmd === '!flashmath_payout') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        try {
+            const results = await flashMath.runWeeklyPayout();
+            if (!results || results.length === 0) {
+                return msg.reply('Không có ai để trả thưởng (hoặc tuần trước đã trả rồi).');
+            }
+            const totalWinners = results.reduce((a, r) => a + r.paid.length, 0);
+            return msg.reply(`✅ Flash Math: đã trả thưởng tuần trước cho ${totalWinners} người trong ${results.length} guild.`);
+        } catch (e) {
+            log.error('flashmath_payout error', e);
+            return msg.reply('Lỗi khi trả thưởng. Xem log.');
+        }
     }
 
     if (cmd === '!flashmath_cap') {

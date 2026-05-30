@@ -27,8 +27,11 @@ function hasThread(threadId) {
 
 function ensureRoot() {
     if (!data.flashMath) data.flashMath = {};
-    if (!data.flashMath.scores)    data.flashMath.scores    = {};
-    if (!data.flashMath.dailyCaps) data.flashMath.dailyCaps = {};
+    const d = data.flashMath;
+    if (!d.dailyCaps)  d.dailyCaps  = {};
+    if (!d.lifetime)   d.lifetime   = {};
+    if (!d.weekly)     d.weekly     = {};
+    if (!d.weeklyPaid) d.weeklyPaid = {};
 }
 
 function getDailyCap(guildId, userId) {
@@ -61,23 +64,166 @@ function getCapStatus(guildId, userId) {
     return { earned: cap.earned, cap: economy.FLASHMATH.DAILY_CAP };
 }
 
-// ── Leaderboard (lifetime correct answers, wordchain-style) ─────────────────
+// ── Week helpers ─────────────────────────────────────────────────────────────
 
-function incrementScore(guildId, userId) {
-    ensureRoot();
-    if (!data.flashMath.scores[guildId]) data.flashMath.scores[guildId] = {};
-    data.flashMath.scores[guildId][userId] = (data.flashMath.scores[guildId][userId] || 0) + 1;
-    return data.flashMath.scores[guildId][userId];
+function weekStrAt(ts) {
+    const shifted = new Date(ts + 7 * 3600 * 1000);
+    const d = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()));
+    const day = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-function getTopScores(guildId, limit = 10) {
+function weekStr()         { return weekStrAt(Date.now()); }
+function previousWeekStr() { return weekStrAt(Date.now() - 24 * 3600 * 1000); }
+
+// ── Leaderboard (highest level reached: lifetime + weekly) ───────────────────
+// Each entry keeps the player's best (highest) level. Ties rank by *whoever
+// reached that level first* (earlier `lastAt` = higher).
+
+function recordLevel(guildId, userId, level) {
+    if (!Number.isInteger(level) || level <= 0) return;
     ensureRoot();
-    const scores = data.flashMath.scores[guildId];
+    const now = Date.now();
+
+    if (!data.flashMath.lifetime[guildId]) data.flashMath.lifetime[guildId] = {};
+    const lt = data.flashMath.lifetime[guildId][userId];
+    if (!lt || level > (lt.level || 0)) {
+        data.flashMath.lifetime[guildId][userId] = { level, lastAt: now };
+    }
+
+    if (!data.flashMath.weekly[guildId]) data.flashMath.weekly[guildId] = {};
+    const week = weekStr();
+    const wk = data.flashMath.weekly[guildId][userId];
+    if (!wk || wk.week !== week) {
+        data.flashMath.weekly[guildId][userId] = { week, level, lastAt: now };
+    } else if (level > (wk.level || 0)) {
+        wk.level = level;
+        wk.lastAt = now;
+    }
+}
+
+// Tied level → earlier `lastAt` ranks higher (reached the level first).
+function compareLeaderboardEntries(a, b) {
+    const d = (b[1].level || 0) - (a[1].level || 0);
+    if (d !== 0) return d;
+    return (a[1].lastAt || 0) - (b[1].lastAt || 0);
+}
+
+function getLifetimeTop(guildId, limit = 10) {
+    ensureRoot();
+    const scores = data.flashMath.lifetime[guildId];
     if (!scores) return [];
     return Object.entries(scores)
-        .filter(([, v]) => v > 0)
-        .sort((a, b) => b[1] - a[1])
+        .filter(([, v]) => v && (v.level || 0) > 0)
+        .sort(compareLeaderboardEntries)
         .slice(0, limit);
+}
+
+function getWeeklyTopForWeek(guildId, week, limit = 10) {
+    ensureRoot();
+    const scores = data.flashMath.weekly[guildId];
+    if (!scores) return [];
+    return Object.entries(scores)
+        .filter(([, e]) => e && e.week === week && (e.level || 0) > 0)
+        .map(([uid, e]) => [uid, { level: e.level || 0, lastAt: e.lastAt || 0 }])
+        .sort(compareLeaderboardEntries)
+        .slice(0, limit);
+}
+
+function getWeeklyTop(guildId, limit = 10) {
+    return getWeeklyTopForWeek(guildId, weekStr(), limit);
+}
+
+// ── Weekly payout ─────────────────────────────────────────────────────────────
+
+function rewardForRank(rank) {
+    for (const tier of economy.FLASHMATH.WEEKLY_REWARDS) {
+        if (rank >= tier.from && rank <= tier.to) return tier.ngoc;
+    }
+    return 0;
+}
+
+function getWeeklyRewardTable() {
+    return economy.FLASHMATH.WEEKLY_REWARDS;
+}
+
+function payoutWeek(guildId, week) {
+    ensureRoot();
+    const top = getWeeklyTopForWeek(guildId, week, 10);
+    if (top.length === 0) return { week, paid: [] };
+    const paid = [];
+    for (let i = 0; i < top.length; i++) {
+        const [userId, v] = top[i];
+        const rank = i + 1;
+        const reward = rewardForRank(rank);
+        if (reward > 0) {
+            addNgoc(guildId, userId, reward);
+            paid.push({ userId, rank, level: v.level || 0, reward });
+        }
+    }
+    data.flashMath.weeklyPaid[guildId] = week;
+    saveData();
+    return { week, paid };
+}
+
+function payoutAllGuilds(week) {
+    ensureRoot();
+    const guilds = Object.keys(data.flashMath.weekly || {});
+    const results = [];
+    for (const guildId of guilds) {
+        if (data.flashMath.weeklyPaid[guildId] === week) continue;
+        const res = payoutWeek(guildId, week);
+        if (res.paid.length > 0) {
+            results.push({ guildId, ...res });
+            log.info(`flashMath: paid weekly ${week} in guild ${guildId} — ${res.paid.length} winners`);
+        }
+    }
+    return results;
+}
+
+async function announcePayout(guildId, result) {
+    const channelId = (data.wordchainNotiChannel && data.wordchainNotiChannel[guildId])
+        || (data.channelId && data.channelId[guildId]);
+    if (!channelId) return;
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel) return;
+    const lines = [`🏆 **Flash Math — Tổng kết tuần ${result.week}**`];
+    for (const w of result.paid) {
+        lines.push(`Top ${w.rank}. <@${w.userId}> — Cấp **${w.level}** · +**${fmt(w.reward)}** ${renderEmote('ngoc')} thưởng`);
+    }
+    await channel.send({ content: lines.join('\n'), allowedMentions: { parse: [] } })
+        .catch(e => log.warn('flashMath: announcePayout send failed', e));
+}
+
+async function runWeeklyPayout() {
+    const week = previousWeekStr();
+    log.info(`flashMath: running weekly payout for week ${week}`);
+    const results = payoutAllGuilds(week);
+    for (const r of results) await announcePayout(r.guildId, r);
+    return results;
+}
+
+let _weeklyCronTask = null;
+function scheduleWeeklyPayout() {
+    if (_weeklyCronTask) return;
+    let cron;
+    try { cron = require('node-cron'); }
+    catch (e) { log.warn('flashMath: node-cron not available, weekly payout disabled', e); return; }
+    _weeklyCronTask = cron.schedule('0 0 * * 1', async () => {
+        try { await runWeeklyPayout(); }
+        catch (e) { log.error('flashMath: weekly payout cron error', e); }
+    }, { timezone: 'Asia/Ho_Chi_Minh' });
+    log.info('flashMath: scheduled weekly payout — Mon 00:00 Asia/Ho_Chi_Minh');
+}
+
+// Record every participant's best level for a finished run, then persist.
+function recordRun(session) {
+    if (!session.playerLevels || session.playerLevels.size === 0) return;
+    for (const [uid, lvl] of session.playerLevels) recordLevel(session.guildId, uid, lvl);
+    saveData();
 }
 
 // ── Difficulty ladder ───────────────────────────────────────────────────────
@@ -142,27 +288,21 @@ async function onTimeout(threadId) {
     const session = sessions.get(threadId);
     if (!session || session.ended) return;
     session.timer = null;
-    session.consecutiveMisses++;
 
     const thread = await client.channels.fetch(threadId).catch(() => null);
     if (!thread) { sessions.delete(threadId); return; }
 
-    const answer = session.current ? session.current.answer : '?';
+    // One timeout ends the run immediately — score is the level reached.
+    session.ended = true;
+    sessions.delete(threadId);
+    recordRun(session);
 
-    if (session.consecutiveMisses >= economy.FLASHMATH.MAX_MISSES) {
-        session.ended = true;
-        sessions.delete(threadId);
-        await thread.send(
-            `⏰ **Hết giờ!** Đáp án: **${answer}**\n` +
-            `Đã bỏ qua **${session.consecutiveMisses}** câu liên tiếp. Tạm dừng.`
-        ).catch(() => {});
-        await showContinuePrompt(thread);
-    } else {
-        await thread.send(
-            `⏰ **Hết giờ!** Đáp án: **${answer}** (bỏ qua ${session.consecutiveMisses}/${economy.FLASHMATH.MAX_MISSES})`
-        ).catch(() => {});
-        await sendNextQuestion(session, thread);
-    }
+    const answer = session.current ? session.current.answer : '?';
+    await thread.send(
+        `⏰ **Hết giờ!** Đáp án: **${answer}**.\n` +
+        `🏁 Kết thúc ở **Cấp ${session.level}** (đã giải đúng ${session.correctCount} câu).`
+    ).catch(() => {});
+    await showContinuePrompt(thread);
 }
 
 async function showContinuePrompt(thread) {
@@ -183,10 +323,10 @@ function newSession(guildId, threadId, invokerId) {
         invokerId,
         level: 1,
         correctCount: 0,
-        consecutiveMisses: 0,
         current: null,
         timer: null,
-        ended: false
+        ended: false,
+        playerLevels: new Map()   // userId -> highest level they personally solved
     };
 }
 
@@ -209,6 +349,7 @@ async function beginGame(thread, invokerId) {
     await thread.send(
         `⚡ **Flash Math** — trả lời nhanh phép tính! Ai gõ đáp án đúng **trước** sẽ nhận ngọc.\n` +
         `• Độ khó tăng mỗi **${cfg.QUESTIONS_PER_LEVEL}** câu đúng (số lớn dần → tối đa 3 số → rồi rút ngắn thời gian xuống ${ladderRow(99).timeS}s).\n` +
+        `• **Sai 1 câu hoặc hết giờ là kết thúc!** BXH xếp theo **cấp cao nhất** đạt được (tuần & all-time).\n` +
         `• Thưởng tăng theo cấp · Cap ngày: **${fmt(cfg.DAILY_CAP)}** ${renderEmote('ngoc')}/người.\n` +
         `• Gõ \`end\` để dừng, \`close\` để đóng thread.`
     ).catch(e => log.warn('flashMath: send intro failed', e));
@@ -366,8 +507,9 @@ async function _handleThreadMessageImpl(msg) {
         if (session.timer) { clearTimeout(session.timer); session.timer = null; }
         session.ended = true;
         sessions.delete(msg.channel.id);
+        recordRun(session);
         await msg.react('🏳️').catch(() => {});
-        await msg.channel.send(`🏁 <@${msg.author.id}> đã dừng trò chơi.`).catch(() => {});
+        await msg.channel.send(`🏁 <@${msg.author.id}> đã dừng ở **Cấp ${session.level}** (giải đúng ${session.correctCount} câu).`).catch(() => {});
         await showContinuePrompt(msg.channel);
         return;
     }
@@ -375,13 +517,29 @@ async function _handleThreadMessageImpl(msg) {
     // Only react to numeric answers (so people can still chat in the thread).
     if (!/^-?\d+$/.test(raw)) return;
     if (!session.current) return;
-    if (parseInt(raw, 10) !== session.current.answer) return;
+
+    if (parseInt(raw, 10) !== session.current.answer) {
+        // Wrong answer → the run ends immediately. Score is the level reached.
+        if (session.timer) { clearTimeout(session.timer); session.timer = null; }
+        session.ended = true;
+        sessions.delete(msg.channel.id);
+        recordRun(session);
+        await msg.react('❌').catch(() => {});
+        await msg.channel.send(
+            `❌ <@${msg.author.id}> trả lời sai! Đáp án đúng: **${session.current.answer}**.\n` +
+            `🏁 Kết thúc ở **Cấp ${session.level}** (đã giải đúng ${session.correctCount} câu).`
+        ).catch(() => {});
+        await showContinuePrompt(msg.channel);
+        return;
+    }
 
     // Correct — first to answer wins this question.
     if (session.timer) { clearTimeout(session.timer); session.timer = null; }
-    session.consecutiveMisses = 0;
+    const solvedLevel = session.level;
+    if (solvedLevel > (session.playerLevels.get(msg.author.id) || 0)) {
+        session.playerLevels.set(msg.author.id, solvedLevel);
+    }
     session.correctCount++;
-    incrementScore(session.guildId, msg.author.id);
     const reward = rewardFor(session.level);
     const earned = earnNgoc(session.guildId, msg.author.id, reward);
 
@@ -399,6 +557,10 @@ module.exports = {
     startSession,
     handleThreadMessage,
     handleButtonInteraction,
-    getTopScores,
+    getWeeklyTop,
+    getLifetimeTop,
+    getWeeklyRewardTable,
+    scheduleWeeklyPayout,
+    runWeeklyPayout,
     getCapStatus
 };

@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '1.18.0';
+const CURRENT_VERSION = '1.19.0';
 
 const CHANGELOG = {
+    '1.19.0': {
+        date: '2026-05-31',
+        title: 'Flash Math: chế độ sinh tồn + BXH tuần · Boss Raid cân bằng lại',
+        changes: [
+            '**Flash Math** giờ là chế độ sinh tồn: **sai 1 câu hoặc hết giờ là kết thúc ngay** (bỏ luật bỏ qua 3 câu). Hết ván sẽ ghi điểm cao (lifetime + tuần) và hỏi **Tiếp tục** (chơi lại từ Cấp 1) hoặc **Đóng thread**.',
+            'Bảng xếp hạng Flash Math đổi sang xếp theo **cấp cao nhất** mỗi người đạt được (mỗi người tính cấp cao nhất họ tự giải đúng). `!flashmath_top` mặc định hiện **tuần này**, `!flashmath_top lifetime` xem all-time.',
+            'Thưởng tuần Flash Math (auto Thứ Hai 00:00 GMT+7, giống Vua Tiếng Việt): Top 1 = 15.000 · Top 2-3 = 8.000 · Top 4-10 = 4.000 ngọc. `!flashmath_payout` (super admin) trả thủ công nếu cron lỡ.',
+            '**Boss Raid** cân bằng lại: nếu cả đội **giải đúng hết** phép tính trong một lượt thì **boss không phản đòn** lượt đó — chơi chuẩn có thể hạ boss mà không mất máu, chỉ khi trượt câu mới bị đánh (sửa lỗi boss giết người chơi trước khi kịp hạ boss).'
+        ]
+    },
     '1.18.0': {
         date: '2026-05-30',
         title: 'Danh hiệu tuỳ chọn cho profile card',

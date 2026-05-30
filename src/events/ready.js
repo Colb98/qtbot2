@@ -4,6 +4,7 @@ const { data } = require('../state');
 const { retroactiveGrantAll } = require('../services/bangChienReward');
 const { scheduleWeeklyPayout } = require('../services/wordchainEng');
 const { scheduleWeeklyPayout: scheduleVtvPayout } = require('../services/vuaTiengViet');
+const { scheduleWeeklyPayout: scheduleFlashMathPayout } = require('../services/flashMath');
 const { scheduleDraws: scheduleLotteryDraws } = require('../services/lottery');
 
 module.exports = {
@@ -14,6 +15,7 @@ module.exports = {
         scheduleWeeklyJobs();
         scheduleWeeklyPayout();
         scheduleVtvPayout();
+        scheduleFlashMathPayout();
         scheduleLotteryDraws();
         const lastPosts = data.lastPostMessageId || {};
         for (const guildId of Object.keys(lastPosts)) {
