@@ -349,7 +349,7 @@ async function beginGame(thread, invokerId) {
     await thread.send(
         `⚡ **Flash Math** — trả lời nhanh phép tính! Ai gõ đáp án đúng **trước** sẽ nhận ngọc.\n` +
         `• Độ khó tăng mỗi **${cfg.QUESTIONS_PER_LEVEL}** câu đúng (số lớn dần → tối đa 3 số → rồi rút ngắn thời gian xuống ${ladderRow(99).timeS}s).\n` +
-        `• **Sai 1 câu hoặc hết giờ là kết thúc!** BXH xếp theo **cấp cao nhất** đạt được (tuần & all-time).\n` +
+        `• **Hết giờ là kết thúc!** (trả lời sai không sao, cứ thử lại trước khi hết giờ). BXH xếp theo **cấp cao nhất** đạt được (tuần & all-time).\n` +
         `• Thưởng tăng theo cấp · Cap ngày: **${fmt(cfg.DAILY_CAP)}** ${renderEmote('ngoc')}/người.\n` +
         `• Gõ \`end\` để dừng, \`close\` để đóng thread.`
     ).catch(e => log.warn('flashMath: send intro failed', e));
@@ -515,23 +515,10 @@ async function _handleThreadMessageImpl(msg) {
     }
 
     // Only react to numeric answers (so people can still chat in the thread).
+    // A wrong number is simply ignored — only a timeout ends the run.
     if (!/^-?\d+$/.test(raw)) return;
     if (!session.current) return;
-
-    if (parseInt(raw, 10) !== session.current.answer) {
-        // Wrong answer → the run ends immediately. Score is the level reached.
-        if (session.timer) { clearTimeout(session.timer); session.timer = null; }
-        session.ended = true;
-        sessions.delete(msg.channel.id);
-        recordRun(session);
-        await msg.react('❌').catch(() => {});
-        await msg.channel.send(
-            `❌ <@${msg.author.id}> trả lời sai! Đáp án đúng: **${session.current.answer}**.\n` +
-            `🏁 Kết thúc ở **Cấp ${session.level}** (đã giải đúng ${session.correctCount} câu).`
-        ).catch(() => {});
-        await showContinuePrompt(msg.channel);
-        return;
-    }
+    if (parseInt(raw, 10) !== session.current.answer) return;
 
     // Correct — first to answer wins this question.
     if (session.timer) { clearTimeout(session.timer); session.timer = null; }

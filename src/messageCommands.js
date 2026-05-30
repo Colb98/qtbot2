@@ -134,7 +134,7 @@ async function handleMessageCommand(msg) {
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
-• \`!flashmath\` — Tạo thread **Flash Math**: trả lời nhanh phép tính, ai đúng trước nhận ngọc. **Sai/hết giờ là kết thúc** — BXH xếp theo cấp cao nhất. Cap ${fmt(economy.FLASHMATH.DAILY_CAP)} ${renderEmote('ngoc')}/ngày. \`!flashmath_top\` (tuần) / \`!flashmath_top lifetime\` xem BXH, \`!flashmath_cap\` xem cap. Thưởng tuần: Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k.
+• \`!flashmath\` — Tạo thread **Flash Math**: trả lời nhanh phép tính, ai đúng trước nhận ngọc. **Hết giờ là kết thúc** — BXH xếp theo cấp cao nhất. Cap ${fmt(economy.FLASHMATH.DAILY_CAP)} ${renderEmote('ngoc')}/ngày. \`!flashmath_top\` (tuần) / \`!flashmath_top lifetime\` xem BXH, \`!flashmath_cap\` xem cap. Thưởng tuần: Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k.
 • \`!boss <small|medium|big>\` — Triệu hồi **Boss toán học** để solo hoặc cả nhóm cùng đánh (giải phép tính = sát thương). Thưởng chia theo sát thương, cap ${fmt(economy.MATHBOSS.NGOC_DAILY_CAP)} ${renderEmote('ngoc')}/ngày.
 
 **Khác:**
