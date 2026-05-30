@@ -2,8 +2,12 @@ const http = require('http');
 const url = require('url');
 const log = require('../../logger');
 const metrics = require('./metrics');
+const economyConfig = require('./economyConfig');
+const adminAuth = require('./adminAuth');
 
 const DEFAULT_PORT = 3000;
+const SESSION_COOKIE = 'qtadmin';
+const MAX_BODY_BYTES = 256 * 1024;
 
 let _discordClient = null;
 
@@ -103,6 +107,63 @@ function sendHtml(res, html) {
         'Cache-Control': 'no-store'
     });
     res.end(html);
+}
+
+// --- Admin panel helpers -------------------------------------------------
+
+function parseCookies(req) {
+    const out = {};
+    const header = req.headers.cookie;
+    if (!header) return out;
+    for (const part of header.split(';')) {
+        const idx = part.indexOf('=');
+        if (idx === -1) continue;
+        const k = part.slice(0, idx).trim();
+        const v = part.slice(idx + 1).trim();
+        if (k) out[k] = decodeURIComponent(v);
+    }
+    return out;
+}
+
+function readJsonBody(req) {
+    return new Promise((resolve, reject) => {
+        let size = 0;
+        const chunks = [];
+        req.on('data', (c) => {
+            size += c.length;
+            if (size > MAX_BODY_BYTES) {
+                reject(new Error('payload too large'));
+                req.destroy();
+                return;
+            }
+            chunks.push(c);
+        });
+        req.on('end', () => {
+            const raw = Buffer.concat(chunks).toString('utf8');
+            if (!raw) return resolve({});
+            try {
+                resolve(JSON.parse(raw));
+            } catch (e) {
+                reject(new Error('invalid JSON body'));
+            }
+        });
+        req.on('error', reject);
+    });
+}
+
+function setSessionCookie(res, token) {
+    const maxAge = Math.floor(adminAuth.SESSION_TTL_MS / 1000);
+    res.setHeader('Set-Cookie',
+        `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=${maxAge}; SameSite=Strict`);
+}
+
+function clearSessionCookie(res) {
+    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict`);
+}
+
+function currentSession(req) {
+    const cookies = parseCookies(req);
+    return adminAuth.getSession(cookies[SESSION_COOKIE]);
 }
 
 const HTML_PAGE = `<!DOCTYPE html>
@@ -603,9 +664,418 @@ load(null, currentGuild);
 </body>
 </html>`;
 
+const ADMIN_HTML = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>qtbot — quản trị kinh tế</title>
+<style>
+  :root {
+    --bg:#0f1419; --panel:#1a2027; --panel-2:#232b35; --border:#2f3a47;
+    --text:#e6e6e6; --muted:#8a96a3; --accent:#4fc3f7; --good:#66bb6a; --bad:#ef5350; --warn:#ffb74d;
+  }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; margin:0; background:var(--bg); color:var(--text); padding:16px; }
+  h1 { margin:0; font-size:20px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  a { color:var(--accent); }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  .muted { color:var(--muted); font-size:13px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:14px; }
+  input { background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 9px; font-size:13px; }
+  input[type=number]{ width:140px; font-variant-numeric:tabular-nums; }
+  button { background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 12px; font-size:13px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#0f1419; border:none; font-weight:600; }
+  button.danger { color:var(--bad); border-color:var(--bad); }
+  button.link { background:none; border:none; color:var(--muted); padding:2px 6px; }
+  button.link:hover { color:var(--accent); }
+  .row { display:flex; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+  .row .label { flex:1; font-size:13px; }
+  .row .def { color:var(--muted); font-size:11px; min-width:130px; }
+  .badge { font-size:10px; padding:1px 6px; border-radius:999px; background:var(--warn); color:#0f1419; font-weight:600; }
+  .section { margin-bottom:6px; }
+  .section h3 { font-size:13px; color:var(--accent); margin:14px 0 4px; text-transform:uppercase; letter-spacing:.5px; }
+  .changed input { border-color:var(--warn); }
+  .toolbar { display:flex; gap:10px; align-items:center; margin:10px 0; position:sticky; top:0; background:var(--bg); padding:8px 0; z-index:5; }
+  .toast { position:fixed; right:20px; bottom:20px; padding:12px 18px; border-radius:8px; font-size:13px; box-shadow:0 4px 14px rgba(0,0,0,.5); display:none; z-index:100; }
+  .toast.ok { background:var(--good); color:#0f1419; }
+  .toast.err { background:var(--bad); color:#fff; }
+  .login { max-width:340px; margin:60px auto; }
+  .login input { width:100%; margin-bottom:10px; }
+  .acct-row { display:flex; align-items:center; gap:10px; padding:5px 0; }
+  .grid2 { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+
+<div id="loginView" class="hidden">
+  <div class="login card">
+    <h1>qtbot quản trị</h1>
+    <p class="muted">Đăng nhập để chỉnh giá trị kinh tế.</p>
+    <input id="lgUser" placeholder="Tên đăng nhập" autocomplete="username">
+    <input id="lgPass" type="password" placeholder="Mật khẩu" autocomplete="current-password">
+    <button class="primary" id="lgBtn" style="width:100%">Đăng nhập</button>
+    <p class="muted" id="lgMsg" style="color:var(--bad)"></p>
+    <p class="muted" id="lgRootWarn"></p>
+  </div>
+</div>
+
+<div id="appView" class="hidden">
+  <header>
+    <h1>qtbot — kinh tế</h1>
+    <span class="muted">· <a href="/">metrics dashboard</a></span>
+    <span style="flex:1"></span>
+    <span class="muted">Đăng nhập: <b id="meUser">—</b> (<span id="meRole">—</span>)</span>
+    <button id="logoutBtn">Đăng xuất</button>
+  </header>
+
+  <div class="card">
+    <div class="toolbar">
+      <h2 style="margin:0">Giá trị kinh tế</h2>
+      <span class="badge" id="changeCount" style="display:none"></span>
+      <span style="flex:1"></span>
+      <input id="filter" placeholder="Lọc theo tên…" style="width:200px">
+      <button id="resetAllBtn" class="danger">Khôi phục mặc định tất cả</button>
+      <button id="saveBtn" class="primary">Lưu thay đổi</button>
+    </div>
+    <p class="muted">Thay đổi áp dụng <b>ngay lập tức</b> vào bot và được lưu lại (không cần khởi động lại). Chỉ sửa được giá trị số.</p>
+    <div id="fields"></div>
+  </div>
+
+  <div class="card" id="acctCard">
+    <h2>Tài khoản quản trị</h2>
+    <p class="muted">Tài khoản gốc có thể tạo thêm tài khoản (chỉ chỉnh kinh tế, không quản lý tài khoản).</p>
+    <div id="acctList"></div>
+    <div class="grid2" style="margin-top:12px">
+      <input id="acUser" placeholder="Tên đăng nhập mới">
+      <input id="acPass" type="password" placeholder="Mật khẩu (≥6 ký tự)">
+      <button class="primary" id="acCreate">Tạo tài khoản</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ME = null;
+let FIELDS = [];
+
+function toast(msg, ok = true) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (ok ? 'ok' : 'err');
+  t.style.display = 'block';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.display = 'none'; }, 3200);
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts));
+  let body = {};
+  try { body = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+  return body;
+}
+
+function fmtNum(n) { return Number(n).toLocaleString('en-US', { maximumFractionDigits: 6 }); }
+
+function renderFields() {
+  const q = $('filter').value.trim().toLowerCase();
+  const sections = {};
+  for (const f of FIELDS) {
+    if (q && !f.path.toLowerCase().includes(q)) continue;
+    (sections[f.section] = sections[f.section] || []).push(f);
+  }
+  const html = Object.keys(sections).sort().map(sec => {
+    const rows = sections[sec].map(f => {
+      const sub = f.path.slice(f.section.length + 1) || f.path;
+      return '<div class="row" data-path="' + f.path + '">' +
+        '<span class="label">' + escapeHtml(sub) +
+          (f.overridden ? ' <span class="badge">đã sửa</span>' : '') + '</span>' +
+        '<span class="def">mặc định: ' + fmtNum(f.default) + '</span>' +
+        '<input type="number" step="any" value="' + f.value + '" data-orig="' + f.value + '">' +
+        '<button class="link reset-btn" title="Khôi phục mặc định">↺</button>' +
+      '</div>';
+    }).join('');
+    return '<div class="section"><h3>' + escapeHtml(sec) + '</h3>' + rows + '</div>';
+  }).join('');
+  $('fields').innerHTML = html || '<p class="muted">Không có trường nào khớp.</p>';
+  bindFieldEvents();
+  updateChangeCount();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+}
+
+function bindFieldEvents() {
+  $('fields').querySelectorAll('input[type=number]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const row = inp.closest('.row');
+      row.classList.toggle('changed', inp.value !== inp.dataset.orig);
+      updateChangeCount();
+    });
+  });
+  $('fields').querySelectorAll('.reset-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const path = btn.closest('.row').dataset.path;
+      try {
+        const r = await api('/api/admin/economy/reset', { method: 'POST', body: JSON.stringify({ path }) });
+        FIELDS = r.fields;
+        renderFields();
+        toast('Đã khôi phục ' + path);
+      } catch (e) { toast(e.message, false); }
+    });
+  });
+}
+
+function collectChanges() {
+  const changes = {};
+  $('fields').querySelectorAll('.row').forEach(row => {
+    const inp = row.querySelector('input[type=number]');
+    if (inp && inp.value !== inp.dataset.orig && inp.value !== '') {
+      changes[row.dataset.path] = Number(inp.value);
+    }
+  });
+  return changes;
+}
+
+function updateChangeCount() {
+  const n = Object.keys(collectChanges()).length;
+  const badge = $('changeCount');
+  badge.style.display = n ? 'inline-block' : 'none';
+  badge.textContent = n + ' thay đổi';
+}
+
+async function saveChanges() {
+  const changes = collectChanges();
+  if (!Object.keys(changes).length) return toast('Không có thay đổi.', false);
+  try {
+    const r = await api('/api/admin/economy', { method: 'POST', body: JSON.stringify({ changes }) });
+    FIELDS = r.fields;
+    renderFields();
+    toast('Đã áp dụng ' + r.applied.length + ' thay đổi vào bot.');
+  } catch (e) { toast(e.message, false); }
+}
+
+async function resetAll() {
+  if (!confirm('Khôi phục TẤT CẢ giá trị kinh tế về mặc định?')) return;
+  try {
+    const r = await api('/api/admin/economy/reset', { method: 'POST', body: JSON.stringify({ all: true }) });
+    FIELDS = r.fields;
+    renderFields();
+    toast('Đã khôi phục tất cả về mặc định.');
+  } catch (e) { toast(e.message, false); }
+}
+
+async function loadEconomy() {
+  const r = await api('/api/admin/economy');
+  FIELDS = r.fields;
+  renderFields();
+}
+
+async function loadAccounts() {
+  if (ME.role !== 'root') { $('acctCard').style.display = 'none'; return; }
+  const r = await api('/api/admin/accounts');
+  $('acctList').innerHTML = r.accounts.length
+    ? r.accounts.map(a => '<div class="acct-row"><span class="label">' + escapeHtml(a.username) +
+        '</span><span class="muted">tạo bởi ' + escapeHtml(a.createdBy || '?') + '</span>' +
+        '<button class="link danger del-btn" data-u="' + escapeHtml(a.username) + '">Xoá</button></div>').join('')
+    : '<p class="muted">Chưa có tài khoản phụ nào.</p>';
+  $('acctList').querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const u = btn.dataset.u;
+      if (!confirm('Xoá tài khoản ' + u + '?')) return;
+      try {
+        await api('/api/admin/accounts', { method: 'DELETE', body: JSON.stringify({ username: u }) });
+        toast('Đã xoá ' + u);
+        loadAccounts();
+      } catch (e) { toast(e.message, false); }
+    });
+  });
+}
+
+async function showApp() {
+  $('loginView').classList.add('hidden');
+  $('appView').classList.remove('hidden');
+  $('meUser').textContent = ME.user;
+  $('meRole').textContent = ME.role;
+  await loadEconomy();
+  await loadAccounts();
+}
+
+function showLogin(rootEnabled) {
+  $('appView').classList.add('hidden');
+  $('loginView').classList.remove('hidden');
+  $('lgRootWarn').textContent = rootEnabled ? '' :
+    'Cảnh báo: ADMIN_USER / ADMIN_PASS chưa được cấu hình trên server — tài khoản gốc bị vô hiệu hoá.';
+}
+
+async function init() {
+  try {
+    const me = await api('/api/admin/me');
+    if (me.authenticated) {
+      ME = { user: me.user, role: me.role };
+      await showApp();
+    } else {
+      showLogin(me.rootEnabled);
+    }
+  } catch (e) {
+    showLogin(true);
+  }
+}
+
+$('lgBtn').addEventListener('click', async () => {
+  $('lgMsg').textContent = '';
+  try {
+    const r = await api('/api/admin/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: $('lgUser').value, password: $('lgPass').value })
+    });
+    ME = { user: r.user, role: r.role };
+    await showApp();
+  } catch (e) { $('lgMsg').textContent = e.message; }
+});
+$('lgPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('lgBtn').click(); });
+
+$('logoutBtn').addEventListener('click', async () => {
+  try { await api('/api/admin/logout', { method: 'POST' }); } catch (e) {}
+  location.reload();
+});
+
+$('saveBtn').addEventListener('click', saveChanges);
+$('resetAllBtn').addEventListener('click', resetAll);
+$('filter').addEventListener('input', renderFields);
+$('acCreate').addEventListener('click', async () => {
+  try {
+    await api('/api/admin/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ username: $('acUser').value, password: $('acPass').value })
+    });
+    $('acUser').value = ''; $('acPass').value = '';
+    toast('Đã tạo tài khoản.');
+    loadAccounts();
+  } catch (e) { toast(e.message, false); }
+});
+
+init();
+</script>
+</body>
+</html>`;
+
+// Async router for /api/admin/* and /admin. Returns nothing; writes the response
+// itself. All routes that mutate require a valid session; account-management
+// routes additionally require the root role.
+async function handleAdmin(req, res, pathname) {
+    try {
+        const method = req.method || 'GET';
+        const session = currentSession(req);
+
+        // Public: login + status.
+        if (pathname === '/api/admin/login' && method === 'POST') {
+            const body = await readJsonBody(req);
+            const token = adminAuth.login(body.username, body.password);
+            if (!token) return sendJson(res, 401, { error: 'Sai tên đăng nhập hoặc mật khẩu.' });
+            setSessionCookie(res, token);
+            const s = adminAuth.getSession(token);
+            return sendJson(res, 200, { ok: true, user: s.username, role: s.role });
+        }
+        if (pathname === '/api/admin/me') {
+            return sendJson(res, 200, {
+                authenticated: !!session,
+                user: session ? session.username : null,
+                role: session ? session.role : null,
+                rootEnabled: adminAuth.rootEnabled()
+            });
+        }
+        if (pathname === '/api/admin/logout' && method === 'POST') {
+            const cookies = parseCookies(req);
+            adminAuth.destroySession(cookies[SESSION_COOKIE]);
+            clearSessionCookie(res);
+            return sendJson(res, 200, { ok: true });
+        }
+
+        // Everything below needs auth.
+        if (!session) return sendJson(res, 401, { error: 'Chưa đăng nhập.' });
+
+        if (pathname === '/api/admin/economy' && method === 'GET') {
+            return sendJson(res, 200, {
+                fields: economyConfig.listFields(),
+                overrides: economyConfig.getOverrides()
+            });
+        }
+        if (pathname === '/api/admin/economy' && method === 'POST') {
+            const body = await readJsonBody(req);
+            const applied = economyConfig.applyChanges(body.changes || {});
+            return sendJson(res, 200, {
+                ok: true,
+                applied,
+                fields: economyConfig.listFields(),
+                overrides: economyConfig.getOverrides()
+            });
+        }
+        if (pathname === '/api/admin/economy/reset' && method === 'POST') {
+            const body = await readJsonBody(req);
+            if (body.all) economyConfig.resetAll();
+            else if (body.path) economyConfig.resetField(body.path);
+            else return sendJson(res, 400, { error: 'Cần "path" hoặc "all".' });
+            return sendJson(res, 200, {
+                ok: true,
+                fields: economyConfig.listFields(),
+                overrides: economyConfig.getOverrides()
+            });
+        }
+
+        // Account management: root only.
+        if (pathname === '/api/admin/accounts') {
+            if (session.role !== 'root') return sendJson(res, 403, { error: 'Chỉ tài khoản gốc mới quản lý tài khoản.' });
+            if (method === 'GET') {
+                return sendJson(res, 200, { accounts: adminAuth.listAccounts() });
+            }
+            if (method === 'POST') {
+                const body = await readJsonBody(req);
+                adminAuth.createAccount(body.username, body.password, session.username);
+                return sendJson(res, 200, { ok: true, accounts: adminAuth.listAccounts() });
+            }
+            if (method === 'DELETE') {
+                const body = await readJsonBody(req);
+                adminAuth.deleteAccount(body.username);
+                return sendJson(res, 200, { ok: true, accounts: adminAuth.listAccounts() });
+            }
+        }
+        if (pathname === '/api/admin/accounts/password' && method === 'POST') {
+            if (session.role !== 'root') return sendJson(res, 403, { error: 'Chỉ tài khoản gốc mới đổi mật khẩu tài khoản khác.' });
+            const body = await readJsonBody(req);
+            adminAuth.changePassword(body.username, body.password);
+            return sendJson(res, 200, { ok: true });
+        }
+
+        return sendJson(res, 404, { error: 'not found' });
+    } catch (e) {
+        if (e && /payload too large|invalid JSON/.test(e.message)) {
+            return sendJson(res, 400, { error: e.message });
+        }
+        // Validation errors from the services carry user-friendly messages.
+        if (e && e.message) return sendJson(res, 400, { error: e.message });
+        log.error('dashboard admin handler error', e);
+        return sendJson(res, 500, { error: 'internal' });
+    }
+}
+
 function handle(req, res) {
     const parsed = url.parse(req.url, true);
     const pathname = parsed.pathname || '/';
+    if (pathname === '/admin' || pathname === '/admin.html') {
+        return sendHtml(res, ADMIN_HTML);
+    }
+    if (pathname.startsWith('/api/admin/')) {
+        handleAdmin(req, res, pathname);
+        return;
+    }
     try {
         if (pathname === '/' || pathname === '/index.html') {
             return sendHtml(res, HTML_PAGE);

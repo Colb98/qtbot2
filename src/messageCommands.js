@@ -11,7 +11,7 @@ const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require(
 const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
 const { getWallet, addNganphieu, addNgoc, addItem, addLockedNgoc, addLockedItem, spendNgocForGame, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
-const { rollMany, formatRollResult, ROLL_COST, SUPPORTED_COUNTS, getPityStatus } = require('./services/gacha');
+const { rollMany, formatRollResult, getPityStatus } = require('./services/gacha');
 const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('./services/slot');
 const { runMultiFlip: runCoinflipMulti, COINFLIP_MAX_FLIPS } = require('./services/coinflip');
 const dice = require('./services/dice');
@@ -367,9 +367,9 @@ async function handleMessageCommand(msg) {
         if (parts[1] === 'all') {
             const w = getWallet(guildId, msg.author.id);
             const totalNgocGacha = w.ngoc + w.lockedNgoc;
-            n = Math.floor(totalNgocGacha / ROLL_COST);
-            if (n <= 0) return msg.reply(`Bạn không có đủ ngọc để quay. Cần ít nhất ${fmt(ROLL_COST)} ngọc.`);
-            const cost = n * ROLL_COST;
+            n = Math.floor(totalNgocGacha / economy.GACHA.ROLL_COST);
+            if (n <= 0) return msg.reply(`Bạn không có đủ ngọc để quay. Cần ít nhất ${fmt(economy.GACHA.ROLL_COST)} ngọc.`);
+            const cost = n * economy.GACHA.ROLL_COST;
             const confirmRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`gacha_all_confirm:${msg.author.id}`)
@@ -385,7 +385,7 @@ async function handleMessageCommand(msg) {
             n = parts[1] ? parseInt(parts[1], 10) : 1;
             if (!Number.isInteger(n) || n < 1 || n > 100) return msg.reply(`Chỉ hỗ trợ từ 1 đến 100 lần. Dùng \`!gacha all\` để quay hết ngọc.`);
         }
-        const cost = n * ROLL_COST;
+        const cost = n * economy.GACHA.ROLL_COST;
         const w = getWallet(guildId, msg.author.id);
         const totalNgocGacha = w.ngoc + w.lockedNgoc;
         if (totalNgocGacha < cost) return msg.reply(`Cần ${fmt(cost)} ngọc để quay ${fmt(n)} lần, bạn có ${fmt(totalNgocGacha)}.`);
@@ -560,8 +560,8 @@ async function handleMessageCommand(msg) {
         const itemKey = isCao ? 'cao' : 'thienthuong';
         const itemLabel = isCao ? 'cáo' : 'thiên thưởng';
         const pricePerUnit = isCao
-            ? economy.ROLLS_PER_THIENTHUONG * ROLL_COST * economy.TT_PER_CAO
-            : economy.ROLLS_PER_THIENTHUONG * ROLL_COST;
+            ? economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST * economy.TT_PER_CAO
+            : economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST;
         const w = getWallet(guildId, msg.author.id);
         const totalSell = w.items[itemKey] + w.lockedItems[itemKey];
         let n;

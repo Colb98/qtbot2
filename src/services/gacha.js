@@ -86,8 +86,9 @@ function getPityStatus(pity) {
 }
 
 module.exports = {
-    ROLL_COST: GACHA.ROLL_COST,
-    SUPPORTED_COUNTS: GACHA.SUPPORTED_COUNTS,
+    // Live getters so runtime economy overrides are reflected without a restart.
+    get ROLL_COST() { return GACHA.ROLL_COST; },
+    get SUPPORTED_COUNTS() { return GACHA.SUPPORTED_COUNTS; },
     rollOne,
     rollMany,
     formatRollResult,

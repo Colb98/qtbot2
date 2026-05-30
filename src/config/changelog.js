@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '1.15.6';
+const CURRENT_VERSION = '1.16.0';
 
 const CHANGELOG = {
+    '1.16.0': {
+        date: '2026-05-30',
+        title: 'Web panel chỉnh kinh tế (admin)',
+        changes: [
+            'Trang `/admin` trên web service: đăng nhập (cần auth) để chỉnh **mọi giá trị số** trong cấu hình kinh tế (bet cap, phần thưởng chat, giá gacha, tỉ lệ pity, wordchain…) và **áp dụng ngay vào bot, không cần khởi động lại**.',
+            'Tài khoản gốc lấy từ biến môi trường `ADMIN_USER` / `ADMIN_PASS`. Tài khoản gốc có thể tạo thêm tài khoản phụ (chỉ chỉnh kinh tế, không quản lý tài khoản).',
+            'Thay đổi được lưu vào file server-side (`economy_overrides.json`) nên vẫn giữ sau khi restart. Có nút khôi phục mặc định từng trường hoặc tất cả.'
+        ]
+    }
     '1.15.6': {
         date: '2026-05-28',
         title: 'Phân giải cáo → thiên thưởng',

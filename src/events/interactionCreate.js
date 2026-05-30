@@ -97,11 +97,11 @@ module.exports = {
                             const member = await interaction.guild.members.fetch(userId);
                             const w = getWallet(guildId, userId);
                             const totalNgocGacha = w.ngoc + (w.lockedNgoc || 0);
-                            const n = Math.floor(totalNgocGacha / ROLL_COST);
+                            const n = Math.floor(totalNgocGacha / economy.GACHA.ROLL_COST);
                             if (n <= 0) {
                                 return interaction.editReply({ content: '❌ Không đủ ngọc để quay.', components: [disabledRow] });
                             }
-                            const cost = n * ROLL_COST;
+                            const cost = n * economy.GACHA.ROLL_COST;
                             spendNgocForGame(guildId, userId, cost);
 
                             // Disable buttons on the confirm message

@@ -1,4 +1,12 @@
-module.exports = {
+const fs = require('fs');
+const path = require('path');
+
+// Default economy values. These are the baseline shipped with the bot.
+// Runtime overrides (edited via the admin web panel) are deep-merged on top of
+// a clone of these defaults, in place, so other modules that hold a reference to
+// the exported config object (or to a nested object like GACHA / BOND) see live
+// changes without a restart.
+const DEFAULTS = {
     CHAT_REWARD: 2500,
     CHAT_DAILY_CAP: 200,
 
@@ -112,3 +120,86 @@ module.exports = {
         ]
     }
 };
+
+// JSON.stringify drops Infinity (-> null). Preserve it through clone with a sentinel.
+function cloneDefaults(obj) {
+    if (Array.isArray(obj)) return obj.map(cloneDefaults);
+    if (obj && typeof obj === 'object') {
+        const out = {};
+        for (const k of Object.keys(obj)) out[k] = cloneDefaults(obj[k]);
+        return out;
+    }
+    return obj;
+}
+
+// The live config object every consumer reads from. Starts as a clone of DEFAULTS;
+// overrides are applied in place so references stay valid.
+const config = cloneDefaults(DEFAULTS);
+
+const OVERRIDES_PATH = path.resolve(__dirname, '..', '..', 'economy_overrides.json');
+
+// Navigate to the parent container of a dot-path; returns { parent, key } or null
+// if any segment along the way is missing. We never create new keys — overrides
+// may only target fields that already exist in the config shape.
+function locate(root, dotPath) {
+    const parts = String(dotPath).split('.');
+    let cur = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+        if (cur == null || typeof cur !== 'object') return null;
+        cur = cur[parts[i]];
+    }
+    const key = parts[parts.length - 1];
+    if (cur == null || typeof cur !== 'object' || !(key in cur)) return null;
+    return { parent: cur, key };
+}
+
+// Apply a flat { "GACHA.ROLL_COST": 120, ... } map onto the live config in place.
+// Only overwrites existing leaf values; unknown paths are skipped. Returns the
+// list of paths that were applied.
+function applyFlat(flat) {
+    const applied = [];
+    if (!flat || typeof flat !== 'object') return applied;
+    for (const [dotPath, value] of Object.entries(flat)) {
+        const loc = locate(config, dotPath);
+        if (!loc) continue;
+        const existing = loc.parent[loc.key];
+        // Only override scalar leaves (numbers/strings/booleans), never structures.
+        if (existing !== null && typeof existing === 'object') continue;
+        loc.parent[loc.key] = value;
+        applied.push(dotPath);
+    }
+    return applied;
+}
+
+// Load persisted overrides synchronously at module init, BEFORE any consumer
+// requires this module and caches a scalar at load time.
+function loadPersisted() {
+    try {
+        const raw = fs.readFileSync(OVERRIDES_PATH, 'utf8');
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+        if (e.code !== 'ENOENT') {
+            // Avoid pulling in the logger here (it may not be ready); use stderr.
+            console.error('economy: failed to read overrides file:', e.message);
+        }
+        return {};
+    }
+}
+
+applyFlat(loadPersisted());
+
+// Expose internals to the override manager without polluting the enumerable
+// config surface that consumers read.
+Object.defineProperty(config, '__meta', {
+    enumerable: false,
+    value: {
+        DEFAULTS,
+        OVERRIDES_PATH,
+        cloneDefaults,
+        locate,
+        applyFlat
+    }
+});
+
+module.exports = config;

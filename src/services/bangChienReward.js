@@ -2,8 +2,6 @@ const { data, saveData } = require('../state');
 const { addNgoc } = require('./currency');
 const economy = require('../config/economy');
 
-const BANG_CHIEN_REWARD = economy.BANG_CHIEN_REWARD;
-
 function ensurePath(guildId, postMessageId) {
     data.bangChienGrant = data.bangChienGrant || {};
     data.bangChienGrant[guildId] = data.bangChienGrant[guildId] || {};
@@ -16,7 +14,7 @@ function grantIfNeeded(guildId, userId, postMessageId) {
     const granted = ensurePath(guildId, postMessageId);
     if (granted[userId]) return false;
     granted[userId] = true;
-    addNgoc(guildId, userId, BANG_CHIEN_REWARD);
+    addNgoc(guildId, userId, economy.BANG_CHIEN_REWARD);
     saveData();
     return true;
 }
@@ -27,7 +25,7 @@ function revoke(guildId, userId, postMessageId) {
     const granted = data.bangChienGrant[guildId][postMessageId];
     if (!granted[userId]) return false;
     delete granted[userId];
-    addNgoc(guildId, userId, -BANG_CHIEN_REWARD);
+    addNgoc(guildId, userId, -economy.BANG_CHIEN_REWARD);
     saveData();
     return true;
 }
@@ -44,7 +42,7 @@ function retroactiveGrantAll(guildId) {
 }
 
 module.exports = {
-    BANG_CHIEN_REWARD,
+    get BANG_CHIEN_REWARD() { return economy.BANG_CHIEN_REWARD; },
     grantIfNeeded,
     revoke,
     retroactiveGrantAll
