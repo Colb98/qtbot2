@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const log = require('../../logger');
+const profileSvc = require('./profile');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const ASSETS_BASE = path.join(ROOT, 'assets');
@@ -157,6 +158,29 @@ function fmtNumShort(n) {
     if (x >= 1_000_000) return (x / 1_000_000).toFixed(x >= 10_000_000 ? 0 : 1).replace(/\.0$/, '') + 'M';
     if (x >= 1_000)     return (x / 1_000).toFixed(x >= 10_000 ? 0 : 1).replace(/\.0$/, '') + 'K';
     return String(Math.round(x));
+}
+
+// Build the achievement-compute context from a player.stats blob.
+function achCtx(stats) {
+    stats = stats || {};
+    return {
+        gameStats: stats.gameStats || {},
+        gachaStats: stats.gachaStats || { rolls: 0, cao: 0, thienthuong: 0, kythuong: 0 },
+        jackpot: stats.biggestJackpot || null,
+        wordchainRank: stats.wordchainRank || null,
+        vtvRank: stats.vtvRank || null
+    };
+}
+
+// Format an achievement catalog entry's value for display, per its `kind`.
+function formatAchievementValue(entry, ctx) {
+    const raw = entry.compute(ctx);
+    if (entry.kind === 'rank') return raw ? `#${raw}` : '—';
+    if (entry.kind === 'signed') {
+        const n = raw || 0;
+        return `${n >= 0 ? '+' : '−'}${fmtNumShort(Math.abs(n))}`;
+    }
+    return fmtNumShort(raw || 0);
 }
 
 // Letter-spaced text. Canvas supports ctx.letterSpacing but it requires CSS
@@ -980,23 +1004,19 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         ctx.fillRect(PX + lblW + 10, achLabelY + 6, 480 - lblW - 10, 1);
         ctx.restore();
 
-        // Achievement chips
+        // Achievement chips — driven by the player's chosen achievementSlots
+        // (catalog in services/profile.js). Falls back to the legacy default
+        // trio when nothing is selected.
         const stats = player.stats || {};
+        const achContext = achCtx(stats);
+        const selected = ((player.profile && player.profile.achievementSlots) || [])
+            .filter(id => id && profileSvc.ACHIEVEMENTS_BY_ID.has(id));
+        const chipIds = selected.length > 0 ? selected.slice(0, 3) : profileSvc.DEFAULT_ACHIEVEMENTS;
         const chips = [];
-        if (stats.wordchainRank) {
-            chips.push({ glyph: 'crown', label: 'Top Nối Từ', rank: `#${stats.wordchainRank}` });
-        } else {
-            chips.push({ glyph: 'crown', label: 'Top Nối Từ', rank: '—' });
-        }
-        if (stats.vtvRank) {
-            chips.push({ glyph: 'coin', label: 'Vua Tiếng Việt', rank: `#${stats.vtvRank}` });
-        } else {
-            chips.push({ glyph: 'coin', label: 'Vua Tiếng Việt', rank: '—' });
-        }
-        if (stats.biggestJackpot && stats.biggestJackpot.amount > 0) {
-            chips.push({ glyph: 'diamond', label: 'Jackpot Lớn Nhất', rank: fmtNum(stats.biggestJackpot.amount) });
-        } else {
-            chips.push({ glyph: 'diamond', label: 'Jackpot Lớn Nhất', rank: '—' });
+        for (const id of chipIds) {
+            const entry = profileSvc.ACHIEVEMENTS_BY_ID.get(id);
+            if (!entry) continue;
+            chips.push({ glyph: entry.glyph, label: entry.label, rank: formatAchievementValue(entry, achContext) });
         }
 
         // 2-line chip: line 1 = title (small caps), line 2 = value (large).
@@ -1112,22 +1132,26 @@ function computeStats(guildId, userId, profileData) {
         }));
     } catch (e) { /* service not available */ }
     let gameStats = null;
+    let gachaStats = null;
     try {
-        const prof = require('./profile');
-        gameStats = prof.getGameStats(guildId, userId);
+        gameStats = profileSvc.getGameStats(guildId, userId);
+        gachaStats = profileSvc.getGachaStats(guildId, userId);
     } catch (e) { /* service not available */ }
     return {
         biggestJackpot: profileData && profileData.biggestJackpot,
         wordchainRank, wordchainTotal, wordchainBest,
         vtvRank, vtvTotal, vtvWords,
         topBonds,
-        gameStats
+        gameStats,
+        gachaStats
     };
 }
 
 module.exports = {
     renderProfileCard,
     computeStats,
+    achCtx,
+    formatAchievementValue,
     registerFonts,
     SECT_TO_CODE,
     ITEM_LABELS,

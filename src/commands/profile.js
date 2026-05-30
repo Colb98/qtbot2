@@ -84,7 +84,32 @@ function buildItemOptions(wallet) {
     return opts;
 }
 
-function buildConfigComponents(userId, wallet, prof) {
+// Achievement picker — one select listing the full catalog (≤25 entries),
+// letting the player choose up to 3 to show on their card. Each option's
+// description previews the player's current value for that achievement.
+function buildAchievementSelect(guildId, userId, prof) {
+    const stats = profileCard.computeStats(guildId, userId, prof);
+    const ctx = profileCard.achCtx(stats);
+    const selected = (prof.achievementSlots || []).filter(Boolean);
+    const opts = profile.ACHIEVEMENTS.map(entry => {
+        const o = new StringSelectMenuOptionBuilder()
+            .setLabel(entry.label)
+            .setValue(entry.id)
+            .setDescription(`Hiện tại: ${profileCard.formatAchievementValue(entry, ctx)}`.slice(0, 100));
+        if (selected.includes(entry.id)) o.setDefault(true);
+        return o;
+    });
+    return new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId(`profile:ach:${userId}`)
+            .setPlaceholder(`Danh hiệu (chọn tối đa 3)${selected.length ? ` — đang chọn ${selected.length}` : ''}`)
+            .setMinValues(0)
+            .setMaxValues(3)
+            .addOptions(...opts.slice(0, 25))
+    );
+}
+
+function buildConfigComponents(guildId, userId, wallet, prof) {
     const itemOpts = buildItemOptions(wallet);
 
     const slot1 = new ActionRowBuilder().addComponents(
@@ -125,7 +150,9 @@ function buildConfigComponents(userId, wallet, prof) {
             .setStyle(ButtonStyle.Success)
     );
 
-    return [slot1, slot2, slot3, toggleRow];
+    const achRow = buildAchievementSelect(guildId, userId, prof);
+
+    return [slot1, slot2, slot3, achRow, toggleRow];
 }
 
 // ── Public entry points ────────────────────────────────────────────────────
@@ -173,7 +200,7 @@ async function sendProfileCard(ctx, user) {
 async function refreshConfigComponents(interaction, guildId, ownerUserId) {
     const wallet = getWallet(guildId, ownerUserId);
     const prof = profile.getProfile(guildId, ownerUserId);
-    const components = buildConfigComponents(ownerUserId, wallet, prof);
+    const components = buildConfigComponents(guildId, ownerUserId, wallet, prof);
     await interaction.editReply({ components }).catch(() => {});
 }
 
@@ -192,9 +219,9 @@ async function handleComponent(interaction) {
         // Show the config UI as an ephemeral message
         const wallet = getWallet(guildId, ownerUserId);
         const prof = profile.getProfile(guildId, ownerUserId);
-        const components = buildConfigComponents(ownerUserId, wallet, prof);
+        const components = buildConfigComponents(guildId, ownerUserId, wallet, prof);
         return interaction.reply({
-            content: '⚙️ **Tuỳ chỉnh profile** — chọn vật phẩm, bật/tắt ngọc, đổi giới tính, đổi tên. Bấm **Xong** để render card.',
+            content: '⚙️ **Tuỳ chỉnh profile** — chọn vật phẩm, danh hiệu (tối đa 3), bật/tắt ngọc, đổi giới tính, đổi tên. Bấm **Xong** để render card.',
             components,
             flags: MessageFlags.Ephemeral
         });
@@ -209,6 +236,18 @@ async function handleComponent(interaction) {
         const key = value === NONE_VALUE ? null : value;
         try {
             profile.setItemSlot(guildId, ownerUserId, slotNum, key);
+        } catch (e) {
+            return interaction.reply({ content: `Lỗi: ${e.message}`, flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferUpdate().catch(() => {});
+        await refreshConfigComponents(interaction, guildId, ownerUserId);
+        return;
+    }
+
+    if (action === 'ach') {
+        const values = (interaction.values || []).slice(0, 3);
+        try {
+            profile.setAchievementSlots(guildId, ownerUserId, values);
         } catch (e) {
             return interaction.reply({ content: `Lỗi: ${e.message}`, flags: MessageFlags.Ephemeral });
         }

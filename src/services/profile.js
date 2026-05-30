@@ -45,6 +45,9 @@ function defaults() {
         selectedTitle: null,
         selectedBorder: null,
         badgeSlots: [null, null, null],
+        // Up to 3 achievement ids (from ACHIEVEMENTS catalog) shown on the card.
+        // Empty/all-null → card falls back to DEFAULT_ACHIEVEMENTS.
+        achievementSlots: [null, null, null],
         // Daily card-render cap (non-super-admin only). Resets at 00:00 GMT+7.
         cardRenderCap: { date: null, count: 0 }
     };
@@ -58,6 +61,7 @@ function getProfile(guildId, userId) {
     const d = defaults();
     for (const k of Object.keys(d)) if (p[k] === undefined) p[k] = d[k];
     if (!Array.isArray(p.badgeSlots) || p.badgeSlots.length !== 3) p.badgeSlots = [null, null, null];
+    if (!Array.isArray(p.achievementSlots) || p.achievementSlots.length !== 3) p.achievementSlots = [null, null, null];
     if (!p.cardRenderCap || typeof p.cardRenderCap !== 'object') p.cardRenderCap = { date: null, count: 0 };
     return p;
 }
@@ -169,12 +173,16 @@ function ensureGameStats(p) {
     if (!p.gameStats || typeof p.gameStats !== 'object') p.gameStats = {};
     for (const k of GAME_KEYS) {
         if (!p.gameStats[k] || typeof p.gameStats[k] !== 'object') {
-            p.gameStats[k] = { plays: 0, totalBet: 0, totalPayout: 0 };
+            p.gameStats[k] = { plays: 0, totalBet: 0, totalPayout: 0, totalWon: 0, totalLost: 0 };
         }
         const g = p.gameStats[k];
         if (typeof g.plays !== 'number') g.plays = 0;
         if (typeof g.totalBet !== 'number') g.totalBet = 0;
         if (typeof g.totalPayout !== 'number') g.totalPayout = 0;
+        // totalWon = sum of net profit on winning plays, totalLost = sum of net
+        // loss on losing plays. Added later; historical plays leave these at 0.
+        if (typeof g.totalWon !== 'number') g.totalWon = 0;
+        if (typeof g.totalLost !== 'number') g.totalLost = 0;
     }
     return p.gameStats;
 }
@@ -193,12 +201,113 @@ function recordGame(guildId, userId, game, bet, payout) {
     g.plays += 1;
     g.totalBet += bet;
     g.totalPayout += payout;
+    const net = payout - bet;
+    if (net > 0) g.totalWon += net;
+    else if (net < 0) g.totalLost += -net;
     saveData();
 }
 
 function getGameStats(guildId, userId) {
     const p = getProfile(guildId, userId);
     return ensureGameStats(p);
+}
+
+// ── Gacha stats ─────────────────────────────────────────────────────────────
+// Lifetime totals: number of rolls + how many rare drops (cáo / thiên thưởng /
+// kỳ thưởng) came out of the gacha.
+function ensureGachaStats(p) {
+    if (!p.gachaStats || typeof p.gachaStats !== 'object') p.gachaStats = {};
+    const g = p.gachaStats;
+    for (const k of ['rolls', 'cao', 'thienthuong', 'kythuong']) {
+        if (typeof g[k] !== 'number') g[k] = 0;
+    }
+    return g;
+}
+
+// Record a gacha pull batch. `rolls` is the number of rolls, `counts` is the
+// per-item result map from gacha.rollMany (e.g. { cao, thienthuong, kythuong }).
+function recordGacha(guildId, userId, rolls, counts) {
+    if (!guildId || !userId) return;
+    if (!Number.isFinite(rolls) || rolls <= 0) return;
+    const p = getProfile(guildId, userId);
+    const g = ensureGachaStats(p);
+    g.rolls += rolls;
+    if (counts) {
+        g.cao += counts.cao || 0;
+        g.thienthuong += counts.thienthuong || 0;
+        g.kythuong += counts.kythuong || 0;
+    }
+    saveData();
+}
+
+function getGachaStats(guildId, userId) {
+    const p = getProfile(guildId, userId);
+    return ensureGachaStats(p);
+}
+
+// ── Achievement catalog ─────────────────────────────────────────────────────
+// Each entry derives a display value from a `ctx` of the player's tracked
+// stats: { gameStats, gachaStats, jackpot, wordchainRank, vtvRank }. `kind`
+// tells the renderer how to format the raw value:
+//   'num'    → compact number (1.2M)
+//   'signed' → +/− compact number (net profit, can be negative)
+//   'rank'   → #N, or '—' when unranked (compute returns null)
+const ACH_GAME_LABEL = { slot: 'Slot', coinflip: 'Coin', tong: 'Tổng', mat: 'Mặt' };
+const _g = (ctx, k) => (ctx.gameStats && ctx.gameStats[k]) || { plays: 0, totalBet: 0, totalPayout: 0, totalWon: 0, totalLost: 0 };
+
+const ACHIEVEMENTS = [
+    // Tổng tiền đã cược — mỗi mode 1 danh hiệu
+    ...GAME_KEYS.map(k => ({ id: `bet_${k}`, label: `Tổng Cược ${ACH_GAME_LABEL[k]}`, glyph: 'coin', kind: 'num',
+        compute: (ctx) => _g(ctx, k).totalBet })),
+    // Tổng tiền đã thắng (lãi) — mỗi mode 1 danh hiệu, thua = 0
+    ...GAME_KEYS.map(k => ({ id: `won_${k}`, label: `Tổng Thắng ${ACH_GAME_LABEL[k]}`, glyph: 'crown', kind: 'num',
+        compute: (ctx) => _g(ctx, k).totalWon })),
+    // Tổng tiền thua — mỗi mode 1 danh hiệu, thắng = 0
+    ...GAME_KEYS.map(k => ({ id: `lost_${k}`, label: `Tổng Thua ${ACH_GAME_LABEL[k]}`, glyph: 'diamond', kind: 'num',
+        compute: (ctx) => _g(ctx, k).totalLost })),
+    // Số lượt chơi — mỗi mode 1 danh hiệu
+    ...GAME_KEYS.map(k => ({ id: `plays_${k}`, label: `Lượt Chơi ${ACH_GAME_LABEL[k]}`, glyph: 'coin', kind: 'num',
+        compute: (ctx) => _g(ctx, k).plays })),
+    // Gacha
+    { id: 'gacha_rolls', label: 'Số Lượt Gacha', glyph: 'diamond', kind: 'num',
+        compute: (ctx) => (ctx.gachaStats && ctx.gachaStats.rolls) || 0 },
+    { id: 'gacha_cao', label: 'Cáo Từ Gacha', glyph: 'crown', kind: 'num',
+        compute: (ctx) => (ctx.gachaStats && ctx.gachaStats.cao) || 0 },
+    { id: 'gacha_thienthuong', label: 'Thiên Thưởng Gacha', glyph: 'diamond', kind: 'num',
+        compute: (ctx) => (ctx.gachaStats && ctx.gachaStats.thienthuong) || 0 },
+    // ── Gợi ý thêm ──
+    { id: 'gacha_kythuong', label: 'Kỳ Thưởng Gacha', glyph: 'diamond', kind: 'num',
+        compute: (ctx) => (ctx.gachaStats && ctx.gachaStats.kythuong) || 0 },
+    { id: 'total_bet', label: 'Tổng Cược Tất Cả', glyph: 'coin', kind: 'num',
+        compute: (ctx) => GAME_KEYS.reduce((s, k) => s + _g(ctx, k).totalBet, 0) },
+    { id: 'total_plays', label: 'Tổng Lượt Chơi', glyph: 'coin', kind: 'num',
+        compute: (ctx) => GAME_KEYS.reduce((s, k) => s + _g(ctx, k).plays, 0) },
+    { id: 'net_profit', label: 'Lãi Ròng', glyph: 'crown', kind: 'signed',
+        compute: (ctx) => GAME_KEYS.reduce((s, k) => s + (_g(ctx, k).totalPayout - _g(ctx, k).totalBet), 0) },
+    { id: 'jackpot', label: 'Jackpot Lớn Nhất', glyph: 'diamond', kind: 'num',
+        compute: (ctx) => (ctx.jackpot && ctx.jackpot.amount) || 0 },
+    { id: 'wordchain', label: 'Top Nối Từ', glyph: 'crown', kind: 'rank',
+        compute: (ctx) => ctx.wordchainRank || null },
+    { id: 'vtv', label: 'Vua Tiếng Việt', glyph: 'coin', kind: 'rank',
+        compute: (ctx) => ctx.vtvRank || null }
+];
+const ACHIEVEMENTS_BY_ID = new Map(ACHIEVEMENTS.map(a => [a.id, a]));
+const ACHIEVEMENT_IDS = new Set(ACHIEVEMENTS.map(a => a.id));
+// Shown when the player hasn't picked any (preserves the legacy card layout).
+const DEFAULT_ACHIEVEMENTS = ['wordchain', 'vtv', 'jackpot'];
+
+// Persist the player's chosen achievement ids (max 3, de-duped, validated).
+// Stored as a length-3 array padded with null.
+function setAchievementSlots(guildId, userId, ids) {
+    const p = getProfile(guildId, userId);
+    const cleaned = [];
+    for (const id of (Array.isArray(ids) ? ids : [])) {
+        if (ACHIEVEMENT_IDS.has(id) && !cleaned.includes(id)) cleaned.push(id);
+        if (cleaned.length >= 3) break;
+    }
+    p.achievementSlots = [cleaned[0] || null, cleaned[1] || null, cleaned[2] || null];
+    saveData();
+    return p;
 }
 
 module.exports = {
@@ -214,6 +323,12 @@ module.exports = {
     recordWin,
     recordGame,
     getGameStats,
+    recordGacha,
+    getGachaStats,
+    setAchievementSlots,
+    ACHIEVEMENTS,
+    ACHIEVEMENTS_BY_ID,
+    DEFAULT_ACHIEVEMENTS,
     GAME_KEYS,
     GAME_LABELS,
     getBiggestJackpot,

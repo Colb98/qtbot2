@@ -129,6 +129,7 @@ module.exports = {
                             }
                             saveData();
                             metrics.recordGacha({ guildId, rolls: n, cost, counts, userId, ...gachaMeta });
+                            profile.recordGacha(guildId, userId, n, counts);
                             const result = formatRollResult(counts);
                             await shakeMsg.edit({ content: `**${member.displayName}** quay ${fmt(n)} lần (-${fmt(cost)} ${renderEmote('ngoc')}):\n${result}`, attachments: [] }).catch(e => log.error('gacha edit error', e));
                         } catch (e) {

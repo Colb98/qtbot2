@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '1.17.0';
+const CURRENT_VERSION = '1.18.0';
 
 const CHANGELOG = {
+    '1.18.0': {
+        date: '2026-05-30',
+        title: 'Danh hiệu tuỳ chọn cho profile card',
+        changes: [
+            '`/profile` → **Tuỳ chỉnh**: thêm menu **Danh hiệu** cho phép chọn tối đa **3 danh hiệu** hiện trên card (thay cho 3 ô cố định cũ).',
+            'Danh hiệu mới bám theo thống kê chơi game: **Tổng cược / Tổng thắng / Tổng thua / Lượt chơi** cho từng mode (Slot · Coin · Tổng · Mặt), cùng **Tổng cược tất cả**, **Tổng lượt chơi** và **Lãi ròng**.',
+            'Danh hiệu Gacha: **Số lượt Gacha**, **Cáo / Thiên Thưởng / Kỳ Thưởng từ Gacha**.',
+            'Vẫn giữ các danh hiệu cũ (Top Nối Từ · Vua Tiếng Việt · Jackpot Lớn Nhất) làm mặc định khi chưa chọn gì.'
+        ]
+    },
     '1.17.0': {
         date: '2026-05-30',
         title: 'Hai game toán mới: Flash Math & Boss Raid',
