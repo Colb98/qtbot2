@@ -4,6 +4,8 @@ const log = require('../../logger');
 const wordchain = require('../services/wordchain');
 const wordchainEng = require('../services/wordchainEng');
 const vuaTiengViet = require('../services/vuaTiengViet');
+const flashMath = require('../services/flashMath');
+const mathBoss = require('../services/mathBoss');
 const arrangeCmd = require('../commands/arrange');
 const profileCmd = require('../commands/profile');
 const { getWallet, addNgoc, addItem, spendNgocForGame, renderEmote, fmt, ITEM_KEYS, ITEM_LABELS } = require('../services/currency');
@@ -137,6 +139,10 @@ module.exports = {
                     await wordchainEng.handleButtonInteraction(interaction);
                 } else if (interaction.customId.startsWith('vtv_')) {
                     await vuaTiengViet.handleButtonInteraction(interaction);
+                } else if (interaction.customId.startsWith('fm_')) {
+                    await flashMath.handleButtonInteraction(interaction);
+                } else if (interaction.customId.startsWith('boss_')) {
+                    await mathBoss.handleButtonInteraction(interaction);
                 } else if (interaction.customId.startsWith('khodo:')) {
                     await handleKhodoButton(interaction);
                 } else {

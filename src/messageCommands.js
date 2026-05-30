@@ -22,6 +22,8 @@ const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
 const wordchainEng = require('./services/wordchainEng');
 const vuaTiengViet = require('./services/vuaTiengViet');
+const flashMath = require('./services/flashMath');
+const mathBoss = require('./services/mathBoss');
 const bond = require('./services/bond');
 const profileCmd = require('./commands/profile');
 const profile = require('./services/profile');
@@ -29,7 +31,7 @@ const lixiSvc = require('./services/lixi');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
-    '!gacha', '!wordchain', '!vuatiengviet'
+    '!gacha', '!wordchain', '!vuatiengviet', '!flashmath', '!boss'
 ]);
 
 async function handleMessageCommand(msg) {
@@ -132,6 +134,8 @@ async function handleMessageCommand(msg) {
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
+• \`!flashmath\` — Tạo thread **Flash Math**: trả lời nhanh phép tính, ai đúng trước nhận ngọc. Độ khó tăng mỗi ${economy.FLASHMATH.QUESTIONS_PER_LEVEL} câu. Cap ${fmt(economy.FLASHMATH.DAILY_CAP)} ${renderEmote('ngoc')}/ngày. \`!flashmath_top\` xem BXH, \`!flashmath_cap\` xem cap.
+• \`!boss <small|medium|big>\` — Triệu hồi **Boss toán học** để solo hoặc cả nhóm cùng đánh (giải phép tính = sát thương). Thưởng chia theo sát thương, cap ${fmt(economy.MATHBOSS.NGOC_DAILY_CAP)} ${renderEmote('ngoc')}/ngày.
 
 **Khác:**
 • Chat: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)}/ngày).
@@ -1297,6 +1301,66 @@ async function handleMessageCommand(msg) {
         } catch (e) {
             log.error('vuatiengviet start failed', e);
             return msg.reply('Không thể bắt đầu trò chơi.');
+        }
+    }
+
+    if (cmd === '!flashmath' || cmd === '!flash') {
+        if (msg.channel.type !== ChannelType.GuildText) {
+            return msg.reply('Lệnh này chỉ dùng trong text channel (không trong thread hoặc DM).');
+        }
+        try {
+            const thread = await flashMath.startSession({ channel: msg.channel, invokerId: msg.author.id });
+            return msg.reply(`Đã tạo thread Flash Math: <#${thread.id}>`);
+        } catch (e) {
+            log.error('flashmath start failed', e);
+            return msg.reply('Không thể bắt đầu trò chơi.');
+        }
+    }
+
+    if (cmd === '!flashmath_top' || cmd === '!flash_top') {
+        const top = flashMath.getTopScores(guildId, 10);
+        const lines = ['🏆 **Top Flash Math** (tổng câu đúng)'];
+        if (top.length === 0) {
+            lines.push('_Chưa có ai trên bảng xếp hạng._');
+        } else {
+            for (let i = 0; i < top.length; i++) {
+                const [userId, score] = top[i];
+                let name = userId;
+                try { const m = await msg.guild.members.fetch(userId).catch(() => null); if (m) name = m.displayName; } catch (e) { /* ignore */ }
+                lines.push(`${i + 1}. **${name}** — **${fmt(score)}** câu`);
+            }
+        }
+        return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+    }
+
+    if (cmd === '!flashmath_cap') {
+        const status = flashMath.getCapStatus(guildId, msg.author.id);
+        return msg.reply(`📊 **Cap Flash Math hôm nay:** **${fmt(status.earned)}** / **${fmt(status.cap)}** ${renderEmote('ngoc')}`);
+    }
+
+    if (cmd === '!boss') {
+        if (msg.channel.type !== ChannelType.GuildText) {
+            return msg.reply('Lệnh này chỉ dùng trong text channel (không trong thread hoặc DM).');
+        }
+        const arg = (parts[1] || '').toLowerCase();
+        let tier = null;
+        if (arg === 'small' || arg === 'nho' || arg === 'nhỏ' || arg === 's') tier = 'small';
+        else if (arg === 'medium' || arg === 'vua' || arg === 'vừa' || arg === 'm') tier = 'medium';
+        else if (arg === 'big' || arg === 'lon' || arg === 'lớn' || arg === 'b') tier = 'big';
+        if (!tier) {
+            return msg.reply('Cú pháp: `!boss <small|medium|big>` — triệu hồi boss toán học để cả nhóm (hoặc solo) đánh.');
+        }
+        const chk = mathBoss.checkSummon(guildId, msg.author.id, tier);
+        if (!chk.ok) {
+            return msg.reply(`Bạn đã triệu hồi đủ **${mathBoss.TIERS[tier].label}** hôm nay (${chk.used}/${chk.cap}). Thử lại vào ngày mai.`);
+        }
+        try {
+            const thread = await mathBoss.startSession({ channel: msg.channel, invokerId: msg.author.id, invokerName: member.displayName, tier });
+            mathBoss.consumeSummon(guildId, msg.author.id, tier);
+            return msg.reply(`Đã triệu hồi ${mathBoss.TIERS[tier].label}: <#${thread.id}>`);
+        } catch (e) {
+            log.error('boss start failed', e);
+            return msg.reply('Không thể bắt đầu raid.');
         }
     }
 

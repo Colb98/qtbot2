@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '1.16.0';
+const CURRENT_VERSION = '1.17.0';
 
 const CHANGELOG = {
+    '1.17.0': {
+        date: '2026-05-30',
+        title: 'Hai game toán mới: Flash Math & Boss Raid',
+        changes: [
+            '`!flashmath` — **Flash Math**: tạo thread đua giải toán nhanh, ai gõ đáp án đúng **trước** nhận ngọc. Độ khó tự tăng mỗi 5 câu đúng (số lớn dần → tối đa 3 số → rồi rút ngắn thời gian xuống đáy 5s). Cap ngọc/ngày mỗi người. `!flashmath_top` xem bảng xếp hạng, `!flashmath_cap` xem cap còn lại.',
+            '`!boss <small|medium|big>` — **Math Boss Raid**: triệu hồi boss toán học để **solo hoặc cả nhóm** cùng đánh; giải phép tính = sát thương lên boss. Mỗi tier có moveset riêng (nhỏ đánh 1 người · vừa đôi khi đánh cả đội · lớn quét sạch đội sau nhiều lượt thất bại). Người mới vào giữa trận có máu bằng người cao nhất đang sống (chống exploit). Thưởng chia theo **% sát thương**, có cap ngọc/ngày và cap số lần triệu hồi/ngày theo tier.'
+        ]
+    },
     '1.16.0': {
         date: '2026-05-30',
         title: 'Web panel chỉnh kinh tế (admin)',

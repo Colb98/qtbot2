@@ -3,6 +3,8 @@ const { handleMessageCommand } = require('../messageCommands');
 const wordchain = require('../services/wordchain');
 const wordchainEng = require('../services/wordchainEng');
 const vuaTiengViet = require('../services/vuaTiengViet');
+const flashMath = require('../services/flashMath');
+const mathBoss = require('../services/mathBoss');
 const { tryEarnFromChat } = require('../services/currency');
 const { isBlockedByMaintenance } = require('../services/maintenance');
 
@@ -24,6 +26,14 @@ module.exports = {
             }
             if (vuaTiengViet.hasThread(msg.channel.id)) {
                 await vuaTiengViet.handleThreadMessage(msg);
+                return;
+            }
+            if (flashMath.hasThread(msg.channel.id)) {
+                await flashMath.handleThreadMessage(msg);
+                return;
+            }
+            if (mathBoss.hasThread(msg.channel.id)) {
+                await mathBoss.handleThreadMessage(msg);
                 return;
             }
         }

@@ -118,6 +118,59 @@ const DEFAULTS = {
             { from: 2, to: 3, ngoc: 8000 },
             { from: 4, to: 10, ngoc: 4000 }
         ]
+    },
+
+    // ── Flash Math (#1) ──────────────────────────────────────────────────────
+    // Open-thread reaction race. Difficulty auto-escalates every
+    // QUESTIONS_PER_LEVEL correct answers along LADDER (index = level-1, clamped
+    // to the last row). Phase 1 ramps hardness at a constant timer; phase 2
+    // freezes hardness and shrinks the timer to a 5s floor.
+    FLASHMATH: {
+        QUESTIONS_PER_LEVEL: 5,
+        MULT_MAX_FACTOR: 12,
+        MAX_MISSES: 3,
+        NGOC_PER_CORRECT_BASE: 40,
+        NGOC_PER_LEVEL_STEP: 10,
+        NGOC_PER_CORRECT_MAX: 200,
+        DAILY_CAP: 6000,
+        LADDER: [
+            { nums: 2, min: 1, max: 20, ops: ['+', '-'],      timeS: 20 }, // L1
+            { nums: 2, min: 1, max: 50, ops: ['+', '-'],      timeS: 20 }, // L2
+            { nums: 2, min: 1, max: 99, ops: ['+', '-', '*'], timeS: 20 }, // L3
+            { nums: 3, min: 1, max: 20, ops: ['+', '-'],      timeS: 20 }, // L4
+            { nums: 3, min: 1, max: 50, ops: ['+', '-', '*'], timeS: 20 }, // L5
+            { nums: 3, min: 1, max: 99, ops: ['+', '-', '*'], timeS: 20 }, // L6 max hardness
+            { nums: 3, min: 1, max: 99, ops: ['+', '-', '*'], timeS: 18 }, // L7
+            { nums: 3, min: 1, max: 99, ops: ['+', '-', '*'], timeS: 15 }, // L8
+            { nums: 3, min: 1, max: 99, ops: ['+', '-', '*'], timeS: 12 }, // L9
+            { nums: 3, min: 1, max: 99, ops: ['+', '-', '*'], timeS: 9  }, // L10
+            { nums: 3, min: 1, max: 99, ops: ['+', '-', '*'], timeS: 6  }, // L11
+            { nums: 3, min: 1, max: 99, ops: ['+', '-', '*'], timeS: 5  }  // L12+ floor
+        ]
+    },
+
+    // ── Math Boss Raid (#3) ──────────────────────────────────────────────────
+    // Co-op (or solo) boss fight. Each turn the boss posts EQ equations; each
+    // solved equation deals DMG_PER_EQ to the boss and is credited to its solver
+    // (reward split by damage on kill). The boss retaliates per MOVESET.
+    MATHBOSS: {
+        MULT_MAX_FACTOR: 12,
+        NGOC_DAILY_CAP: 15000, // per user/day across all boss tiers
+        SMALL: {
+            EQ: 1, TIME_S: 15, BOSS_HP: 8,  PLAYER_HP: 3, DMG_PER_EQ: 1, BOSS_ATK: 1,
+            NGOC_POOL: 1500, SUMMON_CAP: 5, MIN: 1, MAX: 20, OPS: ['+', '-'],
+            MOVESET: 'single'
+        },
+        MEDIUM: {
+            EQ: 2, TIME_S: 12, BOSS_HP: 20, PLAYER_HP: 4, DMG_PER_EQ: 1, BOSS_ATK: 1,
+            NGOC_POOL: 4000, SUMMON_CAP: 3, MIN: 1, MAX: 50, OPS: ['+', '-', '*'],
+            AOE_CHANCE: 0.25, MOVESET: 'aoe'
+        },
+        BIG: {
+            EQ: 4, TIME_S: 10, BOSS_HP: 40, PLAYER_HP: 5, DMG_PER_EQ: 1, BOSS_ATK: 1,
+            NGOC_POOL: 12000, SUMMON_CAP: 1, MIN: 1, MAX: 99, OPS: ['+', '-', '*'],
+            WIPE_AFTER_FAILS: 3, MOVESET: 'wipe'
+        }
     }
 };
 
