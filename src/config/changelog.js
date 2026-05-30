@@ -9,7 +9,7 @@ const CHANGELOG = {
             'Tài khoản gốc lấy từ biến môi trường `ADMIN_USER` / `ADMIN_PASS`. Tài khoản gốc có thể tạo thêm tài khoản phụ (chỉ chỉnh kinh tế, không quản lý tài khoản).',
             'Thay đổi được lưu vào file server-side (`economy_overrides.json`) nên vẫn giữ sau khi restart. Có nút khôi phục mặc định từng trường hoặc tất cả.'
         ]
-    }
+    },
     '1.15.6': {
         date: '2026-05-28',
         title: 'Phân giải cáo → thiên thưởng',
