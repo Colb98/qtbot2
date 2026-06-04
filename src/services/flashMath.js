@@ -11,6 +11,7 @@ const { data, saveData } = require('../state');
 const { addNgoc, renderEmote, fmt, todayStr } = require('./currency');
 const economy = require('../config/economy');
 const { genEquation } = require('./mathGen');
+const metrics = require('./metrics');
 
 const HARD_CAP_MS = 24 * 60 * 60 * 1000;
 const TIMER_GRACE_MS = 2000;
@@ -223,6 +224,7 @@ function scheduleWeeklyPayout() {
 function recordRun(session) {
     if (!session.playerLevels || session.playerLevels.size === 0) return;
     for (const [uid, lvl] of session.playerLevels) recordLevel(session.guildId, uid, lvl);
+    metrics.recordFlashMath({ guildId: session.guildId, run: true });
     saveData();
 }
 
@@ -529,6 +531,13 @@ async function _handleThreadMessageImpl(msg) {
     session.correctCount++;
     const reward = rewardFor(session.level);
     const earned = earnNgoc(session.guildId, msg.author.id, reward);
+    metrics.recordFlashMath({
+        guildId: session.guildId,
+        ngocAwarded: earned,
+        level: solvedLevel,
+        capped: earned < reward,
+        userId: msg.author.id
+    });
 
     await msg.react('✅').catch(() => {});
     const rewardText = earned > 0

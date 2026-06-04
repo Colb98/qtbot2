@@ -146,6 +146,25 @@ const GAME_DEFAULTS = {
             hard:   { words: 0, ngocAwarded: 0 }
         },
         playerIds: {}
+    },
+    flashmath: {
+        runs: 0,
+        correct: 0,
+        ngocAwarded: 0,
+        biggestLevel: 0,
+        cappedAwards: 0,
+        playerIds: {}
+    },
+    mathboss: {
+        raids: 0,
+        victories: 0,
+        ngocAwarded: 0,
+        byTier: {
+            small:  { raids: 0, victories: 0, ngocAwarded: 0 },
+            medium: { raids: 0, victories: 0, ngocAwarded: 0 },
+            big:    { raids: 0, victories: 0, ngocAwarded: 0 }
+        },
+        playerIds: {}
     }
 };
 
@@ -308,7 +327,7 @@ function _get(guildId, game) {
 // Merge multiple per-guild snapshots of a single game into one flat metric.
 // Numbers sum; biggestWin/biggestWinBet kept as a pair; biggestRound/maxBet → max.
 // Object fields (playerIds, outcomes, betBuckets, etc.) merge by summing values.
-const MAX_FIELDS = new Set(['biggestRound', 'maxBet']);
+const MAX_FIELDS = new Set(['biggestRound', 'maxBet', 'biggestLevel']);
 function mergeForGame(game, instances) {
     const def = GAME_DEFAULTS[game];
     const out = JSON.parse(JSON.stringify(def));
@@ -595,6 +614,46 @@ function recordVuaTiengViet({ guildId, difficulty, ngocAwarded, userId }) {
     _dirty = true;
 }
 
+// Flash Math (faucet). Called per correct answer (mints ngọc); pass `run: true`
+// once at the end of a run to count the completed run.
+function recordFlashMath({ guildId, ngocAwarded = 0, level = 0, capped = false, userId, run = false }) {
+    if (userId && isExcluded(userId)) return;
+    _checkRollover();
+    const m = _get(guildId, 'flashmath');
+    if (run) {
+        m.runs++;
+    } else {
+        m.correct++;
+        m.ngocAwarded += ngocAwarded;
+        if (level > m.biggestLevel) m.biggestLevel = level;
+        if (capped) m.cappedAwards++;
+        if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
+    }
+    _dirty = true;
+}
+
+// Math Boss (faucet). Called once per finished raid; ngocAwarded = total minted
+// to all participants on a victory (0 on defeat). userIds = participants.
+function recordMathBoss({ guildId, tier, victory = false, ngocAwarded = 0, userIds = [] }) {
+    _checkRollover();
+    const m = _get(guildId, 'mathboss');
+    m.raids++;
+    if (victory) m.victories++;
+    m.ngocAwarded += ngocAwarded;
+    if (!m.byTier) m.byTier = { small: { raids: 0, victories: 0, ngocAwarded: 0 }, medium: { raids: 0, victories: 0, ngocAwarded: 0 }, big: { raids: 0, victories: 0, ngocAwarded: 0 } };
+    const t = m.byTier[tier];
+    if (t) {
+        t.raids++;
+        if (victory) t.victories++;
+        t.ngocAwarded += ngocAwarded;
+    }
+    for (const uid of (userIds || [])) {
+        if (isExcluded(uid)) continue;
+        m.playerIds[uid] = (m.playerIds[uid] || 0) + 1;
+    }
+    _dirty = true;
+}
+
 function recordWordchainReject({ guildId } = {}) {
     _checkRollover();
     const m = _get(guildId, 'wordchain_eng');
@@ -729,6 +788,29 @@ function _formatGame(game, perGuildStore, guildFilter) {
             `Dễ: ${fmt((bd.easy || {}).words || 0)} từ (${fmt((bd.easy || {}).ngocAwarded || 0)} ngọc) | Trung bình: ${fmt((bd.medium || {}).words || 0)} từ (${fmt((bd.medium || {}).ngocAwarded || 0)} ngọc) | Khó: ${fmt((bd.hard || {}).words || 0)} từ (${fmt((bd.hard || {}).ngocAwarded || 0)} ngọc)`
         ].join('\n');
     }
+    if (game === 'flashmath') {
+        const m = _flatGame(perGuildStore, guildFilter, 'flashmath');
+        const uniq = uniqueCount(m.playerIds);
+        const avgPerCorrect = m.correct ? (m.ngocAwarded / m.correct).toFixed(1) : '—';
+        return [
+            `🧮 FLASHMATH (faucet) — ${fmt(m.runs)} ván | ${fmt(m.correct)} câu đúng | Unique: ${fmt(uniq)}`,
+            `**Minted**: ${fmt(m.ngocAwarded)} ngọc | Avg ngọc/câu: ${avgPerCorrect} | Cấp cao nhất: ${fmt(m.biggestLevel)} | Lần chạm cap: ${fmt(m.cappedAwards)}`
+        ].join('\n');
+    }
+    if (game === 'mathboss' || game === 'boss') {
+        const m = _flatGame(perGuildStore, guildFilter, 'mathboss');
+        const uniq = uniqueCount(m.playerIds);
+        const bt = m.byTier || {};
+        const tline = (k) => {
+            const t = bt[k] || {};
+            return `${fmt(t.raids || 0)} raid (${fmt(t.victories || 0)} thắng, ${fmt(t.ngocAwarded || 0)} ngọc)`;
+        };
+        return [
+            `⚔️ MATHBOSS (faucet) — ${fmt(m.raids)} raid | Thắng: ${fmt(m.victories)} (${pct(m.victories, m.raids)}) | Unique: ${fmt(uniq)}`,
+            `**Minted**: ${fmt(m.ngocAwarded)} ngọc`,
+            `Nhỏ: ${tline('small')} | Vừa: ${tline('medium')} | Lớn: ${tline('big')}`
+        ].join('\n');
+    }
     if (game === 'wordchain_eng' || game === 'wordchain') {
         const m = _flatGame(perGuildStore, guildFilter, 'wordchain_eng');
         const er = m.endReasons || { timeout: 0, dead_end: 0, surrender: 0 };
@@ -774,11 +856,13 @@ function netFromStore(perGuildStore, guildFilter) {
     const mintedDailyNganphieu = (flat.daily && flat.daily.nganphieuMinted) || 0;
     const mintedDailyNgocEq = mintedDailyNganphieu / 100;
     const mintedVuaTiengViet = (flat.vuatiengviet && flat.vuatiengviet.ngocAwarded) || 0;
-    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet;
+    const mintedFlashMath = (flat.flashmath && flat.flashmath.ngocAwarded) || 0;
+    const mintedMathBoss = (flat.mathboss && flat.mathboss.ngocAwarded) || 0;
+    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss;
     const burned = (flat.gacha && flat.gacha.burned) || 0;
     return {
         netGame, minted, burned,
-        mintedWordchain, mintedGangoc, mintedDailyNganphieu, mintedVuaTiengViet,
+        mintedWordchain, mintedGangoc, mintedDailyNganphieu, mintedVuaTiengViet, mintedFlashMath, mintedMathBoss,
         netEconomy: netGame + minted - burned
     };
 }
@@ -814,7 +898,7 @@ function formatSummary(store, label, guildFilter) {
 function formatAllSections(bucket, guildFilter) {
     const label = bucket ? ` [${bucket}]` : ` [${_bucket}]`;
     const store = bucket ? loadBucket(bucket) : _store;
-    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'vuatiengviet', 'daily', 'gangoc']
+    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'vuatiengviet', 'flashmath', 'mathboss', 'daily', 'gangoc']
         .map(g => _formatGame(g, store, guildFilter))
         .filter(Boolean);
     sections.push(`${formatSummary(store, label, guildFilter)}\n📅 Ngày${label}`);
@@ -864,6 +948,7 @@ function listBuckets() {
 module.exports = {
     recordSlot, recordCoinflip, recordTong, recordMat, recordWordchainEng,
     recordGacha, recordWordchainReject, recordVuaTiengViet,
+    recordFlashMath, recordMathBoss,
     recordDaily, recordGangocCreated, recordGangocClaim,
     formatSlot, formatCoinflip, formatTong, formatMat,
     formatAll, formatAllSections, formatGame, packSections, listBuckets,

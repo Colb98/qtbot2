@@ -11,6 +11,7 @@ const { data, saveData } = require('../state');
 const { addNgoc, renderEmote, fmt, todayStr } = require('./currency');
 const economy = require('../config/economy');
 const { genEquation } = require('./mathGen');
+const metrics = require('./metrics');
 
 const HARD_CAP_MS = 24 * 60 * 60 * 1000;
 const TIMER_GRACE_MS = 2000;
@@ -233,6 +234,7 @@ async function endRaid(session, thread, { victory }) {
     sessions.delete(session.threadId);
 
     const lines = [];
+    let totalAwarded = 0;
     if (victory) {
         lines.push(`🎉 **Hạ gục ${TIERS[session.tier].label}!**`);
         const totalDmg = [...session.players.values()].reduce((a, p) => a + p.dmg, 0);
@@ -242,6 +244,7 @@ async function endRaid(session, thread, { victory }) {
                 if (p.dmg <= 0) continue;
                 const share = Math.floor(pool * p.dmg / totalDmg);
                 const got = earnNgoc(session.guildId, uid, share);
+                totalAwarded += got;
                 const capNote = got < share ? ' (đã đạt cap ngày)' : '';
                 lines.push(`• <@${uid}> — ${p.dmg} sát thương → +**${fmt(got)}** ${renderEmote('ngoc')}${capNote}`);
             }
@@ -250,6 +253,14 @@ async function endRaid(session, thread, { victory }) {
     } else {
         lines.push(`☠️ **Cả đội đã bị ${TIERS[session.tier].label} đánh bại.** Không có thưởng.`);
     }
+
+    metrics.recordMathBoss({
+        guildId: session.guildId,
+        tier: session.tier,
+        victory,
+        ngocAwarded: totalAwarded,
+        userIds: [...session.players.keys()]
+    });
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('boss_close_init').setLabel('Đóng thread').setStyle(ButtonStyle.Secondary)

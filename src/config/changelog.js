@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '1.19.0';
+const CURRENT_VERSION = '1.20.0';
 
 const CHANGELOG = {
+    '1.20.0': {
+        date: '2026-06-04',
+        title: 'Metrics cho Flash Math & Boss · Lưu ý tiền tệ ảo',
+        changes: [
+            '**Metrics** giờ theo dõi cả 2 faucet mới: **Flash Math** (số ván, câu đúng, ngọc minted, cấp cao nhất, lần chạm cap) và **Boss Raid** (số raid, tỉ lệ thắng, ngọc minted, tách theo tier nhỏ/vừa/lớn). Cả hai được cộng vào tổng faucet minted của `!metrics`. Xem riêng: `!metrics flashmath` / `!metrics boss`.',
+            'Thêm lệnh `!disclaimer` (và mục lưu ý trong `!help`): nói rõ **ngọc, ngân phiếu, thiên thưởng và mọi vật phẩm trong bot chỉ là dữ liệu ảo, không có giá trị thực và không quy đổi ra tiền thật**. Nghiêm cấm mua bán/trao đổi lấy tiền thật.'
+        ]
+    },
     '1.19.0': {
         date: '2026-05-31',
         title: 'Flash Math: chế độ sinh tồn + BXH tuần · Boss Raid cân bằng lại',

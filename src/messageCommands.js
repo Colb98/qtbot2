@@ -34,6 +34,12 @@ const BLOCKED_GAME_CMDS = new Set([
     '!gacha', '!wordchain', '!vuatiengviet', '!flashmath', '!boss'
 ]);
 
+const DISCLAIMER = `⚠️ **Lưu ý về tiền tệ & vật phẩm trong bot**
+• **Ngọc, ngân phiếu, thiên thưởng** và **mọi vật phẩm** (cáo, diều, trang phục, danh hiệu…) trong bot chỉ là dữ liệu ảo dùng cho mục đích **giải trí trong server**.
+• Chúng **KHÔNG có giá trị thực** và **KHÔNG quy đổi ra tiền thật** hay bất kỳ tài sản nào có giá trị thực.
+• **Nghiêm cấm** mua bán, trao đổi, sang nhượng tiền tệ/vật phẩm trong bot để lấy tiền thật hoặc lợi ích bên ngoài. Mọi giao dịch như vậy bot **không công nhận** và **không chịu trách nhiệm**.
+• Số dư và vật phẩm có thể bị điều chỉnh, reset hoặc mất do bảo trì, sửa lỗi hoặc cân bằng game — đây là điều bình thường và không phải là mất mát tài sản thực.`;
+
 async function handleMessageCommand(msg) {
     const parts = msg.content.trim().split(/\s+/);
     const cmd = parts[0].toLowerCase();
@@ -139,8 +145,16 @@ async function handleMessageCommand(msg) {
 
 **Khác:**
 • Chat: +${fmt(economy.CHAT_REWARD)} ngân phiếu/tin (cap ${fmt(economy.CHAT_DAILY_CAP)}/ngày).
-• Báo danh bang chiến: +${fmt(economy.BANG_CHIEN_REWARD)} ngọc/lần.`;
+• Báo danh bang chiến: +${fmt(economy.BANG_CHIEN_REWARD)} ngọc/lần.
+• \`!disclaimer\` — Lưu ý về tiền tệ & vật phẩm ảo (không có giá trị thực).
+
+${DISCLAIMER}`;
         await replyChunked(msg, userHelp);
+        return;
+    }
+
+    if (cmd === '!disclaimer') {
+        await replyChunked(msg, DISCLAIMER);
         return;
     }
 
@@ -155,7 +169,7 @@ async function handleMessageCommand(msg) {
 • \`!gangoc <n> [#kênh]\` — GA ngọc, user react để nhận.
 
 **Metrics & Debug:**
-• \`!metrics [slot|coinflip|tong|mat|gacha|wordchain|daily|gangoc] [YYYY-MM-DD] [all|<guildId>]\` — Mặc định guild hiện tại; \`all\` để gộp; truyền guildId cụ thể để xem 1 guild khác.
+• \`!metrics [slot|coinflip|tong|mat|gacha|wordchain|vuatiengviet|flashmath|boss|daily|gangoc] [YYYY-MM-DD] [all|<guildId>]\` — Mặc định guild hiện tại; \`all\` để gộp; truyền guildId cụ thể để xem 1 guild khác.
 • \`!metrics list\` — Liệt kê các file metrics đã lưu. \`!metrics guilds\` — Liệt kê guilds có data.
 • \`!metrics_exclude [list|add|remove|clean] @user\` — Loại user khỏi metrics (skip toàn bộ record + dọn playerIds cũ).
 • \`!metrics_adjust <guildId|_legacy> <YYYY-MM-DD|today> <game> <field=delta> [...]\` — Cộng/trừ trực tiếp vào bucket (vd: \`rolls=-30 burned=-3000 itemCounts.cao=-1\`).
@@ -183,7 +197,7 @@ async function handleMessageCommand(msg) {
         // !metrics [slot|coinflip|tong|mat|...] [YYYY-MM-DD] [all]
         // Defaults to current guild's metrics; pass 'all' to aggregate across guilds.
         // !metrics list / !metrics guilds
-        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'daily', 'gangoc']);
+        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'vuatiengviet', 'flashmath', 'mathboss', 'boss', 'daily', 'gangoc']);
         const argTokens = parts.slice(1).map(p => p.toLowerCase());
 
         if (argTokens[0] === 'list') {
