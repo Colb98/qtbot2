@@ -1,11 +1,11 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, AttachmentBuilder } = require('discord.js');
-const { isOwner, isSuperAdmin } = require('../utils');
+const { isOwner, isSuperAdmin, getUserDisplayName } = require('../utils');
 const { MANAGER_ID } = require('../constants');
 const { data } = require('../state');
 const kimlan = require('../services/kimlan');
 const arrangePerm = require('../services/arrangePerm');
 const partyAssignment = require('../services/partyAssignment');
-const partyImage = require('../services/partyImage');
+const renderPool = require('../services/renderPool');
 const log = require('../../logger');
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -72,7 +72,15 @@ function buildRow(mode, cacheKey) {
 }
 
 async function buildPayload(result, mode, cacheKey, guildId) {
-    const buf = await partyImage.renderArrangement(result, mode, guildId);
+    // Resolve display names here (main thread has Discord/registration context)
+    // so the renderer can run off-thread with plain data.
+    const names = {};
+    for (const p of result.parties) {
+        for (const m of p.members) {
+            if (!(m.id in names)) names[m.id] = getUserDisplayName(m.id, guildId);
+        }
+    }
+    const buf = await renderPool.renderArrangement(result, mode, names);
     const attachment = new AttachmentBuilder(buf, { name: `arrange_${mode}.png` });
     return {
         content: renderMetricsText(result, mode),

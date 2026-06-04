@@ -65,6 +65,23 @@ function getCapStatus(guildId, userId) {
     return { earned: cap.earned, cap: economy.FLASHMATH.DAILY_CAP };
 }
 
+// Drop stale per-user daily-cap entries (keeps lifetime/weekly leaderboards).
+function pruneDaily(today) {
+    ensureRoot();
+    today = today || todayStr();
+    let removed = 0;
+    const caps = data.flashMath.dailyCaps || {};
+    for (const guildId of Object.keys(caps)) {
+        const g = caps[guildId];
+        for (const uid of Object.keys(g)) {
+            if (!g[uid] || g[uid].date !== today) { delete g[uid]; removed++; }
+        }
+        if (Object.keys(g).length === 0) delete caps[guildId];
+    }
+    if (removed) saveData();
+    return removed;
+}
+
 // ── Week helpers ─────────────────────────────────────────────────────────────
 
 function weekStrAt(ts) {
@@ -558,5 +575,6 @@ module.exports = {
     getWeeklyRewardTable,
     scheduleWeeklyPayout,
     runWeeklyPayout,
-    getCapStatus
+    getCapStatus,
+    pruneDaily
 };

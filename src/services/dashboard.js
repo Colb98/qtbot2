@@ -4,6 +4,7 @@ const log = require('../../logger');
 const metrics = require('./metrics');
 const economyConfig = require('./economyConfig');
 const adminAuth = require('./adminAuth');
+const sysStatus = require('./sysStatus');
 
 const DEFAULT_PORT = 3000;
 const SESSION_COOKIE = 'qtadmin';
@@ -726,7 +727,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <div id="appView" class="hidden">
   <header>
     <h1>qtbot — kinh tế</h1>
-    <span class="muted">· <a href="/">metrics dashboard</a></span>
+    <span class="muted">· <a href="/">metrics dashboard</a> · <a href="/status">VPS status</a></span>
     <span style="flex:1"></span>
     <span class="muted">Đăng nhập: <b id="meUser">—</b> (<span id="meRole">—</span>)</span>
     <button id="logoutBtn">Đăng xuất</button>
@@ -967,6 +968,176 @@ init();
 </body>
 </html>`;
 
+const STATUS_HTML = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>qtbot — VPS status</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2027; --panel-2:#232b35; --border:#2f3a47;
+    --text:#e6e6e6; --muted:#8a96a3; --accent:#4fc3f7; --good:#66bb6a; --bad:#ef5350; --warn:#ffb74d; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; margin:0; background:var(--bg); color:var(--text); padding:16px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:20px; }
+  a { color:var(--accent); }
+  .muted { color:var(--muted); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; }
+  .card h2 { margin:0 0 10px; font-size:14px; font-weight:600; }
+  .row { display:flex; justify-content:space-between; padding:3px 0; font-size:13px; }
+  .row .k { color:var(--muted); } .row .v { font-variant-numeric:tabular-nums; }
+  .v.good { color:var(--good); } .v.bad { color:var(--bad); } .v.warn { color:var(--warn); } .v.accent { color:var(--accent); }
+  .bar { height:8px; background:var(--panel-2); border-radius:999px; overflow:hidden; margin:6px 0 10px; }
+  .bar > span { display:block; height:100%; background:var(--accent); width:0; transition:width .4s; }
+  .bar.warn > span { background:var(--warn); } .bar.bad > span { background:var(--bad); }
+  canvas { width:100%; height:60px; display:block; margin-top:6px; }
+  .big { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .err { background:var(--bad); color:#fff; padding:12px; border-radius:8px; display:none; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:var(--panel-2); border:1px solid var(--border); font-size:11px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>qtbot — VPS status</h1>
+  <span class="muted">· <a href="/">metrics</a> · <a href="/admin">kinh tế</a></span>
+  <span style="flex:1"></span>
+  <span class="pill" id="host">—</span>
+  <span class="muted">cập nhật: <span id="updated">—</span></span>
+</header>
+
+<div class="err" id="err">Chưa đăng nhập. Mở <a href="/admin" style="color:#fff;text-decoration:underline">/admin</a> để đăng nhập, rồi tải lại trang này.</div>
+
+<div class="grid" id="grid"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const REFRESH_MS = 2000;
+const HIST = 60;
+const cpuHist = [], loopHist = [];
+
+function bytes(n) {
+  if (n == null) return '—';
+  const u = ['B','KB','MB','GB','TB']; let i = 0; n = Number(n);
+  while (n >= 1024 && i < u.length-1) { n /= 1024; i++; }
+  return n.toFixed(n >= 100 || i === 0 ? 0 : 1) + ' ' + u[i];
+}
+function dur(s) {
+  s = Math.floor(Number(s) || 0);
+  const d = Math.floor(s/86400); s %= 86400;
+  const h = Math.floor(s/3600); s %= 3600;
+  const m = Math.floor(s/60);
+  return (d ? d+'d ' : '') + (h ? h+'h ' : '') + m + 'm';
+}
+function cls(pct, warn, bad) { return pct >= bad ? 'bad' : (pct >= warn ? 'warn' : ''); }
+function row(k, v, c) { return '<div class="row"><span class="k">'+k+'</span><span class="v '+(c||'')+'">'+v+'</span></div>'; }
+function bar(pct, warn, bad) {
+  const c = cls(pct, warn, bad);
+  return '<div class="bar '+c+'"><span style="width:'+Math.min(100,Math.max(0,pct)).toFixed(1)+'%"></span></div>';
+}
+function card(title, inner) { return '<div class="card"><h2>'+title+'</h2>'+inner+'</div>'; }
+
+function spark(id, data, color, label, max) {
+  const cv = $(id); if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const w = cv.width = cv.clientWidth, h = cv.height = 60;
+  ctx.clearRect(0,0,w,h);
+  if (data.length < 2) return;
+  const mx = max || Math.max(1, ...data);
+  ctx.beginPath();
+  data.forEach((v,i) => {
+    const x = (i/(HIST-1))*w, y = h - (Math.min(v,mx)/mx)*(h-6) - 3;
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  });
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.closePath(); ctx.fill();
+}
+
+function render(s) {
+  $('host').textContent = s.host + ' · ' + s.platform;
+  $('updated').textContent = new Date(s.now).toLocaleTimeString();
+
+  const cards = [];
+
+  // CPU
+  cpuHist.push(s.cpu.usagePct); if (cpuHist.length > HIST) cpuHist.shift();
+  const la = s.cpu.loadavg.map(x => x.toFixed(2)).join(' / ');
+  cards.push(card('CPU — ' + s.cpu.cores + ' core',
+    '<div class="big '+cls(s.cpu.usagePct,70,90)+'">'+s.cpu.usagePct.toFixed(1)+'%</div>'+
+    bar(s.cpu.usagePct,70,90)+
+    row('Load avg (1/5/15m)', la)+
+    row('Model', '<span class="muted">'+(s.cpu.model||'?').slice(0,28)+'</span>')+
+    '<canvas id="cpuSpark"></canvas>'));
+
+  // Event loop lag — the bot-responsiveness signal
+  const el = s.eventLoop;
+  if (el) {
+    loopHist.push(el.p99Ms); if (loopHist.length > HIST) loopHist.shift();
+    const c = el.p99Ms >= 100 ? 'bad' : (el.p99Ms >= 30 ? 'warn' : 'good');
+    cards.push(card('Event-loop lag (độ trễ bot)',
+      '<div class="big '+c+'">'+el.p99Ms.toFixed(1)+' ms <span class="muted" style="font-size:12px">p99</span></div>'+
+      row('Mean', el.meanMs.toFixed(1)+' ms')+
+      row('Max', el.maxMs.toFixed(1)+' ms', el.maxMs>=200?'bad':'')+
+      '<canvas id="loopSpark"></canvas>'+
+      '<div class="muted" style="font-size:11px;margin-top:4px">&lt;30ms tốt · 30–100ms tải nặng · &gt;100ms nghẽn</div>'));
+  }
+
+  // Memory
+  cards.push(card('Bộ nhớ (RAM)',
+    '<div class="big '+cls(s.mem.usedPct,75,90)+'">'+s.mem.usedPct.toFixed(1)+'%</div>'+
+    bar(s.mem.usedPct,75,90)+
+    row('Đã dùng', bytes(s.mem.used))+
+    row('Trống', bytes(s.mem.free))+
+    row('Tổng', bytes(s.mem.total))));
+
+  // Swap
+  if (s.swap) cards.push(card('Swap',
+    bar(s.swap.usedPct,40,75)+
+    row('Đã dùng', bytes(s.swap.used)+' / '+bytes(s.swap.total), cls(s.swap.usedPct,40,75))));
+
+  // Disk space
+  if (s.disk) cards.push(card('Đĩa (thư mục bot)',
+    '<div class="big '+cls(s.disk.usedPct,80,92)+'">'+s.disk.usedPct.toFixed(1)+'%</div>'+
+    bar(s.disk.usedPct,80,92)+
+    row('Đã dùng', bytes(s.disk.used))+
+    row('Trống', bytes(s.disk.free))+
+    row('Tổng', bytes(s.disk.total))));
+
+  // Disk IO
+  if (s.io && s.io.available) cards.push(card('Disk I/O',
+    row('Đọc', bytes(s.io.readBps)+'/s', 'accent')+
+    row('Ghi', bytes(s.io.writeBps)+'/s', 'accent')));
+
+  // Process
+  cards.push(card('Tiến trình bot',
+    row('PID', s.proc.pid)+
+    row('Node', s.proc.node)+
+    row('Uptime bot', dur(s.uptimeProcSec))+
+    row('Uptime máy', dur(s.uptimeHostSec))+
+    row('RSS', bytes(s.proc.rss), cls(s.proc.rss/1e9*100,60,85))+
+    row('Heap', bytes(s.proc.heapUsed)+' / '+bytes(s.proc.heapTotal))));
+
+  $('grid').innerHTML = cards.join('');
+  spark('cpuSpark', cpuHist, '#4fc3f7', 'cpu', 100);
+  if (el) spark('loopSpark', loopHist, el.p99Ms>=100?'#ef5350':'#ffb74d', 'loop');
+}
+
+async function tick() {
+  try {
+    const res = await fetch('/api/status', { cache: 'no-store' });
+    if (res.status === 401) { $('err').style.display = 'block'; $('grid').innerHTML = ''; return; }
+    $('err').style.display = 'none';
+    render(await res.json());
+  } catch (e) { /* transient */ }
+}
+tick();
+setInterval(tick, REFRESH_MS);
+</script>
+</body>
+</html>`;
+
 // Async router for /api/admin/* and /admin. Returns nothing; writes the response
 // itself. All routes that mutate require a valid session; account-management
 // routes additionally require the root role.
@@ -1080,6 +1251,14 @@ function handle(req, res) {
         if (pathname === '/' || pathname === '/index.html') {
             return sendHtml(res, HTML_PAGE);
         }
+        if (pathname === '/status' || pathname === '/status.html') {
+            return sendHtml(res, STATUS_HTML);
+        }
+        if (pathname === '/api/status') {
+            // VPS internals — gate behind an admin session.
+            if (!currentSession(req)) return sendJson(res, 401, { error: 'Chưa đăng nhập.' });
+            return sendJson(res, 200, sysStatus.snapshot());
+        }
         if (pathname === '/api/snapshot') {
             const date = parsed.query.date;
             const guild = parsed.query.guild || 'all';
@@ -1112,6 +1291,7 @@ function start(client, port) {
         _discordClient = null;
     }
     const p = Number(port || process.env.DASHBOARD_PORT || DEFAULT_PORT);
+    sysStatus.start();
     const server = http.createServer(handle);
     server.on('error', (e) => log.error('dashboard server error', e));
     server.listen(p, '0.0.0.0', () => {

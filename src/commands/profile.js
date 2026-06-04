@@ -9,6 +9,7 @@ const { data } = require('../state');
 const { getWallet, ITEM_LABELS, ITEM_KEYS } = require('../services/currency');
 const profile = require('../services/profile');
 const profileCard = require('../services/profileCard');
+const renderPool = require('../services/renderPool');
 const { isSuperAdmin } = require('../utils');
 const log = require('../../logger');
 
@@ -59,7 +60,7 @@ async function renderCardAttachment(user, guildId, guild) {
             b.name = await resolveDisplayName(guild, guildId, b.otherId);
         }
     }
-    const png = await profileCard.renderProfileCard(player);
+    const png = await renderPool.renderProfileCard(player);
     return new AttachmentBuilder(png, { name: `profile-${user.id}.png` });
 }
 

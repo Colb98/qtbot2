@@ -45,6 +45,11 @@ async function handleMessageCommand(msg) {
     const cmd = parts[0].toLowerCase();
     const guildId = msg.guildId;
 
+    // Fast path: every guild message reaches here, but only "!" commands are
+    // handled below. Bail immediately on plain chat so it costs ~nothing
+    // (no member fetch, no walking the command chain).
+    if (!cmd.startsWith('!')) return;
+
     if (BLOCKED_GAME_CMDS.has(cmd)) {
         const blockedArr = data.blockedGameChannels && data.blockedGameChannels[guildId];
         if (blockedArr && new Set(blockedArr).has(msg.channel.id)) {
@@ -52,7 +57,9 @@ async function handleMessageCommand(msg) {
         }
     }
 
-    const member = await msg.guild.members.fetch(msg.author.id);
+    // msg.member is already populated for guild messages — avoid a redundant
+    // (and possibly network-bound) fetch on the command hot path.
+    const member = msg.member || await msg.guild.members.fetch(msg.author.id);
 
     if (cmd === '!maintenance') {
         if (!isSuperAdmin(msg.author.id)) return;

@@ -88,6 +88,25 @@ function earnNgoc(guildId, userId, amount) {
     return actual;
 }
 
+// Drop stale per-user daily summon/ngọc-cap entries from previous days.
+function pruneDaily(today) {
+    ensureRoot();
+    today = today || todayStr();
+    let removed = 0;
+    for (const mapName of ['summonCaps', 'ngocCaps']) {
+        const m = data.mathBoss[mapName] || {};
+        for (const guildId of Object.keys(m)) {
+            const g = m[guildId];
+            for (const uid of Object.keys(g)) {
+                if (!g[uid] || g[uid].date !== today) { delete g[uid]; removed++; }
+            }
+            if (Object.keys(g).length === 0) delete m[guildId];
+        }
+    }
+    if (removed) saveData();
+    return removed;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeEquation(tier) {
@@ -479,5 +498,6 @@ module.exports = {
     handleButtonInteraction,
     checkSummon,
     consumeSummon,
+    pruneDaily,
     TIERS
 };

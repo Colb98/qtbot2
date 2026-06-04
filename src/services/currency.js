@@ -137,6 +137,32 @@ function tryClaimDaily(guildId, userId) {
     return { claimed: true, reward: { nganphieu } };
 }
 
+// Drop yesterday's per-user entries from the date-keyed daily maps so they
+// don't accumulate forever and bloat every state serialize. Safe because both
+// maps reset on date change at read time anyway. Returns entries removed.
+function pruneDaily(today) {
+    today = today || todayStr();
+    let removed = 0;
+    const ce = data.chatEarn || {};
+    for (const guildId of Object.keys(ce)) {
+        const g = ce[guildId];
+        for (const uid of Object.keys(g)) {
+            if (!g[uid] || g[uid].date !== today) { delete g[uid]; removed++; }
+        }
+        if (Object.keys(g).length === 0) delete ce[guildId];
+    }
+    const dc = data.dailyClaim || {};
+    for (const guildId of Object.keys(dc)) {
+        const g = dc[guildId];
+        for (const uid of Object.keys(g)) {
+            if (g[uid] !== today) { delete g[uid]; removed++; }
+        }
+        if (Object.keys(g).length === 0) delete dc[guildId];
+    }
+    if (removed) saveData();
+    return removed;
+}
+
 function fmt(n) {
     return Number(n).toLocaleString('en-US');
 }
@@ -161,6 +187,7 @@ module.exports = {
     spendNgocForGame,
     tryEarnFromChat,
     tryClaimDaily,
+    pruneDaily,
     renderEmote,
     todayStr,
     fmt

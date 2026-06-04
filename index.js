@@ -7,6 +7,7 @@ const { registerEvents } = require('./src/events');
 const { flush: flushMetrics } = require('./src/services/metrics');
 const { flushSync: flushState } = require('./src/state');
 const dashboard = require('./src/services/dashboard');
+const renderPool = require('./src/services/renderPool');
 
 const TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN) {
@@ -34,6 +35,7 @@ process.on('unhandledRejection', (e) => {
 
 loadCommands(client);
 registerEvents(client);
+renderPool.start();
 dashboard.start(client);
 
 client.login(TOKEN);

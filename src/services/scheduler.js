@@ -4,10 +4,15 @@ const { data } = require('../state');
 const { dayMap } = require('../constants');
 const { doWeeklyPost, sendReminders } = require('./guildWar');
 const { clearLowPrioAll, clearHighPrioAll } = require('./priority');
+const currency = require('./currency');
+const flashMath = require('./flashMath');
+const mathBoss = require('./mathBoss');
+const vuaTiengViet = require('./vuaTiengViet');
 
 let weeklyTask = null;
 let clearPrioTask = null;
 let reminderTask = null;
+let dailyPruneTask = null;
 
 function scheduleWeeklyJobs() {
     if (weeklyTask) weeklyTask.destroy();
@@ -45,6 +50,38 @@ function scheduleWeeklyJobs() {
     log.info('Scheduled weekly post:', postCron, 'and reminder:', reminderCron);
 }
 
+// Sweep yesterday's per-user daily entries (chat earn, daily claim, game
+// daily caps) so the persisted state doesn't grow without bound — each entry
+// otherwise lingers forever and inflates every state serialize. Runs just
+// after the GMT+7 daily reset and once shortly after boot.
+function runDailyPrune() {
+    let total = 0;
+    const tasks = [
+        ['currency', () => currency.pruneDaily()],
+        ['flashMath', () => flashMath.pruneDaily()],
+        ['mathBoss', () => mathBoss.pruneDaily()],
+        ['vuaTiengViet', () => vuaTiengViet.pruneDaily()]
+    ];
+    for (const [name, fn] of tasks) {
+        try { total += fn() || 0; }
+        catch (e) { log.error(`dailyPrune: ${name} failed`, e); }
+    }
+    if (total > 0) log.info(`dailyPrune: removed ${total} stale daily entries`);
+    return total;
+}
+
+function scheduleDailyPrune() {
+    if (dailyPruneTask) return;
+    // 00:05 Asia/Ho_Chi_Minh — just after the daily reset (offset +7h).
+    dailyPruneTask = cron.schedule('5 0 * * *', () => {
+        try { runDailyPrune(); }
+        catch (e) { log.error('dailyPrune cron error:', e); }
+    }, { timezone: 'Asia/Ho_Chi_Minh' });
+    // Catch-up sweep a few seconds after boot (covers downtime over a reset).
+    setTimeout(() => { try { runDailyPrune(); } catch (e) { log.error('dailyPrune boot error:', e); } }, 15_000).unref?.();
+    log.info('Scheduled daily prune — 00:05 Asia/Ho_Chi_Minh');
+}
+
 function testSendReminders(day, hour, minute) {
     const testCron = `${minute} ${hour} * * ${dayMap[day.toLowerCase()]}`;
     log.info('Testing sendReminders with cron:', testCron);
@@ -56,4 +93,4 @@ function testSendReminders(day, hour, minute) {
     }, { timezone: 'Asia/Ho_Chi_Minh' });
 }
 
-module.exports = { scheduleWeeklyJobs, testSendReminders };
+module.exports = { scheduleWeeklyJobs, scheduleDailyPrune, runDailyPrune, testSendReminders };

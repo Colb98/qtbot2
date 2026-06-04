@@ -88,6 +88,23 @@ function getDailyCap(guildId, userId) {
     return data.vuaTiengViet.dailyCaps[guildId][userId];
 }
 
+// Drop stale per-user daily-cap entries (keeps weekly/lifetime leaderboards).
+function pruneDaily(today) {
+    ensureRoot();
+    today = today || todayStr();
+    let removed = 0;
+    const caps = data.vuaTiengViet.dailyCaps || {};
+    for (const guildId of Object.keys(caps)) {
+        const g = caps[guildId];
+        for (const uid of Object.keys(g)) {
+            if (!g[uid] || g[uid].date !== today) { delete g[uid]; removed++; }
+        }
+        if (Object.keys(g).length === 0) delete caps[guildId];
+    }
+    if (removed) saveData();
+    return removed;
+}
+
 function earnNgoc(guildId, userId, difficulty, amount) {
     const cfg = economy.VUATIENGVIET[difficulty.toUpperCase()];
     const cap = getDailyCap(guildId, userId);
@@ -679,6 +696,7 @@ module.exports = {
     getWeeklyRewardTable,
     getCapStatus,
     resetDailyCaps,
+    pruneDaily,
     scheduleWeeklyPayout,
     runWeeklyPayout,
     isOptedOut,

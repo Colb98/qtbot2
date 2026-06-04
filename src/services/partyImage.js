@@ -2,7 +2,6 @@ const path = require('path');
 const fs = require('fs');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const log = require('../../logger');
-const { getUserDisplayName } = require('../utils');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FONT_PATH = path.join(ROOT, 'assets', 'NotoSans-Regular.ttf');
@@ -88,7 +87,10 @@ function truncate(ctx, text, maxWidth) {
     return text.slice(0, lo) + '…';
 }
 
-async function renderArrangement(result, mode, guildId) {
+// `names` is a pre-resolved { userId: displayName } map built by the caller —
+// the renderer has no Discord context (it may run in a worker thread).
+async function renderArrangement(result, mode, names) {
+    names = names || {};
     const subsArr = mode === 'sa' ? result.saSubs : result.greedySubs;
     const dims = result.parties.map((p, i) => partyDimensions(p, subsArr[i]));
 
@@ -166,7 +168,7 @@ async function renderArrangement(result, mode, guildId) {
                     }
                     const textX = iconX + ICON + 8;
                     const maxTextW = CELL_W - (textX - cx) - 6;
-                    const name = getUserDisplayName(m.id, guildId);
+                    const name = names[m.id] || m.id;
                     ctx.fillStyle = TEXT;
                     ctx.textAlign = 'left';
                     ctx.fillText(truncate(ctx, name, maxTextW), textX, cy + CELL_H / 2);

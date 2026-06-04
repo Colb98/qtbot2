@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '1.20.0';
+const CURRENT_VERSION = '1.21.0';
 
 const CHANGELOG = {
+    '1.21.0': {
+        date: '2026-06-04',
+        title: 'Tối ưu hiệu năng & trang theo dõi VPS',
+        changes: [
+            '**Giảm lag khi nhiều người dùng cùng lúc**: bỏ qua ngay các tin nhắn không phải lệnh (`!`) và không còn fetch thành viên thừa trên mỗi tin; gom ghi dữ liệu thưa hơn (debounce 1s, tối đa 5s) và tự dọn các bản ghi "theo ngày" cũ (chat earn, daily, cap game) để file dữ liệu không phình to.',
+            '**Vẽ thẻ profile / bảng xếp nhóm chạy trên luồng riêng** (worker threads) — render ảnh nặng không còn làm nghẽn luồng chính, nhờ vậy bot trả lời mượt hơn khi có nhiều lệnh đồng thời.',
+            'Thêm trang **`/status`** trên dashboard (cần đăng nhập admin): theo dõi CPU, RAM, swap, dung lượng & I/O đĩa, độ trễ event-loop (chỉ số "bot có đang nghẽn không") và bộ nhớ tiến trình, tự cập nhật mỗi 2 giây.'
+        ]
+    },
     '1.20.0': {
         date: '2026-06-04',
         title: 'Metrics cho Flash Math & Boss · Lưu ý tiền tệ ảo',
