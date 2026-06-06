@@ -1,6 +1,18 @@
-const CURRENT_VERSION = '1.21.0';
+const CURRENT_VERSION = '2.0.0';
 
 const CHANGELOG = {
+    '2.0.0': {
+        date: '2026-06-06',
+        title: 'Mùa Giải — vật phẩm & danh hiệu theo mùa',
+        changes: [
+            '**Hệ thống Mùa Giải:** mỗi mùa kéo dài **8 tuần** (chỉnh được), reset 00:00 GMT+7. Mỗi mùa có bộ **vật phẩm cao cấp riêng** (giá trị y hệt: linh thú T1/T2/T3, Thần Thú, Thần Thú+, Thần Trang) nhưng emote khác. Gõ `!season` để xem thời gian còn lại, phần thưởng, cách nhận và thứ hạng của bạn.',
+            '**Reset không huỷ đồ:** khi hết mùa, vật phẩm cao cấp **mùa cũ đóng băng** — vẫn nằm trong kho để trưng bày nhưng **không bán/đổi/tặng/phân giải/tính điểm** được nữa (chặn lỗ hổng phân giải cáo → thiên thưởng để giữ điểm). **Thiên Thưởng giữ nguyên** và vẫn tính điểm sang mùa mới.',
+            '**Danh hiệu sưu tầm:** ai đang giữ vật phẩm cao cấp lúc kết thúc mùa nhận **danh hiệu vĩnh viễn** (Mùa 1: Tiểu Hồ Tiên Tử · Ngũ Vĩ Yêu Hồ · Cửu Vĩ Thiên Hồ · Băng Phách Phượng Nghi · Phần Thiên Hoả Phượng · Vân Thường Thần Chủ), chọn khoe trên `/profile`.',
+            '**Danh hiệu Top BXH:** **Top 1-5** Thiên Thưởng cuối mùa nhận danh hiệu hiện **dưới tên** (Mùa 1: Độc Bá Thương Khung · Tàng Bảo Chí Tôn · Hoàng Kim Tàng Chủ · Tụ Bảo Chân Nhân), Top 1-3 kèm **khung avatar** độc quyền (mở khoá, art thêm sau).',
+            'BXH `!toptt` đổi tiebreak: **bằng điểm thì ai đạt mốc trước xếp trên**.',
+            'Admin: `!season_end` (chốt mùa thủ công), `!season_setchannel`, `!season_setlength <tuần>`, `!season_setend`.'
+        ]
+    },
     '1.21.0': {
         date: '2026-06-04',
         title: 'Tối ưu hiệu năng & trang theo dõi VPS',

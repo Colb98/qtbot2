@@ -3,7 +3,11 @@ const economy = require('../config/economy');
 
 const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'cao5', 'cao9', 'dieu', 'kythuong', 'thienthuong', 'phuonghoang1', 'phuonghoang2', 'thantrang', 'shake_tt', 'slotanim', 'dice1', 'dice2', 'dice3', 'dice4', 'dice5', 'dice6'];
 const ANIMATED_EMOTES = new Set(['shake_tt', 'slotanim']);
-const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'cao5', 'cao9', 'kythuong', 'thienthuong', 'phuonghoang1', 'phuonghoang2', 'thantrang'];
+// Season-2 premium keys (s2_*) are placeholders so the season rollover is fully
+// functional before their emotes/labels are finalized (config/season.js). They
+// have no emote yet → renderEmote falls back to text until uploaded.
+const SEASON2_ITEM_KEYS = ['s2_pet1', 's2_pet2', 's2_pet3', 's2_thanthu', 's2_thanthuplus', 's2_thantrang'];
+const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'cao5', 'cao9', 'kythuong', 'thienthuong', 'phuonghoang1', 'phuonghoang2', 'thantrang', ...SEASON2_ITEM_KEYS];
 const ITEM_LABELS = {
     nhuom: 'Nhuộm',
     dieu: 'Diều',
@@ -14,7 +18,13 @@ const ITEM_LABELS = {
     thienthuong: 'Thiên Thưởng',
     phuonghoang1: 'Phượng Băng',
     phuonghoang2: 'Phượng Hoả',
-    thantrang: 'Thần Trang'
+    thantrang: 'Thần Trang',
+    s2_pet1: 'Linh Thú M2 (T1)',
+    s2_pet2: 'Linh Thú M2 (T2)',
+    s2_pet3: 'Linh Thú M2 (T3)',
+    s2_thanthu: 'Thần Thú M2',
+    s2_thanthuplus: 'Thần Thú+ M2',
+    s2_thantrang: 'Thần Trang M2'
 };
 
 const DAILY_RESET_OFFSET_HOURS = 7;

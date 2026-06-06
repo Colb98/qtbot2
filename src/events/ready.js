@@ -1,5 +1,5 @@
 const log = require('../../logger');
-const { scheduleWeeklyJobs, scheduleDailyPrune } = require('../services/scheduler');
+const { scheduleWeeklyJobs, scheduleDailyPrune, scheduleSeasonRollover } = require('../services/scheduler');
 const { data } = require('../state');
 const { retroactiveGrantAll } = require('../services/bangChienReward');
 const { scheduleWeeklyPayout } = require('../services/wordchainEng');
@@ -14,6 +14,7 @@ module.exports = {
         log.info(`Logged in as ${client.user.tag}`);
         scheduleWeeklyJobs();
         scheduleDailyPrune();
+        scheduleSeasonRollover(client);
         scheduleWeeklyPayout();
         scheduleVtvPayout();
         scheduleFlashMathPayout();

@@ -726,7 +726,12 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         const gW = measure(ctx, guildText);
         ctx.fillText(guildText, PX, cursorY + 2);
 
-        const prestige = (player.profile && player.profile.selectedTitle) || 'Nhất Mộng Giang Hồ';
+        // Prestige chip = selected season Top title (gold/exclusive) or the
+        // default "Nhất Mộng Giang Hồ". selectedTitle is an id; resolve to name.
+        const prestige = profileSvc.getSelectedTitleName(player.profile);
+        const isSeasonTitle = !!(player.profile && player.profile.selectedTitle
+            && profileSvc.isSeasonTitleId(player.profile.selectedTitle));
+        const titleColor = isSeasonTitle ? '#f6d36b' : theme.accent; // gold for top-rank titles
         const chipPadX = 12, chipPadY = 6;
         const chipFontSize = 11;
         ctx.font = `600 ${chipFontSize}px ${FONT_CAPS}`;
@@ -739,9 +744,11 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         const chipX = PX + gW + 14;
         const chipY = cursorY + 4;
         drawChip(ctx, chipX, chipY, chipW, chipH, theme);
-        drawGlyph(ctx, 'crown', chipX + chipPadX + glyphSize / 2, chipY + chipH / 2, glyphSize, theme.accent);
-        ctx.fillStyle = theme.accent;
+        if (isSeasonTitle) { ctx.save(); ctx.shadowColor = alphaHex(titleColor, 0.8); ctx.shadowBlur = 8; }
+        drawGlyph(ctx, 'crown', chipX + chipPadX + glyphSize / 2, chipY + chipH / 2, glyphSize, titleColor);
+        ctx.fillStyle = titleColor;
         ctx.fillText(labelText, chipX + chipPadX + glyphSize + 10, chipY + chipPadY + 1);
+        if (isSeasonTitle) ctx.restore();
         setSpacing(ctx, 0);
 
         cursorY += 32;
@@ -1009,15 +1016,25 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         // trio when nothing is selected.
         const stats = player.stats || {};
         const achContext = achCtx(stats);
+        // Season item-ownership titles flex FIRST with an exclusive gold look,
+        // then stat achievements. Capped at 3 chips total.
+        const seasonChips = [];
+        for (const id of ((player.profile && player.profile.seasonTitleSlots) || []).filter(Boolean)) {
+            const def = profileSvc.resolveSeasonTitle(id);
+            if (def) seasonChips.push({ glyph: 'crown', label: def.name, rank: `Mùa ${def.seasonId}`, exclusive: true });
+        }
         const selected = ((player.profile && player.profile.achievementSlots) || [])
             .filter(id => id && profileSvc.ACHIEVEMENTS_BY_ID.has(id));
-        const chipIds = selected.length > 0 ? selected.slice(0, 3) : profileSvc.DEFAULT_ACHIEVEMENTS;
-        const chips = [];
-        for (const id of chipIds) {
+        // Default trio only fills in when the player has picked nothing at all.
+        const statChipIds = selected.length > 0 ? selected
+            : (seasonChips.length > 0 ? [] : profileSvc.DEFAULT_ACHIEVEMENTS);
+        const statChips = [];
+        for (const id of statChipIds) {
             const entry = profileSvc.ACHIEVEMENTS_BY_ID.get(id);
             if (!entry) continue;
-            chips.push({ glyph: entry.glyph, label: entry.label, rank: formatAchievementValue(entry, achContext) });
+            statChips.push({ glyph: entry.glyph, label: entry.label, rank: formatAchievementValue(entry, achContext) });
         }
+        const chips = [...seasonChips, ...statChips].slice(0, 3);
 
         // 2-line chip: line 1 = title (small caps), line 2 = value (large).
         // Glyph on the left, vertical divider, then stacked text on the right.
@@ -1031,15 +1048,18 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         for (const a of chips) {
             if (chipX + chipW > PX + PW) break; // don't overflow
 
-            drawChip(ctx, chipX, chipY, chipW, chipH, theme, { gradient: false });
+            const accent = a.exclusive ? '#f6d36b' : theme.accent; // gold for season titles
+            drawChip(ctx, chipX, chipY, chipW, chipH, theme, { gradient: !!a.exclusive });
 
-            // Glyph — left side
+            // Glyph — left side (subtle glow when exclusive)
             const glyphSize = 18;
-            drawGlyph(ctx, a.glyph, chipX + 22, chipY + chipH / 2, glyphSize, theme.accent);
+            if (a.exclusive) { ctx.save(); ctx.shadowColor = alphaHex(accent, 0.7); ctx.shadowBlur = 6; }
+            drawGlyph(ctx, a.glyph, chipX + 22, chipY + chipH / 2, glyphSize, accent);
+            if (a.exclusive) ctx.restore();
 
             // Vertical divider after glyph
             ctx.save();
-            ctx.strokeStyle = alphaHex(theme.accent, 0.4);
+            ctx.strokeStyle = alphaHex(accent, 0.4);
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(chipX + 44, chipY + 10);
@@ -1053,14 +1073,14 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
             // Line 1 — title (uppercase, letter-spaced)
             ctx.font = `600 10px ${FONT_CAPS}`;
             setSpacing(ctx, 2);
-            ctx.fillStyle = alphaHex('#f4ede2', 0.6);
+            ctx.fillStyle = a.exclusive ? alphaHex(accent, 0.85) : alphaHex('#f4ede2', 0.6);
             ctx.fillText(truncateToWidth(ctx, a.label.toUpperCase(), textMaxW), textX, chipY + 12);
             setSpacing(ctx, 0);
 
             // Line 2 — value (accent, larger)
             ctx.font = `600 20px ${FONT_CAPS}`;
             setSpacing(ctx, 0.5);
-            ctx.fillStyle = theme.accent;
+            ctx.fillStyle = accent;
             ctx.fillText(truncateToWidth(ctx, a.rank, textMaxW), textX, chipY + 30);
             setSpacing(ctx, 0);
 

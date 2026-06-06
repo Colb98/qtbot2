@@ -18,6 +18,7 @@ const economy = require('../config/economy');
 const { data, saveData } = require('../state');
 const { isBlockedByMaintenance } = require('../services/maintenance');
 const profile = require('../services/profile');
+const season = require('../services/season');
 
 module.exports = {
     name: Events.InteractionCreate,
@@ -125,8 +126,9 @@ module.exports = {
                             const gachaMeta = {};
                             const counts = rollMany(n, wallet.pity, gachaMeta);
                             for (const k of ITEM_KEYS) {
-                                if (counts[k] > 0) addItem(guildId, userId, k, counts[k]);
+                                if (counts[k] > 0) addItem(guildId, userId, season.mapGachaKey(k), counts[k]);
                             }
+                            if (counts.cao > 0 || counts.thienthuong > 0) season.bumpScoreTime(guildId, userId);
                             saveData();
                             metrics.recordGacha({ guildId, rolls: n, cost, counts, userId, ...gachaMeta });
                             profile.recordGacha(guildId, userId, n, counts);

@@ -16,7 +16,8 @@
 // }
 
 const { data, saveData } = require('../state');
-const { todayStr } = require('./currency');
+const { todayStr, ITEM_KEYS } = require('./currency');
+const seasonCfg = require('../config/season');
 
 const DEFAULT_TITLE = 'Nhất Mộng Giang Hồ';
 const DEFAULT_BORDER = null;          // null → draw procedural ink-wash ring
@@ -26,7 +27,7 @@ const DISPLAY_NAME_MAX = 32;
 const DISPLAY_NAME_RE = /^[\p{L}\p{N} _-]+$/u;
 const DAILY_CARD_RENDER_LIMIT = 5;     // non-super-admin cap, resets 00:00 GMT+7
 
-const VALID_ITEM_KEYS = new Set(['nhuom', 'dieu', 'cao', 'cao5', 'cao9', 'kythuong', 'thienthuong', 'phuonghoang1', 'phuonghoang2', 'thantrang']);
+const VALID_ITEM_KEYS = new Set(ITEM_KEYS);
 
 function ensureRoot() {
     if (!data.profile) data.profile = {};
@@ -42,9 +43,14 @@ function defaults() {
         itemSlot3: null,
         showNgoc: false,
         biggestJackpot: null,
-        selectedTitle: null,
-        selectedBorder: null,
+        selectedTitle: null,          // prestige chip under the name (top-season title id), null = default
+        selectedBorder: null,         // avatar border id (top 1-3 reward), null = procedural ring
         badgeSlots: [null, null, null],
+        // ── Season trophies (permanent; granted at season rollover) ──────────
+        unlockedTitles: [],           // top-leaderboard title ids the player has earned
+        unlockedBorders: [],          // border ids (top 1-3) the player has earned
+        seasonAchievements: [],       // item-ownership title ids (achId) the player has earned
+        seasonTitleSlots: [null, null, null], // which unlocked item-ownership titles to flex (chips)
         // Up to 3 achievement ids (from ACHIEVEMENTS catalog) shown on the card.
         // Empty/all-null → card falls back to DEFAULT_ACHIEVEMENTS.
         achievementSlots: [null, null, null],
@@ -62,6 +68,10 @@ function getProfile(guildId, userId) {
     for (const k of Object.keys(d)) if (p[k] === undefined) p[k] = d[k];
     if (!Array.isArray(p.badgeSlots) || p.badgeSlots.length !== 3) p.badgeSlots = [null, null, null];
     if (!Array.isArray(p.achievementSlots) || p.achievementSlots.length !== 3) p.achievementSlots = [null, null, null];
+    if (!Array.isArray(p.unlockedTitles)) p.unlockedTitles = [];
+    if (!Array.isArray(p.unlockedBorders)) p.unlockedBorders = [];
+    if (!Array.isArray(p.seasonAchievements)) p.seasonAchievements = [];
+    if (!Array.isArray(p.seasonTitleSlots) || p.seasonTitleSlots.length !== 3) p.seasonTitleSlots = [null, null, null];
     if (!p.cardRenderCap || typeof p.cardRenderCap !== 'object') p.cardRenderCap = { date: null, count: 0 };
     return p;
 }
@@ -310,6 +320,95 @@ function setAchievementSlots(guildId, userId, ids) {
     return p;
 }
 
+// ── Season trophies ──────────────────────────────────────────────────────────
+// Granting helpers are called by the season rollover (services/season.js). All
+// use set-union so a double-fired rollover never creates duplicates.
+function grantTitle(guildId, userId, titleId) {
+    const p = getProfile(guildId, userId);
+    if (titleId && !p.unlockedTitles.includes(titleId)) { p.unlockedTitles.push(titleId); saveData(); }
+    return p;
+}
+function grantBorder(guildId, userId, borderId) {
+    const p = getProfile(guildId, userId);
+    if (borderId && !p.unlockedBorders.includes(borderId)) { p.unlockedBorders.push(borderId); saveData(); }
+    return p;
+}
+function grantSeasonAchievement(guildId, userId, achId) {
+    const p = getProfile(guildId, userId);
+    if (achId && !p.seasonAchievements.includes(achId)) { p.seasonAchievements.push(achId); saveData(); }
+    return p;
+}
+
+// Selectable prestige titles for the chip under the name: the default plus any
+// top-leaderboard titles the player has unlocked. Returns [{ id|null, name }].
+function getSelectableTitles(guildId, userId) {
+    const p = getProfile(guildId, userId);
+    const out = [{ id: null, name: DEFAULT_TITLE }];
+    for (const id of p.unlockedTitles) {
+        const def = seasonCfg.TOP_TITLE_BY_ID.get(id);
+        if (def) out.push({ id, name: def.name });
+    }
+    return out;
+}
+// Display name for the current selected title (default when null/invalid).
+function getSelectedTitleName(profile) {
+    if (profile && profile.selectedTitle) {
+        const def = seasonCfg.TOP_TITLE_BY_ID.get(profile.selectedTitle);
+        if (def) return def.name;
+    }
+    return DEFAULT_TITLE;
+}
+function isSeasonTitleId(id) { return seasonCfg.TOP_TITLE_BY_ID.has(id); }
+
+function setSelectedTitle(guildId, userId, titleId) {
+    const p = getProfile(guildId, userId);
+    if (titleId === null || titleId === undefined || titleId === '') { p.selectedTitle = null; }
+    else if (p.unlockedTitles.includes(titleId) && seasonCfg.TOP_TITLE_BY_ID.has(titleId)) { p.selectedTitle = titleId; }
+    else throw new Error('Danh hiệu chưa mở khoá.');
+    saveData();
+    return p;
+}
+
+function setSelectedBorder(guildId, userId, borderId) {
+    const p = getProfile(guildId, userId);
+    if (borderId === null || borderId === undefined || borderId === '') p.selectedBorder = null;
+    else if (p.unlockedBorders.includes(borderId)) p.selectedBorder = borderId;
+    else throw new Error('Khung chưa mở khoá.');
+    saveData();
+    return p;
+}
+
+// Pure lookup: season item-ownership title id → { name, seasonId } (or null).
+// Used by the card renderer (worker-safe — no data access).
+function resolveSeasonTitle(achId) {
+    const def = seasonCfg.OWNERSHIP_TITLE_BY_ID.get(achId);
+    return def ? { name: def.name, seasonId: def.seasonId } : null;
+}
+
+// Unlocked item-ownership titles → [{ achId, name, seasonId }], for the picker.
+function getSeasonAchievementDefs(guildId, userId) {
+    const p = getProfile(guildId, userId);
+    const out = [];
+    for (const id of p.seasonAchievements) {
+        const def = seasonCfg.OWNERSHIP_TITLE_BY_ID.get(id);
+        if (def) out.push({ achId: id, name: def.name, seasonId: def.seasonId });
+    }
+    return out;
+}
+
+// Persist which unlocked item-ownership titles to flex as chips (max 3).
+function setSeasonTitleSlots(guildId, userId, ids) {
+    const p = getProfile(guildId, userId);
+    const cleaned = [];
+    for (const id of (Array.isArray(ids) ? ids : [])) {
+        if (p.seasonAchievements.includes(id) && seasonCfg.OWNERSHIP_TITLE_BY_ID.has(id) && !cleaned.includes(id)) cleaned.push(id);
+        if (cleaned.length >= 3) break;
+    }
+    p.seasonTitleSlots = [cleaned[0] || null, cleaned[1] || null, cleaned[2] || null];
+    saveData();
+    return p;
+}
+
 module.exports = {
     DEFAULT_TITLE,
     DEFAULT_BORDER,
@@ -334,5 +433,17 @@ module.exports = {
     getBiggestJackpot,
     getCardRenderStatus,
     consumeCardRender,
-    DAILY_CARD_RENDER_LIMIT
+    DAILY_CARD_RENDER_LIMIT,
+    // Season trophies
+    grantTitle,
+    grantBorder,
+    grantSeasonAchievement,
+    getSelectableTitles,
+    getSelectedTitleName,
+    isSeasonTitleId,
+    setSelectedTitle,
+    setSelectedBorder,
+    resolveSeasonTitle,
+    getSeasonAchievementDefs,
+    setSeasonTitleSlots
 };

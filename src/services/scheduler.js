@@ -8,11 +8,13 @@ const currency = require('./currency');
 const flashMath = require('./flashMath');
 const mathBoss = require('./mathBoss');
 const vuaTiengViet = require('./vuaTiengViet');
+const season = require('./season');
 
 let weeklyTask = null;
 let clearPrioTask = null;
 let reminderTask = null;
 let dailyPruneTask = null;
+let seasonTask = null;
 
 function scheduleWeeklyJobs() {
     if (weeklyTask) weeklyTask.destroy();
@@ -82,6 +84,21 @@ function scheduleDailyPrune() {
     log.info('Scheduled daily prune — 00:05 Asia/Ho_Chi_Minh');
 }
 
+// Season rollover. `node-cron` can't express "every N weeks", so the cadence
+// lives in data.season.endsAt (a timestamp); this daily tick just checks it.
+// A boot catch-up covers downtime across a season boundary.
+function scheduleSeasonRollover(client) {
+    if (seasonTask) return;
+    season.ensureState();
+    seasonTask = cron.schedule('5 0 * * *', () => {
+        season.maybeRollover(client).catch(e => log.error('season rollover cron error', e));
+    }, { timezone: 'Asia/Ho_Chi_Minh' });
+    setTimeout(() => {
+        season.maybeRollover(client).catch(e => log.error('season rollover boot error', e));
+    }, 20_000).unref?.();
+    log.info('Scheduled season rollover check — 00:05 Asia/Ho_Chi_Minh');
+}
+
 function testSendReminders(day, hour, minute) {
     const testCron = `${minute} ${hour} * * ${dayMap[day.toLowerCase()]}`;
     log.info('Testing sendReminders with cron:', testCron);
@@ -93,4 +110,4 @@ function testSendReminders(day, hour, minute) {
     }, { timezone: 'Asia/Ho_Chi_Minh' });
 }
 
-module.exports = { scheduleWeeklyJobs, scheduleDailyPrune, runDailyPrune, testSendReminders };
+module.exports = { scheduleWeeklyJobs, scheduleDailyPrune, scheduleSeasonRollover, runDailyPrune, testSendReminders };

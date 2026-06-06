@@ -110,6 +110,52 @@ function buildAchievementSelect(guildId, userId, prof) {
     );
 }
 
+const TITLE_DEFAULT_VALUE = '__default__';
+
+// Sub-menu (separate ephemeral) for season trophies: the prestige title shown
+// under the name + which unlocked item-ownership titles to flex as chips. Kept
+// off the main config message because that one is already at Discord's 5-row cap.
+function buildTitleComponents(guildId, userId, prof) {
+    const rows = [];
+    // Prestige title (under the name) — default + unlocked top-leaderboard titles.
+    const titles = profile.getSelectableTitles(guildId, userId);
+    const curSel = prof.selectedTitle || TITLE_DEFAULT_VALUE;
+    const titleOpts = titles.slice(0, 25).map(t => {
+        const val = t.id || TITLE_DEFAULT_VALUE;
+        const o = new StringSelectMenuOptionBuilder().setLabel(t.name.slice(0, 100)).setValue(val);
+        if (curSel === val) o.setDefault(true);
+        return o;
+    });
+    rows.push(new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId(`profile:title:${userId}`)
+            .setPlaceholder('Danh hiệu hiện dưới tên')
+            .addOptions(...titleOpts)
+    ));
+    // Item-ownership "collection" titles — only the player's unlocked ones.
+    const seasonDefs = profile.getSeasonAchievementDefs(guildId, userId);
+    if (seasonDefs.length > 0) {
+        const selected = (prof.seasonTitleSlots || []).filter(Boolean);
+        const opts = seasonDefs.slice(0, 25).map(d => {
+            const o = new StringSelectMenuOptionBuilder()
+                .setLabel(d.name.slice(0, 100))
+                .setValue(d.achId)
+                .setDescription(`Mùa ${d.seasonId}`);
+            if (selected.includes(d.achId)) o.setDefault(true);
+            return o;
+        });
+        rows.push(new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId(`profile:seasonach:${userId}`)
+                .setPlaceholder('Danh hiệu sưu tầm (chọn tối đa 3)')
+                .setMinValues(0)
+                .setMaxValues(Math.min(3, opts.length))
+                .addOptions(...opts)
+        ));
+    }
+    return rows;
+}
+
 function buildConfigComponents(guildId, userId, wallet, prof) {
     const itemOpts = buildItemOptions(wallet);
 
@@ -144,6 +190,10 @@ function buildConfigComponents(guildId, userId, wallet, prof) {
         new ButtonBuilder()
             .setCustomId(`profile:name:${userId}`)
             .setLabel('✏️ Đổi tên')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(`profile:titles:${userId}`)
+            .setLabel('🏅 Danh hiệu')
             .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId(`profile:done:${userId}`)
@@ -302,6 +352,46 @@ async function handleComponent(interaction) {
         }
         await interaction.deferUpdate().catch(() => {});
         await refreshConfigComponents(interaction, guildId, ownerUserId);
+        return;
+    }
+
+    if (action === 'titles') {
+        const prof = profile.getProfile(guildId, ownerUserId);
+        const rows = buildTitleComponents(guildId, ownerUserId, prof);
+        const hasSeason = profile.getSeasonAchievementDefs(guildId, ownerUserId).length > 0;
+        const note = hasSeason
+            ? ''
+            : '\n*(Chưa mở khoá danh hiệu sưu tầm — giữ vật phẩm cao cấp tới cuối mùa để nhận.)*';
+        return interaction.reply({
+            content: `🏅 **Danh hiệu** — chọn danh hiệu hiện dưới tên${hasSeason ? ' và danh hiệu sưu tầm để khoe' : ''}.${note}`,
+            components: rows,
+            flags: MessageFlags.Ephemeral
+        });
+    }
+
+    if (action === 'title') {
+        const v = interaction.values && interaction.values[0];
+        try {
+            profile.setSelectedTitle(guildId, ownerUserId, v === TITLE_DEFAULT_VALUE ? null : v);
+        } catch (e) {
+            return interaction.reply({ content: `Lỗi: ${e.message}`, flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferUpdate().catch(() => {});
+        const prof = profile.getProfile(guildId, ownerUserId);
+        await interaction.editReply({ components: buildTitleComponents(guildId, ownerUserId, prof) }).catch(() => {});
+        return;
+    }
+
+    if (action === 'seasonach') {
+        const values = (interaction.values || []).slice(0, 3);
+        try {
+            profile.setSeasonTitleSlots(guildId, ownerUserId, values);
+        } catch (e) {
+            return interaction.reply({ content: `Lỗi: ${e.message}`, flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferUpdate().catch(() => {});
+        const prof = profile.getProfile(guildId, ownerUserId);
+        await interaction.editReply({ components: buildTitleComponents(guildId, ownerUserId, prof) }).catch(() => {});
         return;
     }
 
