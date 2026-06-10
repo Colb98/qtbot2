@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '2.2.3';
+const CURRENT_VERSION = '2.2.4';
 
 const CHANGELOG = {
+    '2.2.4': {
+        date: '2026-06-10',
+        title: 'Sửa treo khi upload emote (rate limit ẩn của Discord)',
+        changes: [
+            'Admin: `!upload_ingame_emotes` không còn **treo im lặng** — Discord có rate limit ẩn rất gắt khi tạo emoji (sau nhiều lần force xoá/tạo), thư viện sẽ âm thầm chờ. Giờ lệnh hiện dòng `… đang upload` ngay trước mỗi emote, hiện **thông báo rate-limit kèm thời gian phải chờ**, timeout 45s mỗi request và **dừng sớm có báo cáo** thay vì treo; chạy lại lệnh sau đó sẽ upload tiếp phần còn thiếu.'
+        ]
+    },
     '2.2.3': {
         date: '2026-06-10',
         title: 'Upload emote: tiến trình realtime & báo lỗi rõ',

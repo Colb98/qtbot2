@@ -1647,17 +1647,37 @@ ${DISCLAIMER}`;
             `Slot guild: ${staticUsed}/${slotLimit} tĩnh, ${animUsed}/${slotLimit} động.`);
         const progress = [];
         let lastEdit = 0;
-        const report = async (line, final = false) => {
+        const report = async (line, { final = false, flush = false } = {}) => {
             if (line) { progress.push(line); log.info(`upload_ingame_emotes: ${line}`); }
             const now = Date.now();
-            if (!final && now - lastEdit < 1500) return; // throttle edits
+            if (!final && !flush && now - lastEdit < 1500) return; // throttle edits
             lastEdit = now;
             const head = final ? `✅ Xong (force=${force ? 'có' : 'không'}).` : '⏳ Đang upload…';
             const tail = progress.slice(-18).join('\n');
             await status.edit(`${head}\n\`\`\`\n${tail}\n\`\`\``.slice(0, 1990)).catch(() => {});
         };
 
-        let created = 0, reused = 0, deduped = 0;
+        // Discord has a hidden, very aggressive rate limit on emoji create —
+        // @discordjs/rest WAITS it out silently (looks like a hang). Surface it
+        // via the rateLimited event and time out requests stuck in that queue.
+        const EMOJI_REQ_TIMEOUT_MS = 45000;
+        let rateLimitInfo = null;
+        const onRateLimited = (info) => {
+            rateLimitInfo = info;
+            const waitS = Math.ceil((info.timeToReset || 0) / 1000);
+            log.warn(`upload_ingame_emotes: rate limited on ${info.method} ${info.route} — wait ${waitS}s (global=${!!info.global})`);
+            report(`⏳ Discord rate-limit: phải chờ ${waitS}s (${info.method} ${info.route})`, { flush: true }).catch(() => {});
+        };
+        msg.client.rest.on('rateLimited', onRateLimited);
+        const withTimeout = (promise, what) => Promise.race([
+            promise,
+            new Promise((_, reject) => setTimeout(
+                () => reject(new Error(`timeout sau ${EMOJI_REQ_TIMEOUT_MS / 1000}s (kẹt rate limit?): ${what}`)),
+                EMOJI_REQ_TIMEOUT_MS).unref())
+        ]);
+
+        let created = 0, reused = 0, deduped = 0, aborted = false;
+        try {
         for (const name of INGAME_EMOTE_NAMES) {
             const emoteName = `ig_${name}`;
             // All copies sharing this name; keep the one our stored id points at
@@ -1668,7 +1688,7 @@ ${DISCLAIMER}`;
                     || (BigInt(b.id) > BigInt(a.id) ? 1 : -1));
             const survivor = matches[0] || null;
             for (const dupe of matches.slice(1)) {
-                await dupe.delete('Dedup ingame emote').catch(() => {});
+                await withTimeout(dupe.delete('Dedup ingame emote'), `xoá trùng ${emoteName}`).catch(() => {});
                 deduped++;
                 await report(`~ ${emoteName}: xoá bản trùng (${dupe.id})`);
             }
@@ -1698,15 +1718,20 @@ ${DISCLAIMER}`;
             // old slot and retry once.
             try {
                 const buffer = fs.readFileSync(filePath);
+                await report(`… ${emoteName}: đang upload (${sizeKB}KB)`, { flush: true });
                 let emoji;
                 try {
-                    emoji = await msg.guild.emojis.create({ attachment: buffer, name: emoteName });
+                    emoji = await withTimeout(
+                        msg.guild.emojis.create({ attachment: buffer, name: emoteName }),
+                        `upload ${emoteName}`);
                 } catch (e) {
                     const capHit = e.code === 30008 || /maximum number of emojis/i.test(e.message || '');
                     if (!capHit || !survivor) throw e;
-                    await survivor.delete('Free slot to recreate ingame emote').catch(() => {});
+                    await withTimeout(survivor.delete('Free slot to recreate ingame emote'), `xoá ${emoteName}`).catch(() => {});
                     await report(`~ ${emoteName}: hết slot, xoá emote cũ rồi thử lại`);
-                    emoji = await msg.guild.emojis.create({ attachment: buffer, name: emoteName });
+                    emoji = await withTimeout(
+                        msg.guild.emojis.create({ attachment: buffer, name: emoteName }),
+                        `upload lại ${emoteName}`);
                 }
                 if (survivor && emoji.id !== survivor.id) await survivor.delete('Replaced by re-upload').catch(() => {});
                 ids[name] = emoji.id;
@@ -1717,14 +1742,27 @@ ${DISCLAIMER}`;
                 log.error(`upload_ingame_emotes error for ${name}`, e);
                 failures.push(`${name} (${sizeKB}KB): ${detail}`);
                 await report(`✖ ${emoteName}: ${detail.slice(0, 120)}`);
+                // A timeout means we're stuck in Discord's hidden emoji-create
+                // rate limit — every further create would queue behind the same
+                // wall, so stop here instead of "hanging" through the rest.
+                if (/^timeout/.test(e.message || '')) {
+                    aborted = true;
+                    const waitS = rateLimitInfo ? Math.ceil((rateLimitInfo.timeToReset || 0) / 1000) : null;
+                    failures.push(`→ Dừng: Discord rate-limit tạo emoji${waitS ? `, thử lại sau ~${waitS}s` : ', thử lại sau ít phút/giờ'}.`);
+                    break;
+                }
             }
+        }
+        } finally {
+            msg.client.rest.off('rateLimited', onRateLimited);
         }
         data.ingameEmoteIds = ids;
         saveData();
-        await report(null, true);
+        await report(null, { final: true });
 
         let summary = `Emote ingame: **${created}** upload mới, **${reused}** giữ nguyên, **${deduped}** bản trùng đã xoá, **${failures.length}** lỗi (${Object.keys(ids).length}/${INGAME_EMOTE_NAMES.length} có id).`;
-        if (!force && created === 0 && deduped === 0 && failures.length === 0) summary += ' Dùng `!upload_ingame_emotes force` nếu muốn upload lại toàn bộ.';
+        if (aborted) summary = `⚠️ **Dừng giữa chừng vì rate limit.** ${summary}\nEmote chưa upload sẽ được xử lý khi chạy lại lệnh (không cần \`force\`).`;
+        if (!force && !aborted && created === 0 && deduped === 0 && failures.length === 0) summary += ' Dùng `!upload_ingame_emotes force` nếu muốn upload lại toàn bộ.';
         if (failures.length) summary += `\nLỗi:\n\`\`\`\n${failures.join('\n')}\n\`\`\``;
         return replyChunked(msg, summary);
     }
