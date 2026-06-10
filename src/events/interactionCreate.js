@@ -19,6 +19,7 @@ const { data, saveData } = require('../state');
 const { isBlockedByMaintenance } = require('../services/maintenance');
 const profile = require('../services/profile');
 const season = require('../services/season');
+const exchange = require('../services/exchange');
 
 module.exports = {
     name: Events.InteractionCreate,
@@ -33,6 +34,8 @@ module.exports = {
             try {
                 if (interaction.customId.startsWith('profile:')) {
                     await profileCmd.handleComponent(interaction);
+                } else if (interaction.customId.startsWith('doi:') || interaction.customId.startsWith('pg:')) {
+                    await exchange.handleComponent(interaction);
                 }
             } catch (e) {
                 log.error('Error in select menu interaction:', e);
@@ -57,6 +60,10 @@ module.exports = {
             try {
                 if (interaction.customId.startsWith('profile:')) {
                     await profileCmd.handleComponent(interaction);
+                    return;
+                }
+                if (interaction.customId.startsWith('doi:') || interaction.customId.startsWith('pg:')) {
+                    await exchange.handleComponent(interaction);
                     return;
                 }
                 if (interaction.customId.startsWith('arrange_')) {

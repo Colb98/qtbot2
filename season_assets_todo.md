@@ -1,93 +1,72 @@
-# Season feature — missing assets & wiring (TODO)
+# Season feature — asset status & remaining TODO
 
-The Season system (v2.0.0) is fully functional in code, but two categories of
-**art assets** (and a bit of render wiring) are deferred. This is the complete
-list of what still needs to be added. None of it blocks Season 1; it's needed
-before **Season 2 goes live** (~8 weeks after deploy) and for the Top-rank
-**borders**.
+The Season system (v2.1.0) is fully functional. This tracks the art assets and
+their wiring. **Updated:** borders are REMOVED (art didn't pass) — replaced by
+**Top 1-3 badges** on BOTH leaderboards (Thiên Thưởng + Ngọc). Season-1 badge
+art + Season-2 item art are in. Remaining items are marked ⏳.
 
 ---
 
-## 1. Season-2 premium item icons / emotes  ⏳ needed before Season 2
+## 1. Season-2 premium item icons / emotes  ✅ mostly done
 
-Each premium item is **one PNG** that serves two purposes: the in-chat Discord
-emote *and* the profile-card showcase icon (both read the same file). Season 2
-uses 6 new keys that currently have **no art** (they render as `:s2_pet1:` text).
+5 item PNGs are in `emotes/ingame/` and labelled:
 
-**6 PNG files to add** → `emotes/ingame/<key>.png` (square, like the existing
-`cao.png` / `thantrang.png`):
-
-| Key | Tier | Suggested concept |
+| Key | Name | File |
 |---|---|---|
-| `s2_pet1.png` | Linh thú T1 | tier-1 pet (replaces Cáo) |
-| `s2_pet2.png` | Linh thú T2 | tier-2 pet (replaces Cáo 5) |
-| `s2_pet3.png` | Linh thú T3 | tier-3 pet (replaces Cáo 9) |
-| `s2_thanthu.png` | Thần Thú | replaces Phượng Băng |
-| `s2_thanthuplus.png` | Thần Thú+ | replaces Phượng Hoả |
-| `s2_thantrang.png` | Thần Trang | replaces Thần Trang |
+| `s2_pet1` | Sói | `s2_pet1.png` ✅ |
+| `s2_pet2` | Sói Tinh Hà (5 × Sói) | `s2_pet2.png` ✅ |
+| `s2_thanthu` | Rồng | `s2_thanthu.png` ✅ |
+| `s2_thanthuplus` | Rồng Pro Max | `s2_thanthuplus.png` ✅ |
+| `s2_thantrang` | Thần Trang S2 | `s2_thantrang.png` ✅ |
 
-**Wiring steps once the PNGs exist:**
-1. Add the 6 keys to `INGAME_EMOTE_NAMES` in [src/services/currency.js](src/services/currency.js#L4)
-   (currently they are intentionally NOT in that list so `!upload_ingame_emotes`
-   doesn't fail on missing files).
-2. Run `!upload_ingame_emotes` in the emote guild (super-admin) to upload them and
-   store their ids in `data.ingameEmoteIds`.
-3. Finalize the Vietnamese labels in `ITEM_LABELS` (same file, currently
-   placeholders like `'Linh Thú M2 (T1)'`).
+Keys are in `INGAME_EMOTE_NAMES` + labelled in `ITEM_LABELS` (currency.js). The
+profile-card showcase and `!nextseason` strip already read these PNGs directly.
 
-> The item *keys* (`s2_pet1`…`s2_thantrang`) already exist in `ITEM_KEYS` /
-> wallet defaults, so wallets, scoring and the rollover already work — only the
-> visuals are missing.
+**⏳ Remaining:** run `!upload_ingame_emotes` **on the server** (emote guild,
+super-admin) to register them as in-chat emotes. Until then, `renderEmote`
+(and the `!nextseason` text bullets / `!toptt` once S2 is live) fall back to
+`:s2_pet1:` text — the images still show via the strip/showcase.
 
 ---
 
-## 2. Top 1-3 profile borders  ⏳ no rendering exists yet
+## 2. Profile badges (Top 1-3 reward, both leaderboards)  ✅ S1 art in · ⏳ S2 art
 
-The rollover **grants** border ids to the Top 1-3 of each season
-(`s1_border1`/`2`/`3`, `s2_border1`/`2`/`3`) and stores `selectedBorder` on the
-profile, and `/profile` lets a player select one — **but the card never draws a
-border**. Two things are missing:
+- **Rendering: done.** A badge goes into a regular `/profile` showcase slot
+  (mix with items, e.g. 1 badge + 2 items); the card shows HOW it was earned
+  ("TOP 1 · MÙA 1" + board name) instead of a quantity. `!nextseason` attaches
+  a 6-badge strip of the current season (gold-on-black art composited with
+  `lighten`). Rollover grants: TT Top 1-3 + Ngọc Top 1-3.
+- **Season-1 art: in** — `assets/profile_card/badges/s1_top_tt_{1,2,3}.png` and
+  `s1_top_ngoc_{1,2,3}.png` (1254×1254, medal on opaque black).
 
-**a) A render implementation.** Note the current card design has **NO avatar**
-(`renderProfileCard` comment: *"reference design has no avatar"*), and
-`BORDERS_DIR` (`assets/profile_card/borders/`) is defined but **unused**. So a
-"border" can't be an avatar ring as originally imagined — a design decision is
-needed. Options:
-- A decorative **full-card frame** (edge filigree) overlaid at the end of render.
-- A **corner seal / emblem** in a card corner.
-- A **panel-edge treatment** (swap the procedural panel border at
-  [profileCard.js ~L612-628](src/services/profileCard.js#L612) for a tier-specific
-  texture/color).
-
-The hook to wire it into: the badge/border region near
-[profileCard.js ~L1078](src/services/profileCard.js#L1078) (currently a no-op
-`_badgeHook`), reading `player.profile.selectedBorder`.
-
-**b) The art**, dropped into `assets/profile_card/borders/` — at minimum one PNG
-per border id (e.g. `s1_border1.png` … `s1_border3.png`, `s2_border1.png` …).
-Map the id → file (and tier styling) in the new render code.
+**⏳ Remaining:** Season-2 badge art — `s2_top_tt_{1,2,3}.png` +
+`s2_top_ngoc_{1,2,3}.png` in `assets/profile_card/badges/`. Match the existing
+style (medal art on an opaque black fill, square). The ids are already
+referenced in `SEASONS[2].topTitles[*].badge` / `SEASONS[2].topNgoc[*].badge`;
+missing files render as empty slots / are skipped in the strip — no crash.
 
 ---
 
-## 3. Per-season config polish  ⏳ before Season 2
+## 3. Season-2 config polish  ⏳ before Season 2 goes live
 
-In [src/config/season.js](src/config/season.js) `SEASONS[2]`:
-- `name: 'Mùa 2'` → set the real theme name.
+In `SEASONS[2]` ([src/config/season.js](src/config/season.js)):
+- `name: 'Mùa 2'` → set the real theme name (the `!nextseason` teaser + strip
+  use it; currently shows just "Mùa 2").
 - `titles[*].name` and `topTitles[*].name` are placeholder Vietnamese names —
-  finalize them (Season 1 names are already final).
-- Border ids (`s2_border1..3`) are referenced; make sure matching art exists (see §2).
+  finalize them (Season 1 names are final; item names above are final;
+  `topNgoc[*].name` for both seasons was finalized 2026-06-10).
 
 ---
 
 ## Recurring per future season (Season 3+)
 
-Every new season needs the same bundle:
-1. 6 item PNGs (`s3_*`) in `emotes/ingame/` + keys appended to `ITEM_KEYS` /
-   `ITEM_LABELS` / `INGAME_EMOTE_NAMES` (currency.js) + `VALID_ITEM_KEYS` is
-   already derived from `ITEM_KEYS`.
-2. 3 border PNGs in `assets/profile_card/borders/`.
-3. A `SEASONS[n]` config entry (items + titles + topTitles).
-4. `!upload_ingame_emotes`.
+1. Item PNGs in `emotes/ingame/` (one per tier — currently 5: 2 pets + 3
+   cosmetics) + keys appended to `ITEM_KEYS` / `ITEM_LABELS` / `INGAME_EMOTE_NAMES`
+   (currency.js); `VALID_ITEM_KEYS` is derived from `ITEM_KEYS`.
+2. 6 badge PNGs (medal-on-black style) in `assets/profile_card/badges/`:
+   `s{n}_top_tt_{1,2,3}.png` + `s{n}_top_ngoc_{1,2,3}.png`.
+3. A `SEASONS[n]` config entry (items + ratios + titles + topTitles + topNgoc).
+4. Run `!upload_ingame_emotes`.
 
-No gameplay code changes — gacha / exchanges / scoring / rollover auto-target the
-current season.
+No gameplay code changes — gacha / exchanges / scoring / rollover / badges /
+`!nextseason` auto-target the current/next season.

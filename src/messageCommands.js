@@ -29,6 +29,9 @@ const profileCmd = require('./commands/profile');
 const profile = require('./services/profile');
 const lixiSvc = require('./services/lixi');
 const season = require('./services/season');
+const seasonCfg = require('./config/season');
+const seasonTeaser = require('./services/seasonTeaser');
+const exchange = require('./services/exchange');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
@@ -121,22 +124,20 @@ async function handleMessageCommand(msg) {
 • \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
 • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
 • \`!doingoc <n|all>\` — Đổi ngân phiếu → ngọc.
-• \`!doithienthuong <n>\` — Đổi ${economy.TT_PER_CAO} thiên thưởng → 1 cáo.
-• \`!phangiaicao <n|all>\` — Phân giải 1 cáo → ${economy.TT_PER_CAO} thiên thưởng (chiều ngược lại của \`!doithienthuong\`).
+• \`!doi [vật phẩm] [1|2|3|all]\` — Đổi vật phẩm cao cấp (TT → linh thú/trang phục, linh thú → bậc cao hơn). Không gõ vật phẩm → menu chọn. Vật phẩm mùa cũ vẫn đổi được nhưng **không tính điểm** BXH.
+• \`!phangiai [linh thú] [n|all]\` — Phân giải linh thú → thiên thưởng. Linh thú giá trị ≥9 TT bị phạt: −10% TT hoặc trừ 20% giá trị bằng ngọc (chọn khi xác nhận).
 • \`!gacha [1-100|all]\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Pity lượt 20 (KT+) / 200 (TT).
 • \`!pity\` — Xem lượt còn lại đến pity.
 • \`!toptt\` / \`!topngoc\` — Bảng xếp hạng.
 • \`!season\` — Xem mùa giải: thời gian còn lại, phần thưởng & cách nhận, thứ hạng của bạn.
+• \`!nextseason\` — Teaser mùa mới: vật phẩm sắp ra, phần thưởng cuối mùa & huy hiệu Top 1-3.
 • \`!tangngoc @user <n|all>\` / \`!tangthienthuong @user [n|all]\` — Tặng ngọc/thiên thưởng (+ Điểm Thân mật).
 • \`!tangcao\` / \`!tangcao5\` / \`!tangcao9\` / \`!tangdieu @user [n|all]\` — Tặng vật phẩm (+ Điểm Thân mật).
 • \`!tangphuongbang\` / \`!tangphuonghoa\` / \`!tangthantrang @user [n|all]\` — Tặng trang phục (+ Điểm Thân mật).
 • \`!lixi <tổng> <số người>\` — Lì xì: chia tổng ngọc thành N phần random, mỗi phần ≥ floor(tổng / 2N). React 🧧 để nhận.
 • \`!banthienthuong <n|all>\` / \`!bancao <n|all>\` — Bán đổi ngọc.
 • \`!bankythuong\` / \`!bandieu\` / \`!bannhuom <n|all>\` — Bán low-tier (giá ${fmt(economy.SELL_PRICE_NGOC.kythuong)}/${fmt(economy.SELL_PRICE_NGOC.dieu)}/${fmt(economy.SELL_PRICE_NGOC.nhuom)} ngọc).
-• \`!doicao5 <n|all>\` / \`!doicao9 <n|all>\` — Đổi ${economy.CAO_PER_CAO5} cáo → 1 cáo 5 đuôi; ${economy.CAO5_PER_CAO9} cáo 5 đuôi → 1 cáo 9 đuôi.
-• \`!doiphuongbang <n|all>\` — ${economy.PHUONGBANG_TT} thiên thưởng → 1 Phượng Băng.
-• \`!doiphuonghoa <n|all>\` — 1 Phượng Băng + ${economy.PHUONGHOA_TT} thiên thưởng → 1 Phượng Hoả.
-• \`!doithantrang <n|all>\` — ${economy.THANTRANG_TT} thiên thưởng → 1 Thần Trang.
+• \`!doi\` thay các lệnh cũ \`!doithienthuong\` / \`!doicao5\` / \`!doicao9\` / \`!doiphuongbang\` / \`!doiphuonghoa\` / \`!doithantrang\` (vd: \`!doi cao 1\`, \`!doi phuonghoa all\`).
   (Phượng & Thần Trang: chỉ đổi 1 chiều, không bán, có thể tặng.)
 • \`!bond [@user]\` — Xem Điểm Thân mật (top 10 hoặc cụ thể với 1 user).
 
@@ -193,7 +194,7 @@ ${DISCLAIMER}`;
 • \`!season_setchannel [#channel|clear]\` — Cài kênh announce kết thúc mùa.
 • \`!season_setlength <số tuần>\` — Đổi độ dài mùa (mặc định 8 tuần).
 • \`!season_setend +<ngày>|<YYYY-MM-DD>\` — Đặt thời điểm kết thúc mùa hiện tại.
-• \`!season_end\` — Chốt mùa ngay (trao danh hiệu/khung, sang mùa mới). Dùng test / chữa cháy nếu cron lỡ.
+• \`!season_end\` — Chốt mùa ngay (trao danh hiệu/huy hiệu, sang mùa mới). Dùng test / chữa cháy nếu cron lỡ.
 
 **Guild War:**
 • \`!setup channel #channel\` — Set kênh đăng ký bang chiến.
@@ -458,58 +459,69 @@ ${DISCLAIMER}`;
         return msg.reply(`🎁 Daily của ${member.displayName}: +${fmt(r.nganphieu)} ${renderEmote('nganphieu')}.`);
     }
 
-    if (cmd === '!doithienthuong') {
-        const caoKey = season.resolveItem('pet1');
-        const caoLabel = ITEM_LABELS[caoKey];
-        const n = parseInt(parts[1], 10);
-        if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`!doithienthuong <số lượng cáo>\` — đổi ${economy.TT_PER_CAO} thiên thưởng thành 1 ${caoLabel}.`);
-        const cost = n * economy.TT_PER_CAO;
-        const w = getWallet(guildId, msg.author.id);
-        const totalTT = w.items.thienthuong + w.lockedItems.thienthuong;
-        if (totalTT < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(totalTT)}.`);
-        const nonLockedTTUsed = Math.min(cost, w.items.thienthuong);
-        const lockedTTUsed = cost - nonLockedTTUsed;
-        w.items.thienthuong -= nonLockedTTUsed;
-        w.lockedItems.thienthuong -= lockedTTUsed;
-        const nonLockedCao = Math.floor(nonLockedTTUsed / economy.TT_PER_CAO);
-        const lockedCao = n - nonLockedCao;
-        w.items[caoKey] += nonLockedCao;
-        w.lockedItems[caoKey] += lockedCao;
-        saveData();
-        const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote(caoKey)}. Số dư: ${fmt(w2.items.thienthuong)} thiên thưởng, ${fmt(w2.items[caoKey])} ${caoLabel}.`);
+    // ── Unified exchange: !doi [item] [1|2|3|all] ───────────────────────────
+    // No args → interactive picker (select + qty buttons). Covers every premium
+    // item of every season up to the current one (old items score 0).
+    if (cmd === '!doi') {
+        if (!parts[1]) {
+            return msg.reply({
+                content: exchange.DOI_HEADER,
+                components: exchange.buildDoiComponents(guildId, msg.author.id, null),
+                allowedMentions: { parse: [] }
+            });
+        }
+        const entry = exchange.resolveAlias(parts[1]);
+        if (!entry) {
+            const names = exchange.catalog().map(e => `\`${e.key}\``).join(', ');
+            return msg.reply(`Không có vật phẩm \`${parts[1]}\`. Vật phẩm hợp lệ: ${names}. Hoặc gõ \`!doi\` để mở menu.`);
+        }
+        const qty = !parts[2] ? 1 : (parts[2] === 'all' ? 'all' : parseInt(parts[2], 10));
+        if (qty !== 'all' && (!Number.isInteger(qty) || qty <= 0)) {
+            return msg.reply(`Cú pháp: \`!doi ${entry.key} <số lượng|all>\` — đổi ${exchange.costText(entry)} → 1 ${entry.label}.`);
+        }
+        const res = exchange.performExchange(guildId, msg.author.id, entry.key, qty);
+        if (!res.ok) return msg.reply(`⛔ ${res.error}`);
+        return msg.reply(`✅ ${exchange.exchangeResultText(guildId, msg.author.id, res)}`);
     }
 
-    // Reverse of !doithienthuong: dismantle cáo → 3 thiên thưởng each.
-    // Non-locked cáo dismantle into non-locked TT, locked cáo into locked TT.
-    if (cmd === '!phangiaicao') {
-        const caoKey = season.resolveItem('pet1');
-        const caoLabel = ITEM_LABELS[caoKey];
-        const w = getWallet(guildId, msg.author.id);
-        const totalCao = w.items[caoKey] + w.lockedItems[caoKey];
-        const usage = `Cú pháp: \`!phangiaicao <số lượng cáo|all>\` — phân giải 1 ${caoLabel} → ${economy.TT_PER_CAO} thiên thưởng.`;
-        let n;
-        if (parts[1] === 'all') {
-            n = totalCao;
-            if (n <= 0) return msg.reply(`Bạn không có ${caoLabel} để phân giải.`);
-        } else {
-            n = parseInt(parts[1], 10);
-            if (!Number.isInteger(n) || n <= 0) return msg.reply(usage);
-            if (totalCao < n) return msg.reply(`Bạn chỉ có ${fmt(totalCao)} ${renderEmote(caoKey)}, không đủ phân giải ${fmt(n)}.`);
+    // ── Unified dismantle: !phangiai [pet] [n|all] ──────────────────────────
+    // Pets only. Unit value >= 9 TT → penalty, chosen via confirm buttons.
+    if (cmd === '!phangiai') {
+        if (!parts[1]) {
+            const components = exchange.buildPhangiaiComponents(guildId, msg.author.id, null);
+            if (!components) return msg.reply('Bạn không có linh thú nào để phân giải.');
+            return msg.reply({ content: exchange.PG_HEADER, components, allowedMentions: { parse: [] } });
         }
-        const nonLockedCaoUsed = Math.min(n, w.items[caoKey]);
-        const lockedCaoUsed = n - nonLockedCaoUsed;
-        w.items[caoKey] -= nonLockedCaoUsed;
-        w.lockedItems[caoKey] -= lockedCaoUsed;
-        const nonLockedTTGained = nonLockedCaoUsed * economy.TT_PER_CAO;
-        const lockedTTGained = lockedCaoUsed * economy.TT_PER_CAO;
-        w.items.thienthuong += nonLockedTTGained;
-        w.lockedItems.thienthuong += lockedTTGained;
-        saveData();
-        const w2 = getWallet(guildId, msg.author.id);
-        const totalTTGained = nonLockedTTGained + lockedTTGained;
-        const lockedNote = lockedTTGained > 0 ? ` (có ${fmt(lockedTTGained)} thiên thưởng khoá)` : '';
-        return msg.reply(`Đã phân giải ${fmt(n)} ${renderEmote(caoKey)} → ${fmt(totalTTGained)} ${renderEmote('thienthuong')}${lockedNote}. Số dư: ${fmt(w2.items[caoKey])} ${caoLabel}, ${fmt(w2.items.thienthuong)} thiên thưởng.`);
+        const entry = exchange.resolveAlias(parts[1]);
+        if (!entry) {
+            const names = exchange.catalog().filter(e => e.dismantlable).map(e => `\`${e.key}\``).join(', ');
+            return msg.reply(`Không có vật phẩm \`${parts[1]}\`. Linh thú phân giải được: ${names}. Hoặc gõ \`!phangiai\` để mở menu.`);
+        }
+        const qty = !parts[2] ? 1 : (parts[2] === 'all' ? 'all' : parseInt(parts[2], 10));
+        if (qty !== 'all' && (!Number.isInteger(qty) || qty <= 0)) {
+            return msg.reply(`Cú pháp: \`!phangiai ${entry.key} <số lượng|all>\` — phân giải 1 ${entry.label} → ${fmt(entry.value)} thiên thưởng.`);
+        }
+        const quote = exchange.dismantleQuote(guildId, msg.author.id, entry.key, qty);
+        if (!quote.ok) return msg.reply(`⛔ ${quote.error}`);
+        if (quote.penalized) {
+            const confirm = exchange.buildPenaltyConfirm(msg.author.id, quote);
+            return msg.reply({ ...confirm, allowedMentions: { parse: [] } });
+        }
+        const res = exchange.performDismantle(guildId, msg.author.id, entry.key, quote.n, 'plain');
+        if (!res.ok) return msg.reply(`⛔ ${res.error}`);
+        return msg.reply(`✅ ${exchange.dismantleResultText(guildId, msg.author.id, res)}`);
+    }
+
+    // Legacy exchange commands — folded into !doi / !phangiai.
+    const LEGACY_DOI = {
+        '!doithienthuong': 'cao', '!doicao5': 'cao5', '!doicao9': 'cao9',
+        '!doiphuongbang': 'phuongbang', '!doiphuonghoa': 'phuonghoa', '!doithantrang': 'thantrang'
+    };
+    if (LEGACY_DOI[cmd]) {
+        return msg.reply(`Lệnh này đã gộp về \`!doi\`. Dùng: \`!doi ${LEGACY_DOI[cmd]} <số lượng|all>\` — hoặc \`!doi\` để mở menu chọn.`);
+    }
+    if (cmd === '!phangiaicao') {
+        return msg.reply('Lệnh này đã gộp về `!phangiai`. Dùng: `!phangiai cao <số lượng|all>` — hoặc `!phangiai` để mở menu chọn.');
     }
 
     if (cmd === '!tangthienthuong' || cmd === '!tangcao' || cmd === '!tangcao5' || cmd === '!tangcao9' || cmd === '!tangdieu'
@@ -529,6 +541,7 @@ ${DISCLAIMER}`;
         };
         const giftEntry = giftMap[cmd];
         const itemKey = giftEntry.key || season.resolveItem(giftEntry.tier);
+        if (!itemKey) return msg.reply('Mùa này không có vật phẩm này.');
         const bondPer = giftEntry.bondPer;
         const itemLabel = ITEM_LABELS[itemKey];
         const mention = parts[1];
@@ -605,7 +618,7 @@ ${DISCLAIMER}`;
         const itemKey = isCao ? season.resolveItem('pet1') : 'thienthuong';
         const itemLabel = isCao ? ITEM_LABELS[itemKey] : 'thiên thưởng';
         const pricePerUnit = isCao
-            ? economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST * economy.TT_PER_CAO
+            ? economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST * season.exchangeRatio('ttPerPet1')
             : economy.ROLLS_PER_THIENTHUONG * economy.GACHA.ROLL_COST;
         const w = getWallet(guildId, msg.author.id);
         const totalSell = w.items[itemKey] + w.lockedItems[itemKey];
@@ -653,95 +666,6 @@ ${DISCLAIMER}`;
         saveData();
         const w2 = getWallet(guildId, msg.author.id);
         return msg.reply(`Đã bán ${fmt(n)} ${renderEmote(itemKey)} → ${fmt(gained)} ${renderEmote('ngoc')}. Số dư: ${fmt(w2.items[itemKey] + w2.lockedItems[itemKey])} ${itemLabel}, ${fmt(w2.ngoc + w2.lockedNgoc)} ngọc.`);
-    }
-
-    if (cmd === '!doicao5' || cmd === '!doicao9') {
-        const isCao9 = cmd === '!doicao9';
-        const srcKey = isCao9 ? season.resolveItem('pet2') : season.resolveItem('pet1');
-        const dstKey = isCao9 ? season.resolveItem('pet3') : season.resolveItem('pet2');
-        const ratio = isCao9 ? economy.CAO5_PER_CAO9 : economy.CAO_PER_CAO5;
-        const w = getWallet(guildId, msg.author.id);
-        const totalSrc = w.items[srcKey] + w.lockedItems[srcKey];
-        const n = parts[1] === 'all'
-            ? Math.floor(totalSrc / ratio)
-            : parseInt(parts[1], 10);
-        if (!Number.isInteger(n) || n <= 0) return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — đổi ${ratio} ${ITEM_LABELS[srcKey]} → 1 ${ITEM_LABELS[dstKey]}.`);
-        const cost = n * ratio;
-        if (totalSrc < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote(srcKey)} nhưng chỉ có ${fmt(totalSrc)}.`);
-        const nonLockedUsed = Math.min(cost, w.items[srcKey]);
-        const lockedUsed = cost - nonLockedUsed;
-        w.items[srcKey] -= nonLockedUsed;
-        w.lockedItems[srcKey] -= lockedUsed;
-        const nonLockedDst = Math.floor(nonLockedUsed / ratio);
-        const lockedDst = n - nonLockedDst;
-        w.items[dstKey] += nonLockedDst;
-        w.lockedItems[dstKey] += lockedDst;
-        saveData();
-        const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote(srcKey)} → ${fmt(n)} ${renderEmote(dstKey)}. Số dư: ${fmt(w2.items[srcKey])} ${ITEM_LABELS[srcKey]}, ${fmt(w2.items[dstKey])} ${ITEM_LABELS[dstKey]}.`);
-    }
-
-    if (cmd === '!doiphuongbang' || cmd === '!doithantrang') {
-        const isThantrang = cmd === '!doithantrang';
-        const dstKey = isThantrang ? season.resolveItem('thantrang') : season.resolveItem('thanthu');
-        const ttPer = isThantrang ? economy.THANTRANG_TT : economy.PHUONGBANG_TT;
-        const w = getWallet(guildId, msg.author.id);
-        const totalTT = w.items.thienthuong + w.lockedItems.thienthuong;
-        const n = parts[1] === 'all'
-            ? Math.floor(totalTT / ttPer)
-            : parseInt(parts[1], 10);
-        if (!Number.isInteger(n) || n <= 0) {
-            return msg.reply(`Cú pháp: \`${cmd} <số lượng|all>\` — đổi ${fmt(ttPer)} ${renderEmote('thienthuong')} → 1 ${renderEmote(dstKey)} ${ITEM_LABELS[dstKey]}.`);
-        }
-        const cost = n * ttPer;
-        if (totalTT < cost) return msg.reply(`Cần ${fmt(cost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(totalTT)}.`);
-        const nonLockedTTUsed = Math.min(cost, w.items.thienthuong);
-        const lockedTTUsed = cost - nonLockedTTUsed;
-        w.items.thienthuong -= nonLockedTTUsed;
-        w.lockedItems.thienthuong -= lockedTTUsed;
-        const nonLockedDst = Math.floor(nonLockedTTUsed / ttPer);
-        const lockedDst = n - nonLockedDst;
-        w.items[dstKey] += nonLockedDst;
-        w.lockedItems[dstKey] += lockedDst;
-        saveData();
-        const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã đổi ${fmt(cost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote(dstKey)}. Số dư: ${fmt(w2.items.thienthuong)} thiên thưởng, ${fmt(w2.items[dstKey])} ${ITEM_LABELS[dstKey]}.`);
-    }
-
-    if (cmd === '!doiphuonghoa') {
-        const p1Key = season.resolveItem('thanthu');       // Phượng Băng (current season)
-        const p2Key = season.resolveItem('thanthuplus');   // Phượng Hoả  (current season)
-        const p1Label = ITEM_LABELS[p1Key];
-        const p2Label = ITEM_LABELS[p2Key];
-        const ttPer = economy.PHUONGHOA_TT;
-        const w = getWallet(guildId, msg.author.id);
-        const totalP1 = w.items[p1Key] + w.lockedItems[p1Key];
-        const totalTT = w.items.thienthuong + w.lockedItems.thienthuong;
-        const maxByTt = Math.floor(totalTT / ttPer);
-        const n = parts[1] === 'all'
-            ? Math.min(totalP1, maxByTt)
-            : parseInt(parts[1], 10);
-        if (!Number.isInteger(n) || n <= 0) {
-            return msg.reply(`Cú pháp: \`!doiphuonghoa <số lượng|all>\` — đổi 1 ${renderEmote(p1Key)} + ${fmt(ttPer)} ${renderEmote('thienthuong')} → 1 ${renderEmote(p2Key)} ${p2Label}.`);
-        }
-        const ttCost = n * ttPer;
-        if (totalP1 < n) return msg.reply(`Cần ${fmt(n)} ${renderEmote(p1Key)} nhưng chỉ có ${fmt(totalP1)}.`);
-        if (totalTT < ttCost) return msg.reply(`Cần ${fmt(ttCost)} ${renderEmote('thienthuong')} nhưng chỉ có ${fmt(totalTT)}.`);
-        const nonLockedP1Used = Math.min(n, w.items[p1Key]);
-        const lockedP1Used = n - nonLockedP1Used;
-        const nonLockedTTUsed = Math.min(ttCost, w.items.thienthuong);
-        const lockedTTUsed = ttCost - nonLockedTTUsed;
-        w.items[p1Key] -= nonLockedP1Used;
-        w.lockedItems[p1Key] -= lockedP1Used;
-        w.items.thienthuong -= nonLockedTTUsed;
-        w.lockedItems.thienthuong -= lockedTTUsed;
-        const nonLockedP2 = Math.min(nonLockedP1Used, Math.floor(nonLockedTTUsed / ttPer));
-        const lockedP2 = n - nonLockedP2;
-        w.items[p2Key] += nonLockedP2;
-        w.lockedItems[p2Key] += lockedP2;
-        saveData();
-        const w2 = getWallet(guildId, msg.author.id);
-        return msg.reply(`Đã đổi ${fmt(n)} ${renderEmote(p1Key)} + ${fmt(ttCost)} ${renderEmote('thienthuong')} → ${fmt(n)} ${renderEmote(p2Key)}. Số dư: ${fmt(w2.items[p1Key])} ${p1Label}, ${fmt(w2.items[p2Key])} ${p2Label}, ${fmt(w2.items.thienthuong)} thiên thưởng.`);
     }
 
     if (cmd === '!bond' || cmd === '!thanmat') {
@@ -896,14 +820,7 @@ ${DISCLAIMER}`;
     }
 
     if (cmd === '!topngoc') {
-        const wallets = data.wallet && data.wallet[guildId];
-        if (!wallets) return msg.reply('Chưa có người nào đăng ký.');
-        const rankings = [];
-        for (const [userId, w] of Object.entries(wallets)) {
-            const totalN = (w.ngoc || 0) + (w.lockedNgoc || 0);
-            if (totalN > 0) rankings.push({ userId, ngoc: totalN });
-        }
-        rankings.sort((a, b) => b.ngoc - a.ngoc);
+        const rankings = season.rankGuildNgoc(guildId);
         const top = rankings.slice(0, 10);
         if (top.length === 0) return msg.reply('Chưa có ai có ngọc.');
         const lines = ['**Top 10 Ngọc**'];
@@ -916,6 +833,8 @@ ${DISCLAIMER}`;
             } catch (e) {}
             lines.push(`${i + 1}. **${name}**: ${fmt(ngoc)} ${renderEmote('ngoc')}`);
         }
+        lines.push('');
+        lines.push('*Cuối mùa, Top 1-3 nhận **danh hiệu vĩnh viễn + huy hiệu** trưng trên profile (`!nextseason` để xem).*');
         return msg.reply(lines.join('\n'));
     }
 
@@ -959,12 +878,13 @@ ${DISCLAIMER}`;
             premiumStr,
             `Thứ hạng của bạn: ${rank ? `**#${rank}**/${total}` : '*chưa xếp hạng*'} — **${fmt(score)}** điểm.`,
             '',
-            `**Cách nhận vật phẩm cao cấp:** quay \`!gacha\`, hoặc đổi từ Thiên Thưởng (\`!doithienthuong\`, \`!doicao5\`, \`!doicao9\`, \`!doiphuongbang\`, \`!doiphuonghoa\`, \`!doithantrang\`).`,
+            `**Cách nhận vật phẩm cao cấp:** quay \`!gacha\`, hoặc đổi bằng \`!doi\` (gõ \`!doi\` để mở menu; \`!phangiai\` phân giải linh thú → thiên thưởng).`,
             '',
             '**🎁 Khi mùa kết thúc (tự động):**',
-            '• **Top 1-5** BXH nhận **danh hiệu vĩnh viễn** hiện dưới tên (Top 1-3 kèm **khung avatar** độc quyền).',
+            '• **Top 1-5** BXH Thiên Thưởng nhận **danh hiệu vĩnh viễn** hiện dưới tên (Top 1-3 kèm **huy hiệu** độc quyền — gắn vào ô khoe vật phẩm trong `/profile`).',
+            '• **Top 1-3** BXH Ngọc (`!topngoc`) cũng nhận **danh hiệu vĩnh viễn + huy hiệu** riêng.',
             '• Ai đang giữ vật phẩm cao cấp của mùa nhận **danh hiệu sưu tầm** — chọn khoe trong `/profile`.',
-            '• Vật phẩm cao cấp **mùa cũ đóng băng**: vẫn nằm trong kho để trưng bày, nhưng **không bán / đổi / tặng / tính điểm** được nữa.',
+            '• Vật phẩm cao cấp **mùa cũ không còn tính điểm BXH** (vẫn đổi `!doi` / phân giải `!phangiai` được, nhưng **không bán / tặng**).',
             `• ${renderEmote('thienthuong')} **Thiên Thưởng giữ nguyên** và vẫn tính điểm sang mùa mới.`,
             '',
             'Xem bảng xếp hạng: `!toptt` (hoặc `!season top`).'
@@ -972,11 +892,92 @@ ${DISCLAIMER}`;
         return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
     }
 
+    if (cmd === '!nextseason') {
+        const curId = season.getCurrentSeasonId();
+        const cur = season.getCurrentSeason();
+        const nextId = curId + 1;
+        const next = seasonCfg.getSeason(nextId);
+        const remMs = season.timeRemainingMs();
+        const days = Math.floor(remMs / 86400000);
+        const hours = Math.floor((remMs % 86400000) / 3600000);
+        // Only show a chat emote for an item once its emote has been uploaded.
+        const emoteIf = (key) => (data.ingameEmoteIds && data.ingameEmoteIds[key]) ? `${renderEmote(key)} ` : '';
+
+        const lines = [];
+        if (next) {
+            lines.push(`# 🔮 Sắp ra mắt — Mùa ${next.id}: ${next.name}!`);
+            lines.push('');
+            lines.push('**✨ Vật phẩm cao cấp mùa mới:**');
+            for (const tier of seasonCfg.seasonTiers(nextId)) {
+                const key = next.items[tier];
+                lines.push(`• ${emoteIf(key)}**${ITEM_LABELS[key]}**`);
+            }
+            const p1 = next.items.pet1, p2 = next.items.pet2;
+            if (p1 && p2) {
+                const r12 = season.exchangeRatio('pet1PerPet2', nextId);
+                lines.push(`*Quy đổi: ${r12} ${ITEM_LABELS[p1]} = 1 ${ITEM_LABELS[p2]}${seasonCfg.hasTier('pet3', nextId) ? '' : ' · mùa này chỉ có 2 bậc linh thú'}.*`);
+            }
+            lines.push('');
+        } else {
+            lines.push('# 🔮 Mùa Giải tiếp theo sắp tới!');
+            lines.push('');
+        }
+
+        lines.push(`**🏆 Phần thưởng cuối Mùa ${cur.id} — ${cur.name} (đang diễn ra, còn ${days} ngày ${hours} giờ):**`);
+        lines.push('Top BXH Thiên Thưởng nhận **danh hiệu vĩnh viễn dưới tên**, Top 1-3 kèm **huy hiệu** độc quyền (gắn vào ô khoe vật phẩm):');
+        const medal = { 1: '🥇', 2: '🥈', 3: '🥉' };
+        for (const rank of [1, 2, 3, 4, 5]) {
+            const tt = cur.topTitles[rank];
+            if (!tt) continue;
+            if (rank === 5 && cur.topTitles[4] && cur.topTitles[4].id === tt.id) {
+                // top4-5 share a title; render once as "Top 4-5"
+                continue;
+            }
+            const label = (rank === 4 && cur.topTitles[5] && cur.topTitles[5].id === tt.id) ? 'Top 4-5' : `Top ${rank}`;
+            lines.push(`• ${medal[rank] || '🎖️'} **${label}**: *${tt.name}*${tt.badge ? ' 🎖️ (huy hiệu)' : ''}`);
+        }
+        if (cur.topNgoc) {
+            lines.push(`Top 1-3 BXH Ngọc (\`!topngoc\`) cũng nhận **danh hiệu + huy hiệu** riêng:`);
+            for (const rank of [1, 2, 3]) {
+                const tn = cur.topNgoc[rank];
+                if (!tn) continue;
+                lines.push(`• ${medal[rank]} **Top ${rank}**: *${tn.name}*${tn.badge ? ' 🎖️ (huy hiệu)' : ''}`);
+            }
+        }
+        lines.push('Giữ vật phẩm cao cấp tới cuối mùa → **danh hiệu sưu tầm** (chọn khoe ở `/profile`):');
+        for (const tier of seasonCfg.seasonTiers(cur.id)) {
+            const key = cur.items[tier];
+            const title = cur.titles[tier];
+            if (title) lines.push(`• ${emoteIf(key)}${ITEM_LABELS[key]} → *${title.name}*`);
+        }
+        lines.push('');
+        lines.push(`Vật phẩm cao cấp mùa cũ **không còn tính điểm BXH** (vẫn đổi/phân giải được qua \`!doi\` / \`!phangiai\`); ${renderEmote('thienthuong')} **Thiên Thưởng giữ nguyên**. Gõ \`!season\` để xem chi tiết.`);
+
+        const files = [];
+        if (next) {
+            try {
+                const strip = await seasonTeaser.renderItemsStrip(nextId);
+                if (strip) files.push(new AttachmentBuilder(strip, { name: `mua${nextId}_vatpham.png` }));
+            } catch (e) { log.warn(`nextseason items strip failed: ${e.message}`); }
+        }
+        try {
+            // Badges of the CURRENT season — what players are racing for now.
+            const badges = await seasonTeaser.renderBadgeStrip(curId);
+            if (badges) files.push(new AttachmentBuilder(badges, { name: `mua${curId}_huyhieu.png` }));
+        } catch (e) { log.warn(`nextseason badge strip failed: ${e.message}`); }
+        try {
+            const demo = await seasonTeaser.renderDemoCard();
+            if (demo) files.push(new AttachmentBuilder(demo, { name: 'huyhieu_demo.png' }));
+        } catch (e) { log.warn(`nextseason demo card failed: ${e.message}`); }
+
+        return msg.reply({ content: lines.join('\n'), files, allowedMentions: { parse: [] } });
+    }
+
     if (cmd === '!season_end') {
         if (!isSuperAdmin(msg.author.id)) return;
         const res = await season.runRollover(client, { force: true });
         if (!res.rolled) return msg.reply(`Không chốt mùa được (lý do: ${res.reason}).`);
-        return msg.reply(`✅ Đã chốt **Mùa ${res.endingId}** → bắt đầu **Mùa ${res.newId}**. Danh hiệu/khung đã trao, thông báo đã gửi (nếu có cài kênh).`);
+        return msg.reply(`✅ Đã chốt **Mùa ${res.endingId}** → bắt đầu **Mùa ${res.newId}**. Danh hiệu/huy hiệu đã trao, thông báo đã gửi (nếu có cài kênh).`);
     }
 
     if (cmd === '!season_setchannel') {

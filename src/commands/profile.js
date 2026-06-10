@@ -65,9 +65,19 @@ async function renderCardAttachment(user, guildId, guild) {
 }
 
 // ── Config component builders ──────────────────────────────────────────────
-function buildItemOptions(wallet) {
-    // Only items the player actually owns (combined locked+non-locked > 0).
+function buildItemOptions(wallet, prof) {
+    // Unlocked season badges first (rarest), then items the player actually
+    // owns (combined locked+non-locked > 0). A showcase slot takes either.
     const opts = [];
+    for (const badgeId of (prof && prof.unlockedBadges) || []) {
+        const def = profile.resolveBadge(badgeId);
+        if (!def) continue;
+        opts.push(
+            new StringSelectMenuOptionBuilder()
+                .setLabel(`🎖️ Huy hiệu: ${def.label}`.slice(0, 100))
+                .setValue(badgeId)
+        );
+    }
     for (const k of ITEM_KEYS) {
         const total = (wallet.items[k] || 0) + (wallet.lockedItems[k] || 0);
         if (total > 0) {
@@ -156,25 +166,32 @@ function buildTitleComponents(guildId, userId, prof) {
     return rows;
 }
 
+// Human label for a showcase slot value (item key or badge id).
+function slotLabel(key) {
+    if (ITEM_LABELS[key]) return ITEM_LABELS[key];
+    const def = profile.resolveBadge(key);
+    return def ? `🎖️ ${def.label}` : key;
+}
+
 function buildConfigComponents(guildId, userId, wallet, prof) {
-    const itemOpts = buildItemOptions(wallet);
+    const itemOpts = buildItemOptions(wallet, prof);
 
     const slot1 = new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId(`profile:slot:${userId}:1`)
-            .setPlaceholder(prof.itemSlot1 ? `Ô 1: ${ITEM_LABELS[prof.itemSlot1] || prof.itemSlot1}` : 'Ô 1: None')
+            .setPlaceholder(prof.itemSlot1 ? `Ô 1: ${slotLabel(prof.itemSlot1)}` : 'Ô 1: None')
             .addOptions(...itemOpts.slice(0, 25))
     );
     const slot2 = new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId(`profile:slot:${userId}:2`)
-            .setPlaceholder(prof.itemSlot2 ? `Ô 2: ${ITEM_LABELS[prof.itemSlot2] || prof.itemSlot2}` : 'Ô 2: None')
+            .setPlaceholder(prof.itemSlot2 ? `Ô 2: ${slotLabel(prof.itemSlot2)}` : 'Ô 2: None')
             .addOptions(...itemOpts.slice(0, 25))
     );
     const slot3 = new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId(`profile:slot:${userId}:3`)
-            .setPlaceholder(prof.itemSlot3 ? `Ô 3: ${ITEM_LABELS[prof.itemSlot3] || prof.itemSlot3}` : 'Ô 3: None')
+            .setPlaceholder(prof.itemSlot3 ? `Ô 3: ${slotLabel(prof.itemSlot3)}` : 'Ô 3: None')
             .addOptions(...itemOpts.slice(0, 25))
     );
 
@@ -272,7 +289,7 @@ async function handleComponent(interaction) {
         const prof = profile.getProfile(guildId, ownerUserId);
         const components = buildConfigComponents(guildId, ownerUserId, wallet, prof);
         return interaction.reply({
-            content: '⚙️ **Tuỳ chỉnh profile** — chọn vật phẩm, danh hiệu (tối đa 3), bật/tắt ngọc, đổi giới tính, đổi tên. Bấm **Xong** để render card.',
+            content: '⚙️ **Tuỳ chỉnh profile** — chọn vật phẩm / huy hiệu cho 3 ô khoe, danh hiệu (tối đa 3), bật/tắt ngọc, đổi giới tính, đổi tên. Bấm **Xong** để render card.',
             components,
             flags: MessageFlags.Ephemeral
         });

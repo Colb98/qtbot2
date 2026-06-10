@@ -31,7 +31,7 @@ const CARD_ASSETS = path.join(ASSETS_BASE, 'profile_card');
 const FONTS_DIR = path.join(CARD_ASSETS, 'fonts');
 const CHARACTER_IMAGES = path.join(CARD_ASSETS, 'character_images');
 const CHARACTER_BG = path.join(CARD_ASSETS, 'character_bg');
-const BORDERS_DIR = path.join(CARD_ASSETS, 'borders');
+const BADGES_DIR = path.join(CARD_ASSETS, 'badges');
 const EMOTES_DIR = path.join(ROOT, 'emotes');
 const EMOTES_INGAME = path.join(EMOTES_DIR, 'ingame');
 
@@ -759,7 +759,9 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
     drawHairline(ctx, PX, cursorY, 480, theme.accent);
     cursorY += 16;
 
-    // 6e. Item showcase row — 3 compact slots: icon + ×qty only.
+    // 6e. Item showcase row — 3 compact slots. Each holds either an item
+    // (icon + ×qty + name) or a season badge (medal icon + how it was earned:
+    // "TOP 1 · MÙA 1" over "BXH THIÊN THƯỞNG/NGỌC" — no quantity).
     {
         const slotKeys = [
             player.profile && player.profile.itemSlot1,
@@ -776,6 +778,37 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
             const cy = sy + badgeSize / 2;
 
             if (!key) continue;
+
+            const badgeDef = profileSvc.resolveBadge(key);
+            if (badgeDef) {
+                const iconImg = await loadCached(path.join(BADGES_DIR, `${key}.png`));
+                if (!iconImg) continue;
+                // Badge art is a medal on an opaque black fill — composite with
+                // 'screen' so the black drops out and the full medal (laurels
+                // included) shows uncropped, ~20% larger than item icons.
+                const bSize = Math.round(badgeSize * 1.2);
+                ctx.save();
+                ctx.globalCompositeOperation = 'screen';
+                ctx.drawImage(iconImg, cx - bSize / 2, cy - bSize / 2, bSize, bSize);
+                ctx.restore();
+
+                // How the badge was earned, in place of qty + item name.
+                const textX = sx + badgeSize + 12;
+                ctx.font = `600 16px ${FONT_CAPS}`;
+                setSpacing(ctx, 0.8);
+                ctx.fillStyle = '#f6d36b'; // gold — exclusive season trophy
+                ctx.fillText(truncateToWidth(ctx, `TOP ${badgeDef.rank} · MÙA ${badgeDef.seasonId}`, slotW - badgeSize - 24), textX, cy - 18);
+                setSpacing(ctx, 0);
+
+                const boardLabel = badgeDef.board === 'ngoc' ? 'NGỌC' : 'THIÊN THƯỞNG';
+                ctx.font = `400 11px ${FONT_BODY}`;
+                setSpacing(ctx, 1.2); // tighter than item labels — longest board name must fit the slot
+                ctx.fillStyle = alphaHex('#f4ede2', 0.74);
+                ctx.fillText(truncateToWidth(ctx, boardLabel, slotW - badgeSize - 24), textX, cy + 4);
+                setSpacing(ctx, 0);
+                continue;
+            }
+
             const qty = (player.wallet && (
                 (player.wallet.items && player.wallet.items[key] || 0) +
                 (player.wallet.lockedItems && player.wallet.lockedItems[key] || 0)
@@ -1088,14 +1121,7 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
         }
     }
 
-    // 7. Reserved badge region hook (no-op for shop). Kept for the spec —
-    // the renderer already does circular-crop + blurred edge via
-    // drawBadgeIcon(), so wiring in player.profile.badgeSlots[] later is
-    // a 5-line addition above the achievement row.
-    // eslint-disable-next-line no-unused-vars
-    const _badgeHook = null;
-
-    // 8. Rounded corners on the final image — mask the whole canvas to a
+    // 7. Rounded corners on the final image — mask the whole canvas to a
     // rounded-rect via destination-in compositing.
     ctx.save();
     ctx.globalCompositeOperation = 'destination-in';

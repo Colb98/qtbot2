@@ -46,7 +46,7 @@ const SAMPLES = [
                 gender: 'm', itemSlot1: 'cao9', itemSlot2: 'phuonghoang1', itemSlot3: 'thienthuong',
                 showNgoc: true,
                 biggestJackpot: { amount: 1_500_000, game: 'Slot — MEGA Jackpot', ts: Date.now() },
-                selectedTitle: null, selectedBorder: null, badgeSlots: [null, null, null]
+                selectedTitle: null
             },
             stats: {
                 biggestJackpot: { amount: 1_500_000, game: 'Slot — MEGA Jackpot' },
@@ -69,7 +69,7 @@ const SAMPLES = [
                 gender: 'f', itemSlot1: 'phuonghoang2', itemSlot2: 'thienthuong', itemSlot3: null,
                 showNgoc: false,
                 biggestJackpot: { amount: 320_000, game: 'Coinflip', ts: Date.now() },
-                selectedTitle: null, selectedBorder: null, badgeSlots: [null, null, null]
+                selectedTitle: null
             },
             stats: {
                 biggestJackpot: { amount: 320_000, game: 'Coinflip' },
@@ -92,7 +92,7 @@ const SAMPLES = [
                 gender: 'f', itemSlot1: null, itemSlot2: null, itemSlot3: null,
                 showNgoc: false,
                 biggestJackpot: null,
-                selectedTitle: null, selectedBorder: null, badgeSlots: [null, null, null]
+                selectedTitle: null
             },
             stats: {
                 biggestJackpot: null,
@@ -115,7 +115,7 @@ const SAMPLES = [
                 gender: 'm', itemSlot1: 'thantrang', itemSlot2: 'cao9', itemSlot3: 'phuonghoang2',
                 showNgoc: true,
                 biggestJackpot: { amount: 12_400_000, game: 'Xổ Số', ts: Date.now() },
-                selectedTitle: null, selectedBorder: null, badgeSlots: [null, null, null]
+                selectedTitle: null
             },
             stats: {
                 biggestJackpot: { amount: 12_400_000, game: 'Xổ Số' },
@@ -138,7 +138,7 @@ const SAMPLES = [
                 gender: 'm', itemSlot1: 'thienthuong', itemSlot2: 'cao5', itemSlot3: null,
                 showNgoc: true,
                 biggestJackpot: { amount: 820_000, game: 'Tổng xúc xắc', ts: Date.now() },
-                selectedTitle: null, selectedBorder: null, badgeSlots: [null, null, null]
+                selectedTitle: null
             },
             stats: {
                 biggestJackpot: { amount: 820_000, game: 'Tổng xúc xắc' },

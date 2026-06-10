@@ -30,7 +30,7 @@ const baseWallet = () => ({
 const baseProfile = (overrides = {}) => Object.assign({
     gender: 'm', itemSlot1: null, itemSlot2: null, itemSlot3: null,
     showNgoc: false, biggestJackpot: null,
-    selectedTitle: null, selectedBorder: null, badgeSlots: [null, null, null]
+    selectedTitle: null
 }, overrides);
 
 const CASES = [

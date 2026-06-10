@@ -1,18 +1,16 @@
 // Profile data layer: stores per-user customization for the profile card
-// (gender, item showcase slots, ngoc toggle, future title/border/badges)
+// (gender, item showcase slots, ngoc toggle, titles/badges)
 // and the player's biggest jackpot.
 //
 // Storage: data.profile[guildId][userId] = {
 //   gender: 'm' | 'f',
-//   itemSlot1: itemKey | null,
-//   itemSlot2: itemKey | null,
-//   itemSlot3: itemKey | null,
+//   itemSlot1: itemKey | badgeId | null,   // showcase slots hold items OR badges
+//   itemSlot2: itemKey | badgeId | null,
+//   itemSlot3: itemKey | badgeId | null,
 //   showNgoc: boolean,
 //   biggestJackpot: { amount, game, ts } | null,
-//   // Reserved for future shop / title system (not yet used by UI):
 //   selectedTitle: string | null,
-//   selectedBorder: string | null,   // path to a border asset relative to assets/profile_card/borders/
-//   badgeSlots: [badgeId|null, badgeId|null, badgeId|null]
+//   unlockedBadges: [badgeId, ...]   // Top 1-3 season rewards (both boards)
 // }
 
 const { data, saveData } = require('../state');
@@ -20,7 +18,6 @@ const { todayStr, ITEM_KEYS } = require('./currency');
 const seasonCfg = require('../config/season');
 
 const DEFAULT_TITLE = 'Nhất Mộng Giang Hồ';
-const DEFAULT_BORDER = null;          // null → draw procedural ink-wash ring
 const GENDERS = ['m', 'f'];
 const DISPLAY_NAME_MIN = 2;
 const DISPLAY_NAME_MAX = 32;
@@ -44,11 +41,9 @@ function defaults() {
         showNgoc: false,
         biggestJackpot: null,
         selectedTitle: null,          // prestige chip under the name (top-season title id), null = default
-        selectedBorder: null,         // avatar border id (top 1-3 reward), null = procedural ring
-        badgeSlots: [null, null, null],
         // ── Season trophies (permanent; granted at season rollover) ──────────
-        unlockedTitles: [],           // top-leaderboard title ids the player has earned
-        unlockedBorders: [],          // border ids (top 1-3) the player has earned
+        unlockedTitles: [],           // top-leaderboard title ids the player has earned (both boards)
+        unlockedBadges: [],           // badge ids (Top 1-3, TT + ngọc boards) the player has earned
         seasonAchievements: [],       // item-ownership title ids (achId) the player has earned
         seasonTitleSlots: [null, null, null], // which unlocked item-ownership titles to flex (chips)
         // Up to 3 achievement ids (from ACHIEVEMENTS catalog) shown on the card.
@@ -66,10 +61,13 @@ function getProfile(guildId, userId) {
     const p = root[guildId][userId];
     const d = defaults();
     for (const k of Object.keys(d)) if (p[k] === undefined) p[k] = d[k];
-    if (!Array.isArray(p.badgeSlots) || p.badgeSlots.length !== 3) p.badgeSlots = [null, null, null];
     if (!Array.isArray(p.achievementSlots) || p.achievementSlots.length !== 3) p.achievementSlots = [null, null, null];
     if (!Array.isArray(p.unlockedTitles)) p.unlockedTitles = [];
-    if (!Array.isArray(p.unlockedBorders)) p.unlockedBorders = [];
+    if (!Array.isArray(p.unlockedBadges)) p.unlockedBadges = [];
+    // Drop legacy fields from the abandoned border system / reserved badgeSlots.
+    delete p.selectedBorder;
+    delete p.unlockedBorders;
+    delete p.badgeSlots;
     if (!Array.isArray(p.seasonAchievements)) p.seasonAchievements = [];
     if (!Array.isArray(p.seasonTitleSlots) || p.seasonTitleSlots.length !== 3) p.seasonTitleSlots = [null, null, null];
     if (!p.cardRenderCap || typeof p.cardRenderCap !== 'object') p.cardRenderCap = { date: null, count: 0 };
@@ -116,11 +114,15 @@ function setGender(guildId, userId, gender) {
     return p;
 }
 
-function setItemSlot(guildId, userId, slotNum, itemKey) {
+// A showcase slot holds an item key OR an unlocked badge id.
+function setItemSlot(guildId, userId, slotNum, key) {
     if (![1, 2, 3].includes(slotNum)) throw new Error(`invalid slot: ${slotNum}`);
-    if (itemKey !== null && !VALID_ITEM_KEYS.has(itemKey)) throw new Error(`invalid item key: ${itemKey}`);
     const p = getProfile(guildId, userId);
-    p[`itemSlot${slotNum}`] = itemKey;
+    if (key !== null && !VALID_ITEM_KEYS.has(key)) {
+        if (!seasonCfg.BADGE_BY_ID.has(key)) throw new Error(`invalid item key: ${key}`);
+        if (!p.unlockedBadges.includes(key)) throw new Error('Huy hiệu chưa mở khoá.');
+    }
+    p[`itemSlot${slotNum}`] = key;
     saveData();
     return p;
 }
@@ -328,9 +330,9 @@ function grantTitle(guildId, userId, titleId) {
     if (titleId && !p.unlockedTitles.includes(titleId)) { p.unlockedTitles.push(titleId); saveData(); }
     return p;
 }
-function grantBorder(guildId, userId, borderId) {
+function grantBadge(guildId, userId, badgeId) {
     const p = getProfile(guildId, userId);
-    if (borderId && !p.unlockedBorders.includes(borderId)) { p.unlockedBorders.push(borderId); saveData(); }
+    if (badgeId && !p.unlockedBadges.includes(badgeId)) { p.unlockedBadges.push(badgeId); saveData(); }
     return p;
 }
 function grantSeasonAchievement(guildId, userId, achId) {
@@ -369,14 +371,14 @@ function setSelectedTitle(guildId, userId, titleId) {
     return p;
 }
 
-function setSelectedBorder(guildId, userId, borderId) {
-    const p = getProfile(guildId, userId);
-    if (borderId === null || borderId === undefined || borderId === '') p.selectedBorder = null;
-    else if (p.unlockedBorders.includes(borderId)) p.selectedBorder = borderId;
-    else throw new Error('Khung chưa mở khoá.');
-    saveData();
-    return p;
+// Pure lookup: badge id → { rank, seasonId, board, label } (or null).
+// Used by the card renderer and the slot picker (worker-safe — no data access).
+function resolveBadge(badgeId) {
+    const def = seasonCfg.BADGE_BY_ID.get(badgeId);
+    if (!def) return null;
+    return { ...def, label: seasonCfg.badgeLabel(badgeId) };
 }
+function isBadgeId(key) { return seasonCfg.BADGE_BY_ID.has(key); }
 
 // Pure lookup: season item-ownership title id → { name, seasonId } (or null).
 // Used by the card renderer (worker-safe — no data access).
@@ -411,7 +413,6 @@ function setSeasonTitleSlots(guildId, userId, ids) {
 
 module.exports = {
     DEFAULT_TITLE,
-    DEFAULT_BORDER,
     GENDERS,
     VALID_ITEM_KEYS,
     getProfile,
@@ -436,13 +437,14 @@ module.exports = {
     DAILY_CARD_RENDER_LIMIT,
     // Season trophies
     grantTitle,
-    grantBorder,
+    grantBadge,
     grantSeasonAchievement,
     getSelectableTitles,
     getSelectedTitleName,
     isSeasonTitleId,
     setSelectedTitle,
-    setSelectedBorder,
+    resolveBadge,
+    isBadgeId,
     resolveSeasonTitle,
     getSeasonAchievementDefs,
     setSeasonTitleSlots
