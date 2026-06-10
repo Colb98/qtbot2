@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '2.2.2';
+const CURRENT_VERSION = '2.2.3';
 
 const CHANGELOG = {
+    '2.2.3': {
+        date: '2026-06-10',
+        title: 'Upload emote: tiến trình realtime & báo lỗi rõ',
+        changes: [
+            'Admin: `!upload_ingame_emotes` hiện **tiến trình realtime** (sửa dần vào tin nhắn trả lời + log) cho từng emote: upload mới / giữ nguyên / xoá trùng / lỗi kèm lý do. Báo **slot emoji của guild** (tĩnh/động theo tier boost), chặn file >256KB với thông báo rõ, và khi **hết slot** sẽ tự xoá emote cũ để lấy chỗ rồi thử lại. Upload mới được tạo **trước khi** xoá emote cũ nên lỗi giữa chừng không làm mất emote đang dùng; kết quả dài tự tách nhiều tin nhắn (trước đây trả lời >2000 ký tự bị Discord từ chối → tưởng lệnh chạy xong mà không thấy gì).'
+        ]
+    },
     '2.2.2': {
         date: '2026-06-10',
         title: 'Dọn emote trùng',
