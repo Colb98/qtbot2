@@ -1,6 +1,20 @@
-const CURRENT_VERSION = '2.2.0';
+const CURRENT_VERSION = '2.2.2';
 
 const CHANGELOG = {
+    '2.2.2': {
+        date: '2026-06-10',
+        title: 'Dọn emote trùng',
+        changes: [
+            'Admin: `!upload_ingame_emotes` giờ **tự xoá emote trùng tên** (kiểu `:ig_dice1~1:`) trên emote server, giữ nguyên emote đang dùng và chỉ upload emote còn thiếu. Thêm `!upload_ingame_emotes force` để xoá + upload lại toàn bộ (khi đổi art).'
+        ]
+    },
+    '2.2.1': {
+        date: '2026-06-10',
+        title: 'Sửa lỗi nút !doi / !phangiai',
+        changes: [
+            'Sửa lỗi bấm nút/menu của `!doi` và `!phangiai` đôi lúc không phản hồi (hết hạn xác nhận tương tác khi bot đang bận — giờ xác nhận ngay lập tức rồi mới xử lý).'
+        ]
+    },
     '2.2.0': {
         date: '2026-06-10',
         title: 'Lệnh !doi / !phangiai mới · vật phẩm mùa cũ đổi được',

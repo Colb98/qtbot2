@@ -24,6 +24,7 @@ const {
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
     MessageFlags
 } = require('discord.js');
+const log = require('../../logger');
 const { saveData } = require('../state');
 const { getWallet, ITEM_LABELS, fmt, renderEmote } = require('./currency');
 const economy = require('../config/economy');
@@ -339,25 +340,38 @@ function buildPenaltyConfirm(userId, quote) {
 }
 
 // ── Component interaction handler (doi:* / pg:*) ────────────────────────────
+// Acknowledge with deferUpdate() FIRST (cheapest possible ack) and edit the
+// message afterwards — doing the wallet work before the first response risks
+// blowing Discord's 3s ack window on a busy event loop (error 10062).
 async function handleComponent(interaction) {
     const [ns, action, ownerId, ...rest] = interaction.customId.split(':');
     if (interaction.user.id !== ownerId) {
-        return interaction.reply({ content: 'Menu này không phải của bạn.', flags: MessageFlags.Ephemeral });
+        return interaction.reply({ content: 'Menu này không phải của bạn.', flags: MessageFlags.Ephemeral }).catch(() => {});
     }
     const guildId = interaction.guildId;
-    if (!guildId) return interaction.reply({ content: 'Chỉ dùng được trong máy chủ.', flags: MessageFlags.Ephemeral });
+    if (!guildId) return interaction.reply({ content: 'Chỉ dùng được trong máy chủ.', flags: MessageFlags.Ephemeral }).catch(() => {});
+
+    try {
+        await interaction.deferUpdate();
+    } catch (e) {
+        // Token already expired (slow gateway/event loop) — nothing we can edit.
+        log.warn(`exchange: deferUpdate failed (${interaction.customId}): ${e.message}`);
+        return;
+    }
+    const edit = (payload) => interaction.editReply(payload)
+        .catch(e => log.warn(`exchange: editReply failed (${interaction.customId}): ${e.message}`));
 
     if (ns === 'doi') {
         if (action === 'item') {
             const key = interaction.values && interaction.values[0];
-            return interaction.update({ components: buildDoiComponents(guildId, ownerId, key) });
+            return edit({ components: buildDoiComponents(guildId, ownerId, key) });
         }
         if (action === 'qty') {
             const [key, qtyStr] = rest;
             const qty = qtyStr === 'all' ? 'all' : parseInt(qtyStr, 10);
             const res = performExchange(guildId, ownerId, key, qty);
             const line = res.ok ? `✅ ${exchangeResultText(guildId, ownerId, res)}` : `⛔ ${res.error}`;
-            return interaction.update({
+            return edit({
                 content: `${DOI_HEADER}\n\n${line}`,
                 components: buildDoiComponents(guildId, ownerId, key)
             });
@@ -367,25 +381,24 @@ async function handleComponent(interaction) {
     if (ns === 'pg') {
         if (action === 'item') {
             const key = interaction.values && interaction.values[0];
-            return interaction.update({ components: buildPhangiaiComponents(guildId, ownerId, key) || [] });
+            return edit({ components: buildPhangiaiComponents(guildId, ownerId, key) || [] });
         }
         if (action === 'qty') {
             const [key, qtyStr] = rest;
             const qty = qtyStr === 'all' ? 'all' : parseInt(qtyStr, 10);
             const quote = dismantleQuote(guildId, ownerId, key, qty);
             if (!quote.ok) {
-                return interaction.update({
+                return edit({
                     content: `${PG_HEADER}\n\n⛔ ${quote.error}`,
                     components: buildPhangiaiComponents(guildId, ownerId, key) || []
                 });
             }
             if (quote.penalized) {
-                const confirm = buildPenaltyConfirm(ownerId, quote);
-                return interaction.update(confirm);
+                return edit(buildPenaltyConfirm(ownerId, quote));
             }
             const res = performDismantle(guildId, ownerId, key, quote.n, 'plain');
             const line = res.ok ? `✅ ${dismantleResultText(guildId, ownerId, res)}` : `⛔ ${res.error}`;
-            return interaction.update({
+            return edit({
                 content: `${PG_HEADER}\n\n${line}`,
                 components: buildPhangiaiComponents(guildId, ownerId, key) || []
             });
@@ -394,20 +407,20 @@ async function handleComponent(interaction) {
             const [key, nStr, mode] = rest;
             const res = performDismantle(guildId, ownerId, key, parseInt(nStr, 10), mode);
             const line = res.ok ? `✅ ${dismantleResultText(guildId, ownerId, res)}` : `⛔ ${res.error}`;
-            return interaction.update({
+            return edit({
                 content: `${PG_HEADER}\n\n${line}`,
                 components: buildPhangiaiComponents(guildId, ownerId, key) || []
             });
         }
         if (action === 'cancel') {
-            return interaction.update({
+            return edit({
                 content: `${PG_HEADER}\n\n❌ Đã huỷ.`,
                 components: buildPhangiaiComponents(guildId, ownerId, null) || []
             });
         }
     }
 
-    return interaction.reply({ content: 'Hành động không hợp lệ.', flags: MessageFlags.Ephemeral });
+    return edit({ content: 'Hành động không hợp lệ.', components: [] });
 }
 
 module.exports = {

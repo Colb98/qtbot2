@@ -174,7 +174,7 @@ ${DISCLAIMER}`;
 
 **Quản lý bot:**
 • \`!maintenance on|off\` — Bật/tắt bảo trì (chặn input mới trước restart).
-• \`!upload_ingame_emotes\` — Upload emote ingame (slot, dice...).
+• \`!upload_ingame_emotes [force]\` — Upload emote ingame (slot, dice...). Tự xoá emote trùng, chỉ upload cái thiếu; \`force\` = upload lại toàn bộ.
 • \`!uploademotes\` — Upload emote class.
 • \`!gangoc <n> [#kênh]\` — GA ngọc, user react để nhận.
 
@@ -1620,28 +1620,53 @@ ${DISCLAIMER}`;
         }
     }
 
+    // !upload_ingame_emotes [force] — idempotent: dedups same-name copies
+    // (Discord shows them as :ig_x~1:), reuses the survivor, uploads only
+    // missing emotes. `force` deletes + re-uploads everything (art updates).
     if (cmd === '!upload_ingame_emotes') {
         if (!isSuperAdmin(msg.author.id)) return;
         if (msg.guildId !== EMOTE_GUILD_ID) {
             return msg.reply(`Lệnh này phải chạy trong emote guild. Current = ${msg.guildId}`);
         }
+        const force = (parts[1] || '').toLowerCase() === 'force';
         const ids = data.ingameEmoteIds || {};
         const failures = [];
         const GIF_EMOTES = new Set(['shake_tt', 'slotanim']);
+        // Fresh fetch — the old code trusted the (possibly stale) cache, missed
+        // the existing emoji and re-created it, which is how duplicates piled up.
+        const allEmojis = await msg.guild.emojis.fetch().catch(() => msg.guild.emojis.cache);
+        let created = 0, reused = 0, deduped = 0;
         for (const name of INGAME_EMOTE_NAMES) {
+            const emoteName = `ig_${name}`;
+            // All copies sharing this name; keep the one our stored id points at
+            // (messages already reference it), else the newest. Delete the rest.
+            const matches = [...allEmojis.filter(e => e.name === emoteName).values()]
+                .sort((a, b) =>
+                    (b.id === ids[name] ? 1 : 0) - (a.id === ids[name] ? 1 : 0)
+                    || (BigInt(b.id) > BigInt(a.id) ? 1 : -1));
+            const survivor = matches[0] || null;
+            for (const dupe of matches.slice(1)) {
+                await dupe.delete('Dedup ingame emote').catch(() => {});
+                deduped++;
+            }
+
             const ext = GIF_EMOTES.has(name) ? 'gif' : 'png';
             const filePath = path.resolve(`emotes/ingame/${name}.${ext}`);
             if (!fs.existsSync(filePath)) {
-                failures.push(`${name}: file missing`);
+                if (survivor) { ids[name] = survivor.id; reused++; }
+                else failures.push(`${name}: file missing`);
+                continue;
+            }
+            if (survivor && !force) {
+                ids[name] = survivor.id;
+                reused++;
                 continue;
             }
             try {
-                const buffer = fs.readFileSync(filePath);
-                const emoteName = `ig_${name}`;
-                const existing = msg.guild.emojis.cache.find(e => e.name === emoteName);
-                if (existing) await existing.delete('Recreate ingame emote').catch(() => {});
-                const created = await msg.guild.emojis.create({ attachment: buffer, name: emoteName });
-                ids[name] = created.id;
+                if (survivor) await survivor.delete('Recreate ingame emote').catch(() => {});
+                const emoji = await msg.guild.emojis.create({ attachment: fs.readFileSync(filePath), name: emoteName });
+                ids[name] = emoji.id;
+                created++;
             } catch (e) {
                 const detail = e.rawError ? JSON.stringify(e.rawError.errors) : (e.message || String(e));
                 log.error(`upload_ingame_emotes error for ${name}`, e);
@@ -1650,8 +1675,8 @@ ${DISCLAIMER}`;
         }
         data.ingameEmoteIds = ids;
         saveData();
-        const okCount = Object.keys(ids).length;
-        let reply = `Đã upload ${okCount}/${INGAME_EMOTE_NAMES.length} emote.`;
+        let reply = `Emote ingame: **${created}** upload mới, **${reused}** giữ nguyên, **${deduped}** bản trùng đã xoá (${Object.keys(ids).length}/${INGAME_EMOTE_NAMES.length} có id).`;
+        if (!force && created === 0 && deduped === 0) reply += ' Dùng `!upload_ingame_emotes force` nếu muốn upload lại toàn bộ.';
         if (failures.length) reply += `\nLỗi:\n\`\`\`${failures.join('\n')}\`\`\``;
         return msg.reply(reply);
     }
