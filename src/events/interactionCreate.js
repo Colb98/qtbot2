@@ -8,7 +8,7 @@ const flashMath = require('../services/flashMath');
 const mathBoss = require('../services/mathBoss');
 const arrangeCmd = require('../commands/arrange');
 const profileCmd = require('../commands/profile');
-const { getWallet, addNgoc, addItem, spendNgocForGame, renderEmote, fmt, ITEM_KEYS, ITEM_LABELS } = require('../services/currency');
+const { getWallet, addNgoc, addItem, spendNgocForGame, renderEmote, buildKhodoView, fmt, ITEM_KEYS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { tokenToSide, runMultiFlip: runCoinflipMulti } = require('../services/coinflip');
 const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('../services/slot');
@@ -500,18 +500,9 @@ async function handleKhodoButton(interaction) {
     if (interaction.user.id !== ownerUserId) {
         return interaction.reply({ content: 'Đây không phải kho đồ của bạn.', flags: MessageFlags.Ephemeral });
     }
-    const guildId = interaction.guildId;
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
-    const w = getWallet(guildId, ownerUserId);
-    const lines = [
-        `**Kho đồ của ${displayName}**`,
-        `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`,
-        `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`
-    ];
-    for (const k of ITEM_KEYS) {
-        const total = (w.items[k] || 0) + (w.lockedItems[k] || 0);
-        lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(total)}**`);
-    }
-    await interaction.update({ content: lines.join('\n'), components: [] }).catch(e => log.error('khodo update error', e));
+    const { embed } = buildKhodoView(interaction.guildId, ownerUserId, displayName, true);
+    // content: '' clears the old text on messages sent before the embed format.
+    await interaction.update({ content: '', embeds: [embed], components: [] }).catch(e => log.error('khodo update error', e));
 }

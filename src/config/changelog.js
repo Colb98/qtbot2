@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '2.2.4';
+const CURRENT_VERSION = '2.3.0';
 
 const CHANGELOG = {
+    '2.3.0': {
+        date: '2026-06-11',
+        title: '!help rút gọn · !khodo dạng cột',
+        changes: [
+            '`!help` giờ hiện **bản rút gọn**: chỉ liệt kê lệnh theo nhóm (Tiền tệ · Đổi & Bán · Tặng · Game · BXH & Mùa giải…). Gõ `!help full` để xem giải thích chi tiết từng lệnh như trước.',
+            '`!khodo` đổi sang **embed chia cột**: Tiền tệ (thiên thưởng · ngọc · ngân phiếu) · Vật phẩm thường (nhuộm, diều, kỳ thưởng) · mỗi mùa giải một cột vật phẩm riêng. Nút **Xem hết** vẫn hiện các ô đang trống.'
+        ]
+    },
     '2.2.4': {
         date: '2026-06-10',
         title: 'Sửa treo khi upload emote (rate limit ẩn của Discord)',

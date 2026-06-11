@@ -10,7 +10,7 @@ const { isMaintenance, setMaintenance, isBlockedByMaintenance } = require('./ser
 const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require('./services/guildWar');
 const { updateGuildRoles, updateRoleIcons } = require('./services/roles');
 const { testSendReminders } = require('./services/scheduler');
-const { getWallet, addNganphieu, addNgoc, addItem, addLockedNgoc, addLockedItem, spendNgocForGame, renderEmote, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
+const { getWallet, addNganphieu, addNgoc, addItem, addLockedNgoc, addLockedItem, spendNgocForGame, renderEmote, buildKhodoView, tryClaimDaily, fmt, INGAME_EMOTE_NAMES, ITEM_KEYS, ITEM_LABELS } = require('./services/currency');
 const { rollMany, formatRollResult, getPityStatus } = require('./services/gacha');
 const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('./services/slot');
 const { runMultiFlip: runCoinflipMulti, COINFLIP_MAX_FLIPS } = require('./services/coinflip');
@@ -118,6 +118,17 @@ async function handleMessageCommand(msg) {
     }
 
     if (cmd === '!help') {
+        if ((parts[1] || '').toLowerCase() !== 'full') {
+            const shortHelp = `**Bot v${CURRENT_VERSION}** — \`!help full\` xem giải thích chi tiết · \`!changelog\` xem tính năng mới.
+
+**💰 Tiền tệ & Kho đồ:** \`!khodo\` · \`!daily\` · \`!doingoc\` · \`!pity\`
+**🔄 Đổi & Bán:** \`!doi\` · \`!phangiai\` · \`!banthienthuong\` · \`!bancao\` · \`!bankythuong\` · \`!bandieu\` · \`!bannhuom\`
+**🎁 Tặng & Lì xì:** \`!tangngoc\` · \`!tangthienthuong\` · \`!tangcao\` · \`!tangcao5\` · \`!tangcao9\` · \`!tangdieu\` · \`!tangphuongbang\` · \`!tangphuonghoa\` · \`!tangthantrang\` · \`!lixi\`
+**🎮 Game:** \`!gacha\` · \`!coinflip\` · \`!slot\` · \`!tong\` · \`!mat\` · \`!xoso\` · \`!wordchain\` · \`!flashmath\` · \`!boss\`
+**🏆 BXH & Mùa giải:** \`!toptt\` · \`!topngoc\` · \`!season\` · \`!nextseason\` · \`!bond\` · \`!wordchain_top\` · \`!flashmath_top\` · \`!boquathuong\`
+**📌 Khác:** \`!changelog\` · \`!disclaimer\``;
+            return replyChunked(msg, shortHelp);
+        }
         const userHelp = `**Bot v${CURRENT_VERSION}** — Dùng \`!changelog\` để xem các tính năng mới.
 
 **Tiền tệ & Gacha:**
@@ -351,21 +362,7 @@ ${DISCLAIMER}`;
     }
 
     if (cmd === '!khodo') {
-        const w = getWallet(guildId, msg.author.id);
-        const lines = [
-            `**Kho đồ của ${member.displayName}**`,
-            `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`,
-            `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`
-        ];
-        let hiddenCount = 0;
-        for (const k of ITEM_KEYS) {
-            const total = (w.items[k] || 0) + (w.lockedItems[k] || 0);
-            if (total > 0) {
-                lines.push(`${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(total)}**`);
-            } else {
-                hiddenCount++;
-            }
-        }
+        const { embed, hiddenCount } = buildKhodoView(guildId, msg.author.id, member.displayName, false);
         const components = [];
         if (hiddenCount > 0) {
             components.push(new ActionRowBuilder().addComponents(
@@ -375,7 +372,7 @@ ${DISCLAIMER}`;
                     .setStyle(ButtonStyle.Secondary)
             ));
         }
-        return msg.reply({ content: lines.join('\n'), components });
+        return msg.reply({ embeds: [embed], components });
     }
 
     if (cmd === '!doingoc') {

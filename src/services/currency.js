@@ -1,5 +1,6 @@
 const { data, saveData } = require('../state');
 const economy = require('../config/economy');
+const seasonCfg = require('../config/season');
 
 const INGAME_EMOTE_NAMES = ['nhuom', 'nganphieu', 'ngoc', 'cao', 'cao5', 'cao9', 'dieu', 'kythuong', 'thienthuong', 'phuonghoang1', 'phuonghoang2', 'thantrang', 'shake_tt', 'slotanim', 'dice1', 'dice2', 'dice3', 'dice4', 'dice5', 'dice6', 's2_pet1', 's2_pet2', 's2_thanthu', 's2_thanthuplus', 's2_thantrang'];
 const ANIMATED_EMOTES = new Set(['shake_tt', 'slotanim']);
@@ -183,6 +184,53 @@ function renderEmote(key) {
     return `<${prefix}:ig_${key}:${id}>`;
 }
 
+// ── !khodo embed ─────────────────────────────────────────────────────────────
+// Columns (inline embed fields): currency + thiên thưởng · common items · one
+// column per season's premium items (new seasons appear automatically from
+// config/season.js). Unless showAll, zero-quantity item lines are hidden and
+// fully-empty columns dropped; the currency column always shows in full.
+// Returns a plain embed object so this file stays free of discord.js.
+const KHODO_COLOR = 0xF1C40F;
+
+function buildKhodoView(guildId, userId, displayName, showAll) {
+    const w = getWallet(guildId, userId);
+    const total = k => (w.items[k] || 0) + (w.lockedItems[k] || 0);
+    const itemLine = k => `${renderEmote(k)} ${ITEM_LABELS[k]}: **${fmt(total(k))}**`;
+
+    let hiddenCount = 0;
+    const itemField = (name, keys) => {
+        const shown = showAll ? keys : keys.filter(k => total(k) > 0);
+        hiddenCount += keys.length - shown.length;
+        if (shown.length === 0) return null;
+        return { name, value: shown.map(itemLine).join('\n'), inline: true };
+    };
+
+    const premiumKeys = seasonCfg.allPremiumKeys();
+    const commonKeys = ITEM_KEYS.filter(k => k !== 'thienthuong' && !premiumKeys.has(k));
+
+    const fields = [{
+        name: 'Tiền tệ',
+        value: [
+            itemLine('thienthuong'),
+            `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`,
+            `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`
+        ].join('\n'),
+        inline: true
+    }];
+    fields.push(itemField('Vật phẩm thường', commonKeys));
+    for (const id of seasonCfg.SEASON_IDS) {
+        const s = seasonCfg.SEASONS[id];
+        const keys = seasonCfg.seasonTiers(id).map(t => s.items[t]);
+        const name = s.name === `Mùa ${id}` ? s.name : `Mùa ${id} — ${s.name}`;
+        fields.push(itemField(name, keys));
+    }
+
+    return {
+        embed: { color: KHODO_COLOR, title: `Kho đồ của ${displayName}`, fields: fields.filter(Boolean) },
+        hiddenCount
+    };
+}
+
 module.exports = {
     INGAME_EMOTE_NAMES,
     ITEM_KEYS,
@@ -198,6 +246,7 @@ module.exports = {
     tryClaimDaily,
     pruneDaily,
     renderEmote,
+    buildKhodoView,
     todayStr,
     fmt
 };
