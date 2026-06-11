@@ -12,8 +12,9 @@ const { addNgoc, renderEmote, fmt, todayStr } = require('./currency');
 const economy = require('../config/economy');
 const metrics = require('./metrics');
 
-// Two pools: `full` validates player answers; `common` is what the bot may
-// answer with (everyday words only, so bot replies never feel obscure).
+// Two pools: `full` validates player answers and is also the bot's answer pool
+// (same arsenal as the players, so only true dead-tail words can kill the bot).
+// `common` (everyday words) is only used to pick friendly round openers.
 const rawDict = require('../../word_dict/tu2amtiet.json');
 
 function buildFirstSyllableIndex(words) {
@@ -298,10 +299,12 @@ function pickRandomOpener(usedWords) {
 }
 
 // ── Bot brain: friendly early, hostile late ────────────────────────────────
-// The bot only ever answers with `common` words. Friendly: avoid dead-ending
-// players, prefer continuations that leave the chain wide open. Hostile: pick
-// randomly among words leaving players ≤ BOT_HOSTILE_MAX_CONT options — a
-// squeeze, not an automatic kill. Hostile chance ramps with player words.
+// The bot answers from the full pool. Friendly: depth-1 minimax — pick the
+// word that maximizes the bot's chances on its NEXT turn assuming players
+// reply adversarially (i.e. maximize the minimum number of answers the bot
+// keeps across every possible player reply). Hostile: pick randomly among
+// words leaving players ≤ BOT_HOSTILE_MAX_CONT options — a squeeze, not an
+// automatic kill. Hostile chance ramps with player words.
 
 function hostileChance(playerCount) {
     const cfg = economy.WORDCHAIN_VIET;
@@ -310,17 +313,48 @@ function hostileChance(playerCount) {
     return Math.min(over * cfg.BOT_HOSTILE_RAMP, cfg.BOT_HOSTILE_MAX);
 }
 
-function pickFriendly(candidates, usedWords) {
-    const winning = [];
-    const nonWinning = [];
-    for (const w of candidates) {
-        if (countUnusedContinuations(w, usedWords) === 0) winning.push(w);
-        else nonWinning.push(w);
+// Per-syllable counts of already-used words, for O(1) continuation estimates
+// inside the minimax loop (every used word sits in exactly one first-syllable
+// bucket, so unused-in-bucket = bucket size − usedFirstCounts[syllable]).
+function buildUsedFirstCounts(usedWords) {
+    const counts = {};
+    for (const w of usedWords) {
+        const f = w.split(' ')[0];
+        counts[f] = (counts[f] || 0) + 1;
     }
-    if (nonWinning.length === 0) return randomFrom(winning);
-    const easy = nonWinning.filter(w => countUnusedContinuations(w, usedWords) > 5);
-    if (easy.length > 0 && Math.random() < 0.95) return randomFrom(easy);
-    return randomFrom(nonWinning);
+    return counts;
+}
+
+function pickFriendly(candidates, usedWords) {
+    const usedFirst = buildUsedFirstCounts(usedWords);
+    let best = [];
+    let bestScore = -Infinity;
+    for (const w of candidates) {
+        const [wFirst, wTail] = splitWord(w);
+        const replies = fullByFirst[wTail] || [];
+        // Worst case over the player's replies: how many answers does the bot
+        // keep if the player picks the reply that hurts it the most?
+        let worst = Infinity;
+        let hasReply = false;
+        for (const r of replies) {
+            if (r === w || usedWords.has(r)) continue;
+            hasReply = true;
+            const rTail = splitWord(r)[1];
+            const bucket = fullByFirst[rTail];
+            let c = bucket ? bucket.length - (usedFirst[rTail] || 0) : 0;
+            if (bucket) {
+                // `w` and `r` will be on the board by then but aren't in usedWords yet.
+                if (wFirst === rTail) c -= 1; // w occupies a slot in the reply's bucket
+                if (wTail === rTail) c -= 1;  // r continues itself (first(r) = wTail)
+            }
+            if (c < worst) worst = c;
+            if (worst <= 0) break;
+        }
+        const score = hasReply ? worst : -1; // no reply = bot kills players: last resort when friendly
+        if (score > bestScore) { bestScore = score; best = [w]; }
+        else if (score === bestScore) best.push(w);
+    }
+    return best.length > 0 ? randomFrom(best) : randomFrom(candidates);
 }
 
 function pickHostile(candidates, usedWords) {
@@ -340,7 +374,7 @@ function pickHostile(candidates, usedWords) {
 }
 
 function pickBotWord(syllable, usedWords, playerCount) {
-    const bucket = commonByFirst[syllable];
+    const bucket = fullByFirst[syllable];
     if (!Array.isArray(bucket) || bucket.length === 0) return null;
     const candidates = bucket.filter(w => !usedWords.has(w));
     if (candidates.length === 0) return null;

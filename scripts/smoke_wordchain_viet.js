@@ -90,9 +90,10 @@ function parseBotWord(messages) {
     return null;
 }
 
+// The bot answers from the FULL pool (common is only used for round openers).
 function botCanAnswer(word, usedSet) {
     const tail = word.split(' ')[1];
-    return (commonByFirst[tail] || []).some(x => !usedSet.has(x) && x !== word);
+    return (fullByFirst[tail] || []).some(x => !usedSet.has(x) && x !== word);
 }
 
 // Safest continuation: bot can answer it, and its tail leaves players the most
