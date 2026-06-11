@@ -113,8 +113,13 @@ function runMultiFlip({ guildId, userId, displayName, side, isAll, requestedAmou
         const cur = getWallet(guildId, userId);
         if ((cur.ngoc + (cur.lockedNgoc || 0)) < perFlip) break; // safety
         spendNgocForGame(guildId, userId, perFlip);
-        const result = Math.random() < 0.5 ? 'sap' : 'ngua';
-        const won = side ? (side === result) : (Math.random() < 0.5);
+        // Win is rolled against the configured rate; the shown face is derived
+        // from it (or rolled freely when no side was guessed) so the display
+        // always matches the outcome.
+        const won = Math.random() < economy.COINFLIP_WIN_RATE;
+        const result = side
+            ? (won ? side : (side === 'sap' ? 'ngua' : 'sap'))
+            : (Math.random() < 0.5 ? 'sap' : 'ngua');
         const payout = won ? perFlip * 2 : 0;
         if (won) {
             addNgoc(guildId, userId, payout);

@@ -67,13 +67,17 @@ function getNextSaturday() {
 }
 
 const GAME_COOLDOWN_MS = 3000;
+const BUTTON_GAME_COOLDOWN_MS = 500;
 const gameCooldowns = new Map();
 
-function checkGameCooldown(userId) {
+// One shared per-user cooldown map for every game entry point (text commands
+// and replay buttons alike), so stacking several reply messages and clicking
+// across them doesn't multiply the play rate. Buttons pass a shorter window.
+function checkGameCooldown(userId, cooldownMs = GAME_COOLDOWN_MS) {
     const now = Date.now();
     const last = gameCooldowns.get(userId);
-    if (last && (now - last) < GAME_COOLDOWN_MS) {
-        return { onCooldown: true, msLeft: GAME_COOLDOWN_MS - (now - last) };
+    if (last && (now - last) < cooldownMs) {
+        return { onCooldown: true, msLeft: cooldownMs - (now - last) };
     }
     gameCooldowns.set(userId, now);
     return { onCooldown: false, msLeft: 0 };
@@ -144,5 +148,6 @@ module.exports = {
     replyEphemeral,
     chunkMessage,
     replyChunked,
-    GAME_COOLDOWN_MS
+    GAME_COOLDOWN_MS,
+    BUTTON_GAME_COOLDOWN_MS
 };

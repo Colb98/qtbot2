@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '2.3.0';
+const CURRENT_VERSION = '2.3.1';
 
 const CHANGELOG = {
+    '2.3.1': {
+        date: '2026-06-11',
+        title: 'Cooldown chung cho nút chơi lại',
+        changes: [
+            'Các **nút chơi lại** của game (coinflip · slot · tổng · mặt) giờ có **cooldown chung 0.5s mỗi người** (lệnh gõ tay vẫn 3s). Trước đây bấm nút không bị cooldown nên có thể spam nhiều tin nhắn game cùng lúc; giờ mọi nút và lệnh game dùng chung một cooldown.'
+        ]
+    },
     '2.3.0': {
         date: '2026-06-11',
         title: '!help rút gọn · !khodo dạng cột',

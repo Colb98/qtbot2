@@ -46,6 +46,9 @@ const DEFAULTS = {
     BANG_CHIEN_REWARD: 1000,
 
     COINFLIP_MAX_BET: 50000,
+    // Player win probability per flip (payout stays 2x). 0.5 = zero house
+    // edge; lower slightly (e.g. 0.4995) to give the house an edge.
+    COINFLIP_WIN_RATE: 0.499,
     SLOT_MAX_BET: 5000,
     SLOT_PITY_CAP_MULT: 2,
     TONG_MAX_BET: 10000,

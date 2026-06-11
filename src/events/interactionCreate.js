@@ -16,6 +16,7 @@ const dice = require('../services/dice');
 const metrics = require('../services/metrics');
 const economy = require('../config/economy');
 const { data, saveData } = require('../state');
+const { checkGameCooldown, BUTTON_GAME_COOLDOWN_MS } = require('../utils');
 const { isBlockedByMaintenance } = require('../services/maintenance');
 const profile = require('../services/profile');
 const season = require('../services/season');
@@ -183,12 +184,24 @@ module.exports = {
     }
 };
 
+// Shared replay-button cooldown: same per-user map as the text commands but a
+// shorter window, so spamming buttons (or stacking several reply messages and
+// clicking across all of them) can't multiply the play rate.
+function rejectIfOnButtonCooldown(interaction) {
+    const cd = checkGameCooldown(interaction.user.id, BUTTON_GAME_COOLDOWN_MS);
+    if (!cd.onCooldown) return false;
+    const secLeft = Math.ceil(cd.msLeft / 1000);
+    interaction.reply({ content: `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`, flags: MessageFlags.Ephemeral }).catch(() => {});
+    return true;
+}
+
 async function handleCoinflipButton(interaction) {
     const parts = interaction.customId.split(':');
     const [, action, ownerUserId, amountStr, sideToken] = parts;
     if (interaction.user.id !== ownerUserId) {
         return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
     }
+    if (rejectIfOnButtonCooldown(interaction)) return;
     const side = tokenToSide(sideToken);
     const flips = parts[5] ? Math.max(1, parseInt(parts[5], 10) || 1) : 1;
     const guildId = interaction.guildId;
@@ -307,6 +320,7 @@ async function handleDiceModal(interaction, game) {
     if (interaction.user.id !== ownerUserId) {
         return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
     }
+    if (rejectIfOnButtonCooldown(interaction)) return;
     const guildId = interaction.guildId;
     const isTong = game === 'tong';
     const guessMin = isTong ? 3 : 1;
@@ -357,6 +371,7 @@ async function handleDiceButton(interaction, game) {
         const amountPer = parseInt(parts[3], 10);
         return showDiceMultiModal(interaction, game, amountPer);
     }
+    if (rejectIfOnButtonCooldown(interaction)) return;
     if (action === 'mcont' || action === 'mallin') {
         const w = getWallet(guildId, ownerUserId);
         const total = w.ngoc + (w.lockedNgoc || 0);
@@ -460,6 +475,7 @@ async function handleSlotButton(interaction) {
     if (!Number.isInteger(rolls) || rolls < 1 || rolls > SLOT_MAX_ROLLS) {
         return interaction.reply({ content: 'Số lượt không hợp lệ.', flags: MessageFlags.Ephemeral });
     }
+    if (rejectIfOnButtonCooldown(interaction)) return;
 
     await interaction.deferUpdate().catch(e => log.error('slot defer error:', e));
 
