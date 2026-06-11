@@ -97,6 +97,39 @@ const DEFAULTS = {
         ]
     },
 
+    // ── Nối Từ co-op (faucet) ────────────────────────────────────────────────
+    // Co-op Vietnamese wordchain vs the bot (the chill 1v1 /noi_tu stays
+    // economy-free). Per-word reward escalates with chain position; the bot
+    // plays friendly for the first BOT_FRIENDLY_WORDS player words, then ramps
+    // up the chance of picking the continuation that squeezes players hardest.
+    WORDCHAIN_VIET: {
+        NGOC_PER_WORD_BASE: 40,
+        NGOC_PER_POSITION_STEP: 15,
+        POSITIONS_PER_STEP: 5,
+        NGOC_PER_WORD_MAX: 100,
+        REWARD_CAP_PER_POSITION: 20,   // payouts per position per user/day
+        DAILY_CAP_WORDS: 10000,        // ngọc/user/day from per-word rewards
+        WIN_BONUS: 2000,               // dead-ending the bot (VN has many dead tails)
+        WIN_BONUS_DAILY_CAP: 10000,    // ngọc/user/day from win bonuses
+        WIN_BONUS_MIN_WORDS: 5,        // run must have ≥ this many player words to pay the bonus (blocks word-1 insta-kills)
+        BOT_FRIENDLY_WORDS: 20,
+        BOT_HOSTILE_RAMP: 0.05,        // +5% hostile chance per player word past friendly
+        BOT_HOSTILE_MAX: 0.9,
+        BOT_HOSTILE_MAX_CONT: 2,       // hostile pick = random word leaving players ≤ this many continuations
+        TIMER_LADDER: [
+            { upTo: 10, seconds: 60 },
+            { upTo: 20, seconds: 45 },
+            { upTo: 30, seconds: 30 },
+            { upTo: 40, seconds: 20 },
+            { upTo: Infinity, seconds: 15 }
+        ],
+        WEEKLY_REWARDS: [
+            { from: 1, to: 1,  ngoc: 15000 },
+            { from: 2, to: 3,  ngoc: 8000  },
+            { from: 4, to: 10, ngoc: 4000  }
+        ]
+    },
+
     WORDCHAIN_ENG: {
         NGOC_PER_WORD: 16,
         WORD_THRESHOLD: 25,

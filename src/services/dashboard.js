@@ -333,7 +333,7 @@ function renderNetBanner(snap) {
       '= net game (' + sign(n.netGame) + ') + minted faucets (' + sign(n.minted) + ') − gacha burned (' + fmt(n.burned) + ')' +
     '</div>' +
     '<div class="sub">' +
-      'Faucet breakdown — wordchain: ' + fmt(n.mintedWordchain) + ' ngọc · gangoc: ' + fmt(n.mintedGangoc) + ' ngọc · daily: ' + fmt(n.mintedDailyNganphieu) + ' ngân phiếu (≈ ' + fmt(n.mintedDailyNganphieu / 100) + ' ngọc-eq)' +
+      'Faucet breakdown — wordchain: ' + fmt(n.mintedWordchain) + ' ngọc · noitu: ' + fmt(n.mintedNoitu || 0) + ' ngọc · gangoc: ' + fmt(n.mintedGangoc) + ' ngọc · daily: ' + fmt(n.mintedDailyNganphieu) + ' ngân phiếu (≈ ' + fmt(n.mintedDailyNganphieu / 100) + ' ngọc-eq)' +
     '</div>' +
     '<div class="sub">📈 7-day rolling avg: ' + sign(Math.round(r.avg)) + ' ngọc/ngày (' + r.days + ' ngày)</div>';
   document.getElementById('netBanner').innerHTML = html;
@@ -387,6 +387,21 @@ function renderGameCards(snap) {
       row('Multiplayer rounds', fmt(m.multiplayerRounds || 0) + ' (' + pct(m.multiplayerRounds, m.rounds) + ')'),
       row('Rejected words', fmt(m.rejectedWords || 0)),
       row('End reasons', 'timeout:' + (er.timeout || 0) + ' · dead_end:' + (er.dead_end || 0) + ' · sur:' + (er.surrender || 0))
+    ]));
+  }
+
+  if (s.wordchain_viet) {
+    const m = s.wordchain_viet;
+    const er = m.endReasons || {};
+    cards.push(card('🔗 NOITU CO-OP (faucet) — ' + fmt(m.rounds || 0) + ' ván', [
+      row('Minted', fmt(m.ngocAwarded || 0) + ' ngọc', 'good'),
+      row('Unique players', fmt(m.uniquePlayers || 0), 'accent'),
+      row('Total words', fmt(m.totalWords || 0)),
+      row('Avg words/round', m.rounds ? (m.totalWords / m.rounds).toFixed(1) : '—'),
+      row('Biggest round', fmt(m.biggestRound || 0)),
+      row('Multiplayer rounds', fmt(m.multiplayerRounds || 0) + ' (' + pct(m.multiplayerRounds, m.rounds) + ')'),
+      row('Rejected words', fmt(m.rejectedWords || 0)),
+      row('End reasons', 'timeout:' + (er.timeout || 0) + ' · dead_end:' + (er.dead_end || 0) + ' · bot_win:' + (er.bot_win || 0) + ' · sur:' + (er.surrender || 0))
     ]));
   }
 

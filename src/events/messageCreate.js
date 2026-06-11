@@ -2,6 +2,7 @@ const { Events, ChannelType } = require('discord.js');
 const { handleMessageCommand } = require('../messageCommands');
 const wordchain = require('../services/wordchain');
 const wordchainEng = require('../services/wordchainEng');
+const wordchainViet = require('../services/wordchainViet');
 const vuaTiengViet = require('../services/vuaTiengViet');
 const flashMath = require('../services/flashMath');
 const mathBoss = require('../services/mathBoss');
@@ -22,6 +23,10 @@ module.exports = {
             }
             if (wordchainEng.hasThread(msg.channel.id)) {
                 await wordchainEng.handleThreadMessage(msg);
+                return;
+            }
+            if (wordchainViet.hasThread(msg.channel.id)) {
+                await wordchainViet.handleThreadMessage(msg);
                 return;
             }
             if (vuaTiengViet.hasThread(msg.channel.id)) {

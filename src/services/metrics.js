@@ -125,6 +125,20 @@ const GAME_DEFAULTS = {
         rejectedWords: 0,
         roundsAboveThreshold: 0
     },
+    wordchain_viet: {
+        rounds: 0,
+        totalWords: 0,
+        biggestRound: 0,
+        ngocAwarded: 0,
+        participantsTotal: 0,
+        multiplayerRounds: 0,
+        emptyRounds: 0,
+        endReasons: { timeout: 0, dead_end: 0, bot_win: 0, surrender: 0 },
+        playerIds: {},
+        wordHistogram: { '0': 0, '1-5': 0, '6-10': 0, '11-20': 0, '21-30': 0, '31-50': 0, '51+': 0 },
+        roundDurationMs: 0,
+        rejectedWords: 0
+    },
     daily: {
         claims: 0,
         nganphieuMinted: 0,
@@ -570,6 +584,39 @@ function recordWordchainEng({ guildId, totalWords, participants, ngocAwarded, en
     _dirty = true;
 }
 
+function recordWordchainViet({ guildId, totalWords, participants, ngocAwarded, endReason, durationMs = 0, userIds = [] }) {
+    const filteredIds = (userIds || []).filter(uid => !isExcluded(uid));
+    _checkRollover();
+    const m = _get(guildId, 'wordchain_viet');
+    m.rounds++;
+    m.totalWords += totalWords;
+    if (totalWords > m.biggestRound) m.biggestRound = totalWords;
+    m.ngocAwarded += ngocAwarded;
+    m.participantsTotal += participants;
+    if (participants >= 2) m.multiplayerRounds++;
+    if (participants === 0) m.emptyRounds++;
+    if (!m.endReasons) m.endReasons = { timeout: 0, dead_end: 0, bot_win: 0, surrender: 0 };
+    if (endReason && m.endReasons[endReason] !== undefined) {
+        m.endReasons[endReason]++;
+    }
+    if (!m.wordHistogram) m.wordHistogram = { '0': 0, '1-5': 0, '6-10': 0, '11-20': 0, '21-30': 0, '31-50': 0, '51+': 0 };
+    const bucket = wordHistogramBucket(totalWords);
+    m.wordHistogram[bucket] = (m.wordHistogram[bucket] || 0) + 1;
+    m.roundDurationMs += Math.max(0, durationMs);
+    if (!m.playerIds) m.playerIds = {};
+    for (const uid of filteredIds) {
+        m.playerIds[uid] = (m.playerIds[uid] || 0) + 1;
+    }
+    _dirty = true;
+}
+
+function recordWordchainVietReject({ guildId } = {}) {
+    _checkRollover();
+    const m = _get(guildId, 'wordchain_viet');
+    m.rejectedWords = (m.rejectedWords || 0) + 1;
+    _dirty = true;
+}
+
 function recordDaily({ guildId, nganphieu, userId }) {
     if (isExcluded(userId)) return;
     _checkRollover();
@@ -811,6 +858,27 @@ function _formatGame(game, perGuildStore, guildFilter) {
             `Nhỏ: ${tline('small')} | Vừa: ${tline('medium')} | Lớn: ${tline('big')}`
         ].join('\n');
     }
+    if (game === 'wordchain_viet' || game === 'noitu') {
+        const m = _flatGame(perGuildStore, guildFilter, 'wordchain_viet');
+        const er = m.endReasons || { timeout: 0, dead_end: 0, bot_win: 0, surrender: 0 };
+        const avgWords = m.rounds ? (m.totalWords / m.rounds).toFixed(1) : '—';
+        const avgPart = m.rounds ? (m.participantsTotal / m.rounds).toFixed(2) : '—';
+        const uniq = uniqueCount(m.playerIds);
+        const durationMin = m.roundDurationMs ? m.roundDurationMs / 60000 : 0;
+        const ngocPerMin = durationMin ? (m.ngocAwarded / durationMin).toFixed(1) : '—';
+        const rewardPerRound = m.rounds ? (m.ngocAwarded / m.rounds).toFixed(0) : '—';
+        const hist = m.wordHistogram || {};
+        const histStr = ['0', '1-5', '6-10', '11-20', '21-30', '31-50', '51+']
+            .map(k => `${k}:${hist[k] || 0}`).join(' | ');
+        return [
+            `🔗 NOITU CO-OP (faucet) — ${fmt(m.rounds)} ván | Unique players: ${fmt(uniq)}`,
+            `**Minted**: ${fmt(m.ngocAwarded)} ngọc | Reward/ván: ${rewardPerRound} | Ngọc/phút (chơi): ${ngocPerMin}`,
+            `Total words: ${fmt(m.totalWords)} | Avg/round: ${avgWords} | Biggest round: ${fmt(m.biggestRound)} | Participants avg: ${avgPart}`,
+            `Histogram số từ: ${histStr}`,
+            `Multiplayer (≥2 ng): ${m.multiplayerRounds} (${pct(m.multiplayerRounds, m.rounds)}) | Empty: ${m.emptyRounds} | Từ bị từ chối: ${fmt(m.rejectedWords || 0)}`,
+            `End reasons — timeout: ${er.timeout} | dead_end (thắng bot): ${er.dead_end} | bot_win: ${er.bot_win || 0} | surrender: ${er.surrender}`
+        ].join('\n');
+    }
     if (game === 'wordchain_eng' || game === 'wordchain') {
         const m = _flatGame(perGuildStore, guildFilter, 'wordchain_eng');
         const er = m.endReasons || { timeout: 0, dead_end: 0, surrender: 0 };
@@ -858,11 +926,12 @@ function netFromStore(perGuildStore, guildFilter) {
     const mintedVuaTiengViet = (flat.vuatiengviet && flat.vuatiengviet.ngocAwarded) || 0;
     const mintedFlashMath = (flat.flashmath && flat.flashmath.ngocAwarded) || 0;
     const mintedMathBoss = (flat.mathboss && flat.mathboss.ngocAwarded) || 0;
-    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss;
+    const mintedNoitu = (flat.wordchain_viet && flat.wordchain_viet.ngocAwarded) || 0;
+    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss + mintedNoitu;
     const burned = (flat.gacha && flat.gacha.burned) || 0;
     return {
         netGame, minted, burned,
-        mintedWordchain, mintedGangoc, mintedDailyNganphieu, mintedVuaTiengViet, mintedFlashMath, mintedMathBoss,
+        mintedWordchain, mintedGangoc, mintedDailyNganphieu, mintedVuaTiengViet, mintedFlashMath, mintedMathBoss, mintedNoitu,
         netEconomy: netGame + minted - burned
     };
 }
@@ -898,7 +967,7 @@ function formatSummary(store, label, guildFilter) {
 function formatAllSections(bucket, guildFilter) {
     const label = bucket ? ` [${bucket}]` : ` [${_bucket}]`;
     const store = bucket ? loadBucket(bucket) : _store;
-    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'vuatiengviet', 'flashmath', 'mathboss', 'daily', 'gangoc']
+    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'daily', 'gangoc']
         .map(g => _formatGame(g, store, guildFilter))
         .filter(Boolean);
     sections.push(`${formatSummary(store, label, guildFilter)}\n📅 Ngày${label}`);
@@ -947,6 +1016,7 @@ function listBuckets() {
 
 module.exports = {
     recordSlot, recordCoinflip, recordTong, recordMat, recordWordchainEng,
+    recordWordchainViet, recordWordchainVietReject,
     recordGacha, recordWordchainReject, recordVuaTiengViet,
     recordFlashMath, recordMathBoss,
     recordDaily, recordGangocCreated, recordGangocClaim,

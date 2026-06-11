@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '2.3.1';
+const CURRENT_VERSION = '2.4.0';
 
 const CHANGELOG = {
+    '2.4.0': {
+        date: '2026-06-11',
+        title: 'Game mới: !noitu — Nối Từ Co-op (faucet)',
+        changes: [
+            '**`!noitu`** — Nối từ tiếng Việt **co-op**: cả nhóm cùng nối 2 âm tiết đấu với bot trong thread. **Thưởng Ngọc theo vị trí từ**, càng nối sâu càng nhiều (40 → 100 ngọc/từ, max từ vị trí 21). Mỗi vị trí thưởng tối đa 20 lần/ngày · cap **10.000 ngọc/ngày** từ thưởng từ.',
+            'Bot chơi **hiền 20 từ đầu**, sau đó ngày càng hiểm — cố dồn cả nhóm vào ngõ cụt. Dồn ngược được bot vào ngõ cụt: **+2.000 ngọc** cho người chốt hạ (cap 10.000/ngày). Hết giờ là hết ván (60s → 15s khi nối càng sâu) nhưng vẫn nhận thưởng các từ đã nối.',
+            '**BXH tuần & all-time theo tổng số từ** — `!noitu_top [lifetime]`. Thưởng tuần (Thứ Hai 00:00 GMT+7): Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k ngọc. `!noitu_cap` xem cap ngày.',
+            '`/noi_tu` (1v1 với bot hoặc PVP) **giữ nguyên** để chơi chill — không có ngọc.'
+        ]
+    },
     '2.3.1': {
         date: '2026-06-11',
         title: 'Cooldown chung cho nút chơi lại',

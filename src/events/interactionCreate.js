@@ -3,6 +3,7 @@ const path = require('path');
 const log = require('../../logger');
 const wordchain = require('../services/wordchain');
 const wordchainEng = require('../services/wordchainEng');
+const wordchainViet = require('../services/wordchainViet');
 const vuaTiengViet = require('../services/vuaTiengViet');
 const flashMath = require('../services/flashMath');
 const mathBoss = require('../services/mathBoss');
@@ -148,6 +149,8 @@ module.exports = {
                     }
                 } else if (interaction.customId.startsWith('wce_')) {
                     await wordchainEng.handleButtonInteraction(interaction);
+                } else if (interaction.customId.startsWith('wcv_')) {
+                    await wordchainViet.handleButtonInteraction(interaction);
                 } else if (interaction.customId.startsWith('vtv_')) {
                     await vuaTiengViet.handleButtonInteraction(interaction);
                 } else if (interaction.customId.startsWith('fm_')) {

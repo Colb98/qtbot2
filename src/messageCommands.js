@@ -21,6 +21,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('d
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
 const wordchainEng = require('./services/wordchainEng');
+const wordchainViet = require('./services/wordchainViet');
 const vuaTiengViet = require('./services/vuaTiengViet');
 const flashMath = require('./services/flashMath');
 const mathBoss = require('./services/mathBoss');
@@ -35,7 +36,7 @@ const exchange = require('./services/exchange');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
-    '!gacha', '!wordchain', '!vuatiengviet', '!flashmath', '!boss'
+    '!gacha', '!wordchain', '!noitu', '!vuatiengviet', '!flashmath', '!boss'
 ]);
 
 const DISCLAIMER = `⚠️ **Lưu ý về tiền tệ & vật phẩm trong bot**
@@ -124,8 +125,8 @@ async function handleMessageCommand(msg) {
 **💰 Tiền tệ & Kho đồ:** \`!khodo\` · \`!daily\` · \`!doingoc\` · \`!pity\`
 **🔄 Đổi & Bán:** \`!doi\` · \`!phangiai\` · \`!banthienthuong\` · \`!bancao\` · \`!bankythuong\` · \`!bandieu\` · \`!bannhuom\`
 **🎁 Tặng & Lì xì:** \`!tangngoc\` · \`!tangthienthuong\` · \`!tangcao\` · \`!tangcao5\` · \`!tangcao9\` · \`!tangdieu\` · \`!tangphuongbang\` · \`!tangphuonghoa\` · \`!tangthantrang\` · \`!lixi\`
-**🎮 Game:** \`!gacha\` · \`!coinflip\` · \`!slot\` · \`!tong\` · \`!mat\` · \`!xoso\` · \`!wordchain\` · \`!flashmath\` · \`!boss\`
-**🏆 BXH & Mùa giải:** \`!toptt\` · \`!topngoc\` · \`!season\` · \`!nextseason\` · \`!bond\` · \`!wordchain_top\` · \`!flashmath_top\` · \`!boquathuong\`
+**🎮 Game:** \`!gacha\` · \`!coinflip\` · \`!slot\` · \`!tong\` · \`!mat\` · \`!xoso\` · \`!wordchain\` · \`!noitu\` · \`!flashmath\` · \`!boss\`
+**🏆 BXH & Mùa giải:** \`!toptt\` · \`!topngoc\` · \`!season\` · \`!nextseason\` · \`!bond\` · \`!wordchain_top\` · \`!noitu_top\` · \`!flashmath_top\` · \`!boquathuong\`
 **📌 Khác:** \`!changelog\` · \`!disclaimer\``;
             return replyChunked(msg, shortHelp);
         }
@@ -161,6 +162,8 @@ async function handleMessageCommand(msg) {
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
+• \`!noitu\` — Tạo thread **Nối Từ Co-op** tiếng Việt: cả nhóm vs bot. Thưởng ngọc theo vị trí từ (${fmt(economy.WORDCHAIN_VIET.NGOC_PER_WORD_BASE)} → ${fmt(economy.WORDCHAIN_VIET.NGOC_PER_WORD_MAX)}/từ, càng sâu càng nhiều), dồn bot vào ngõ cụt +${fmt(economy.WORDCHAIN_VIET.WIN_BONUS)}. Cap ${fmt(economy.WORDCHAIN_VIET.DAILY_CAP_WORDS)}+${fmt(economy.WORDCHAIN_VIET.WIN_BONUS_DAILY_CAP)} ${renderEmote('ngoc')}/ngày. Bot hiền ${economy.WORDCHAIN_VIET.BOT_FRIENDLY_WORDS} từ đầu rồi ngày càng hiểm.
+• \`!noitu_top [lifetime]\` — BXH Nối Từ Co-op theo **tổng số từ** (tuần / all-time). Thưởng tuần: Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k. \`!noitu_cap\` xem cap ngày. (\`/noi_tu\` 1v1 chill vẫn như cũ, không có ngọc.)
 • \`!flashmath\` — Tạo thread **Flash Math**: trả lời nhanh phép tính, ai đúng trước nhận ngọc. **Hết giờ là kết thúc** — BXH xếp theo cấp cao nhất. Cap ${fmt(economy.FLASHMATH.DAILY_CAP)} ${renderEmote('ngoc')}/ngày. \`!flashmath_top\` (tuần) / \`!flashmath_top lifetime\` xem BXH, \`!flashmath_cap\` xem cap. Thưởng tuần: Top 1 = 15k · Top 2-3 = 8k · Top 4-10 = 4k.
 • \`!boss <small|medium|big>\` — Triệu hồi **Boss toán học** để solo hoặc cả nhóm cùng đánh (giải phép tính = sát thương). Thưởng chia theo sát thương, cap ${fmt(economy.MATHBOSS.NGOC_DAILY_CAP)} ${renderEmote('ngoc')}/ngày.
 
@@ -190,11 +193,12 @@ ${DISCLAIMER}`;
 • \`!gangoc <n> [#kênh]\` — GA ngọc, user react để nhận.
 
 **Metrics & Debug:**
-• \`!metrics [slot|coinflip|tong|mat|gacha|wordchain|vuatiengviet|flashmath|boss|daily|gangoc] [YYYY-MM-DD] [all|<guildId>]\` — Mặc định guild hiện tại; \`all\` để gộp; truyền guildId cụ thể để xem 1 guild khác.
+• \`!metrics [slot|coinflip|tong|mat|gacha|wordchain|noitu|vuatiengviet|flashmath|boss|daily|gangoc] [YYYY-MM-DD] [all|<guildId>]\` — Mặc định guild hiện tại; \`all\` để gộp; truyền guildId cụ thể để xem 1 guild khác.
 • \`!metrics list\` — Liệt kê các file metrics đã lưu. \`!metrics guilds\` — Liệt kê guilds có data.
 • \`!metrics_exclude [list|add|remove|clean] @user\` — Loại user khỏi metrics (skip toàn bộ record + dọn playerIds cũ).
 • \`!metrics_adjust <guildId|_legacy> <YYYY-MM-DD|today> <game> <field=delta> [...]\` — Cộng/trừ trực tiếp vào bucket (vd: \`rolls=-30 burned=-3000 itemCounts.cao=-1\`).
 • \`!wordchain_payout\` — Trả thưởng tuần trước cho top 10 English Wordchain ngay (cron tự chạy Thứ Hai 00:00 GMT+7).
+• \`!noitu_payout\` — Trả thưởng tuần trước cho top 10 Nối Từ Co-op ngay (cron tự chạy Thứ Hai 00:00 GMT+7, dùng chung kênh noti wordchain).
 • \`!wordchain_reset\` — Reset daily limit ngọc wordchain (20 lần/vị trí) cho toàn server (ManageGuild).
 • \`!setwordchain_noti [#channel|clear]\` — Cài kênh riêng nhận thông báo thưởng tuần wordchain (ManageGuild). Mặc định dùng kênh bot.
 • \`!setxoso_noti [#channel|clear]\` — Cài kênh thông báo xổ số tích lũy. Bắt buộc set để bot announce.
@@ -224,7 +228,7 @@ ${DISCLAIMER}`;
         // !metrics [slot|coinflip|tong|mat|...] [YYYY-MM-DD] [all]
         // Defaults to current guild's metrics; pass 'all' to aggregate across guilds.
         // !metrics list / !metrics guilds
-        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'vuatiengviet', 'flashmath', 'mathboss', 'boss', 'daily', 'gangoc']);
+        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'noitu', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'boss', 'daily', 'gangoc']);
         const argTokens = parts.slice(1).map(p => p.toLowerCase());
 
         if (argTokens[0] === 'list') {
@@ -1409,6 +1413,83 @@ ${DISCLAIMER}`;
             log.error('wordchain_payout error', e);
             return msg.reply('Lỗi khi trả thưởng. Xem log.');
         }
+    }
+
+    if (cmd === '!noitu') {
+        if (msg.channel.type !== ChannelType.GuildText) {
+            return msg.reply('Lệnh này chỉ dùng trong text channel (không trong thread hoặc DM).');
+        }
+        try {
+            const thread = await wordchainViet.startSession({ channel: msg.channel, invokerId: msg.author.id });
+            return msg.reply(`Đã tạo thread Nối Từ Co-op: <#${thread.id}>`);
+        } catch (e) {
+            log.error('noitu start failed', e);
+            return msg.reply('Không thể bắt đầu trò chơi.');
+        }
+    }
+
+    if (cmd === '!noitu_top') {
+        const mode = (parts[1] || '').toLowerCase();
+        const isLifetime = mode === 'lifetime' || mode === 'life' || mode === 'all' || mode === 'l';
+        const top = isLifetime
+            ? wordchainViet.getLifetimeTop(guildId, 10)
+            : wordchainViet.getWeeklyTop(guildId, 10);
+        const header = isLifetime
+            ? `🏆 **Top Nối Từ Co-op — Lifetime** (tổng số từ)`
+            : `🏆 **Top Nối Từ Co-op — Tuần này** (tổng số từ)`;
+        const lines = [header];
+        if (top.length === 0) {
+            lines.push(isLifetime
+                ? '_Chưa có ai trên bảng xếp hạng lifetime._'
+                : '_Chưa có ai trên bảng xếp hạng tuần này._');
+        } else {
+            for (let i = 0; i < top.length; i++) {
+                const [userId, words] = top[i];
+                let name = userId;
+                try {
+                    const m = await msg.guild.members.fetch(userId).catch(() => null);
+                    if (m) name = m.displayName;
+                } catch (e) { /* ignore */ }
+                lines.push(`${i + 1}. **${name}** — **${fmt(words)}** từ`);
+            }
+        }
+        if (!isLifetime) {
+            const table = wordchainViet.getWeeklyRewardTable();
+            if (table && table.length > 0) {
+                lines.push('');
+                lines.push(`🎁 **Thưởng tuần (reset Thứ Hai 00:00 GMT+7)** — ${renderEmote('ngoc')}`);
+                for (const tier of table) {
+                    const range = tier.from === tier.to ? `Top ${tier.from}` : `Top ${tier.from}-${tier.to}`;
+                    lines.push(`• ${range}: **${fmt(tier.ngoc)}**`);
+                }
+                lines.push(`Gõ \`!noitu_top lifetime\` để xem bảng all-time.`);
+            }
+        }
+        return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+    }
+
+    if (cmd === '!noitu_payout') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        try {
+            const results = await wordchainViet.runWeeklyPayout();
+            if (!results || results.length === 0) {
+                return msg.reply('Không có ai để trả thưởng (hoặc tuần trước đã trả rồi).');
+            }
+            const totalWinners = results.reduce((a, r) => a + r.paid.length, 0);
+            return msg.reply(`✅ Nối Từ Co-op: đã trả thưởng tuần trước cho ${totalWinners} người trong ${results.length} guild.`);
+        } catch (e) {
+            log.error('noitu_payout error', e);
+            return msg.reply('Lỗi khi trả thưởng. Xem log.');
+        }
+    }
+
+    if (cmd === '!noitu_cap') {
+        const s = wordchainViet.getCapStatus(guildId, msg.author.id);
+        return msg.reply(
+            `📊 **Cap Nối Từ Co-op hôm nay:**\n` +
+            `• Thưởng từ: **${fmt(s.wordNgoc)}** / **${fmt(s.wordCap)}** ${renderEmote('ngoc')}\n` +
+            `• Thưởng chốt hạ bot: **${fmt(s.bonusNgoc)}** / **${fmt(s.bonusCap)}** ${renderEmote('ngoc')}`
+        );
     }
 
     if (cmd === '!vuatiengviet') {
