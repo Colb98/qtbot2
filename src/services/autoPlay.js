@@ -19,6 +19,11 @@ const { isBlockedByMaintenance } = require('./maintenance');
 
 const sessions = new Map(); // userId -> session
 
+// Auto mode intentionally hides running totals and per-round net so the player
+// can't track P&L at a glance — they have to check `!khodo`. Only the last few
+// round result blocks are shown, and net/aggregate lines are stripped from each.
+const HISTORY_SIZE = 5;
+
 const GAME_LABEL = { slot: 'Slot', coinflip: 'Coinflip', tong: 'Cược Tổng', mat: 'Cược Mặt' };
 
 const STOP_REASON_TEXT = {
@@ -70,10 +75,13 @@ function headerLine(session) {
     return `🔁 **AUTO ${GAME_LABEL[session.game]}** · vòng **${session.round}/${cfg().MAX_ROUNDS}** · cược **${betLabel(session)}** ${renderEmote('ngoc')}/vòng`;
 }
 
-function totalsLine(session) {
-    const net = session.totalPayout - session.totalBet;
-    const sign = net >= 0 ? '+' : '−';
-    return `**Lũy kế:** cược ${fmt(session.totalBet)} → nhận ${fmt(session.totalPayout)} ${renderEmote('ngoc')} (${sign}${fmt(Math.abs(net))})`;
+function historySection(session) {
+    return session.history.join('\n\n');
+}
+
+function pushHistory(session, block) {
+    session.history.push(block);
+    while (session.history.length > HISTORY_SIZE) session.history.shift();
 }
 
 async function editSession(session, content, components) {
@@ -123,16 +131,30 @@ async function playSlotRound(session) {
     const ngocE = renderEmote('ngoc');
     const anim = renderEmote('slotanim');
 
-    // Brief spin frame so each round visibly pulls before settling.
-    const spinBlock = plays.length === 1
-        ? `[ ${anim} | ${anim} | ${anim} ]`
-        : plays.map((_, i) => `\`${String(i + 1).padStart(2)}.\` ${anim} | ${anim} | ${anim}`).join('\n');
-    await editSession(session, [headerLine(session), spinBlock, totalsLine(session)].join('\n'), [buildStopRow(session.userId)]);
-    await new Promise(r => setTimeout(r, 750));
-
     const totalAmount = plays.reduce((a, x) => a + x.amount, 0);
     const totalPayout = plays.reduce((a, x) => a + x.payout, 0);
     const reels = plays.map(x => x.spinResult.map(k => renderEmote(slot.SYMBOLS[k].emote)));
+
+    // Column-by-column reveal: col1 → col3 → (col2 + result via runLoop's edit).
+    // Matches the cadence of slot.runMultiRoll so manual and auto rounds feel the same.
+    const renderReels = (states) => plays.length === 1
+        ? `[ ${states[0][0]} | ${states[0][1]} | ${states[0][2]} ]`
+        : states.map((s, i) => `\`${String(i + 1).padStart(2)}.\` ${s[0]} | ${s[1]} | ${s[2]}`).join('\n');
+    const stateAnim = reels.map(() => [anim, anim, anim]);
+    const state1 = reels.map(s => [s[0], anim, anim]);
+    const state2 = reels.map(s => [s[0], anim, s[2]]);
+    const editReels = (st) => {
+        const parts = [headerLine(session)];
+        if (session.history.length) parts.push(historySection(session));
+        parts.push(renderReels(st));
+        return editSession(session, parts.join('\n\n'), [buildStopRow(session.userId, session.stopRequested)]);
+    };
+    await editReels(stateAnim);
+    await new Promise(r => setTimeout(r, 500));
+    await editReels(state1);
+    await new Promise(r => setTimeout(r, 500));
+    await editReels(state2);
+    await new Promise(r => setTimeout(r, 750));
     let block;
     if (plays.length === 1) {
         block = `[ ${reels[0][0]} | ${reels[0][1]} | ${reels[0][2]} ] (-${fmt(totalAmount)} ${ngocE})\n` +
@@ -271,10 +293,9 @@ async function finalize(session) {
     const reasonText = reason === 'cap'
         ? `đã chạy đủ ${cfg().MAX_ROUNDS} vòng`
         : (STOP_REASON_TEXT[reason] || STOP_REASON_TEXT.user);
-    const lines = [`🔁 **AUTO ${GAME_LABEL[session.game]}** — ⏹️ ${reasonText} (${session.round} vòng · cược **${betLabel(session)}**/vòng)`];
-    if (session.lastBlock) lines.push(session.lastBlock);
-    if (session.round > 0) lines.push(totalsLine(session));
-    await editSession(session, lines.join('\n'), buildResumeComponents(session));
+    const parts = [`🔁 **AUTO ${GAME_LABEL[session.game]}** — ⏹️ ${reasonText} (${session.round} vòng · cược **${betLabel(session)}**/vòng)`];
+    if (session.history.length) parts.push(historySection(session));
+    await editSession(session, parts.join('\n\n'), buildResumeComponents(session));
 }
 
 async function runLoop(session) {
@@ -289,12 +310,10 @@ async function runLoop(session) {
             session.round += 1;
             const res = await playRound(session);
             if (res.error) { session.round -= 1; session.stopReason = 'broke'; break; }
-            session.totalBet += res.bet;
-            session.totalPayout += res.payout;
-            session.lastBlock = res.block;
+            pushHistory(session, res.block);
             const shown = await editSession(
                 session,
-                [headerLine(session), res.block, totalsLine(session)].join('\n'),
+                [headerLine(session), historySection(session)].join('\n\n'),
                 [buildStopRow(session.userId, session.stopRequested)]
             );
             if (!shown) { session.stopReason = session.stopReason || 'error'; break; }
@@ -316,8 +335,8 @@ async function startAuto({ game, channel, guildId, userId, displayName, params }
     if (sessions.has(userId)) requestStop(userId, 'replaced');
     const session = {
         game, guildId, guild: channel.guild, channel, userId, displayName, params,
-        round: 0, totalBet: 0, totalPayout: 0,
-        stopRequested: false, stopReason: null, lastBlock: null,
+        round: 0, history: [],
+        stopRequested: false, stopReason: null,
         message: null, _wake: null, _wakeTimer: null
     };
     sessions.set(userId, session);

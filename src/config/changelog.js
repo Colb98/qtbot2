@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '2.5.0';
+const CURRENT_VERSION = '2.5.1';
 
 const CHANGELOG = {
+    '2.5.1': {
+        date: '2026-06-12',
+        title: 'Auto: ẩn lũy kế, reveal từng cột cho slot',
+        changes: [
+            'Auto slot trước đây chỉ chớp 1 frame quay rồi hiện luôn kết quả — giờ trả lại animation gốc **reveal từng cột** (cột 1 → cột 3 → cột 2 + kết quả), giống đúng như khi quay tay.',
+            'Bỏ dòng **Lũy kế cược/nhận/net** trong tin nhắn auto — giờ chỉ hiển thị **5 vòng gần nhất** (mỗi vòng vẫn có net riêng). Muốn biết lãi/lỗ tổng thì xem `!khodo`.'
+        ]
+    },
     '2.5.0': {
         date: '2026-06-12',
         title: 'Auto mode cho game cược',
