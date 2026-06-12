@@ -5,16 +5,20 @@ const {
     ButtonStyle,
     MessageFlags
 } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 const log = require('../../logger');
 const client = require('../client');
 const { data, saveData } = require('../state');
 const { addNgoc, renderEmote, fmt, todayStr } = require('./currency');
 const economy = require('../config/economy');
 const metrics = require('./metrics');
+const wordReview = require('./wordReview');
 
 // Two pools: `full` validates player answers and is also the bot's answer pool
 // (same arsenal as the players, so only true dead-tail words can kill the bot).
 // `common` (everyday words) is only used to pick friendly round openers.
+const DICT_PATH = path.resolve(__dirname, '../../word_dict/tu2amtiet.json');
 const rawDict = require('../../word_dict/tu2amtiet.json');
 
 function buildFirstSyllableIndex(words) {
@@ -248,6 +252,39 @@ function splitWord(word) {
 
 function isInDict(word) {
     return fullSet.has(word);
+}
+
+function isWordInDict(word) {
+    return fullSet.has(normalize(word));
+}
+
+function dictSize() {
+    return fullSet.size;
+}
+
+// Append admin-reviewed words to the full pool — in-memory (set + first-
+// syllable index) and on disk, so they're playable immediately without a
+// restart. New words go to `full` only; `common` stays curated (openers).
+function addWordsToDict(words) {
+    const added = [];
+    const skipped = [];
+    for (const raw of words) {
+        const word = normalize(raw);
+        const tokens = splitWord(word);
+        if (tokens.length !== 2) { skipped.push({ word, reason: 'không phải 2 âm tiết' }); continue; }
+        if (fullSet.has(word)) { skipped.push({ word, reason: 'đã có trong từ điển' }); continue; }
+        rawDict.full.push(word);
+        fullSet.add(word);
+        (fullByFirst[tokens[0]] = fullByFirst[tokens[0]] || []).push(word);
+        added.push(word);
+    }
+    if (added.length > 0) {
+        const tmp = DICT_PATH + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(rawDict));
+        fs.renameSync(tmp, DICT_PATH);
+        log.info(`wordchainViet: dictionary +${added.length} words (full now ${fullSet.size})`);
+    }
+    return { added, skipped };
 }
 
 // Player-side reachability: can anyone answer `syllable` from the full pool?
@@ -856,6 +893,11 @@ async function _handleThreadMessageImpl(msg) {
     if (action === 'shape') return; // plain chat in the thread — ignore silently
     if (action === 'not_in_dict' || action === 'wrong_chain') {
         try { metrics.recordWordchainVietReject({ guildId: msg.guildId }); } catch (e) { /* ignore */ }
+        if (action === 'not_in_dict') {
+            // Dictionary gap candidate — queue for admin review on /words.
+            // `chained` marks real attempts (right first syllable) vs chatter.
+            try { wordReview.recordDeclined(word, splitWord(word)[0] === session.lastSyllable); } catch (e) { /* ignore */ }
+        }
         await msg.react('❌').catch(() => {});
         return;
     }
@@ -912,5 +954,8 @@ module.exports = {
     scheduleWeeklyPayout,
     runWeeklyPayout,
     getCapStatus,
-    pruneDaily
+    pruneDaily,
+    isWordInDict,
+    dictSize,
+    addWordsToDict
 };

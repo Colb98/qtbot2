@@ -72,7 +72,7 @@ function betLabel(session) {
 }
 
 function headerLine(session) {
-    return `🔁 **AUTO ${GAME_LABEL[session.game]}** · vòng **${session.round}/${cfg().MAX_ROUNDS}** · cược **${betLabel(session)}** ${renderEmote('ngoc')}/vòng`;
+    return `🔁 **AUTO ${GAME_LABEL[session.game]}** · vòng **${session.round}/${session.maxRounds}** · cược **${betLabel(session)}** ${renderEmote('ngoc')}/vòng`;
 }
 
 function historySection(session) {
@@ -297,7 +297,7 @@ async function finalize(session) {
     if (sessions.get(session.userId) === session) sessions.delete(session.userId);
     const reason = session.stopReason || 'user';
     const reasonText = reason === 'cap'
-        ? `đã chạy đủ ${cfg().MAX_ROUNDS} vòng`
+        ? `đã chạy đủ ${session.maxRounds} vòng`
         : (STOP_REASON_TEXT[reason] || STOP_REASON_TEXT.user);
     const parts = [`🔁 **AUTO ${GAME_LABEL[session.game]}** — ⏹️ ${reasonText} (${session.round} vòng · cược **${betLabel(session)}**/vòng)`];
     if (session.history.length) parts.push(historySection(session));
@@ -308,7 +308,7 @@ async function runLoop(session) {
     try {
         while (true) {
             if (session.stopRequested) break;
-            if (session.round >= cfg().MAX_ROUNDS) { session.stopReason = 'cap'; break; }
+            if (session.round >= session.maxRounds) { session.stopReason = 'cap'; break; }
             if (isBlockedByMaintenance(session.userId, session.guild)) { session.stopReason = 'maintenance'; break; }
             if (totalNgoc(session.guildId, session.userId) < roundCost(session)) { session.stopReason = 'broke'; break; }
 
@@ -345,17 +345,20 @@ async function runLoop(session) {
 // Start (or replace) the user's auto session. Round 1 plays immediately.
 // params: slot { amount, rolls } · coinflip { amount, side, flips } ·
 // tong/mat { amountPer, guesses } (single cửa = one-element guesses).
-async function startAuto({ game, channel, guildId, userId, displayName, params }) {
+// maxRounds: player-chosen round count, clamped to AUTO_PLAY.MAX_ROUNDS.
+async function startAuto({ game, channel, guildId, userId, displayName, params, maxRounds }) {
     if (sessions.has(userId)) requestStop(userId, 'replaced');
     const session = {
         game, guildId, guild: channel.guild, channel, userId, displayName, params,
+        maxRounds: (Number.isInteger(maxRounds) && maxRounds >= 1 && maxRounds <= cfg().MAX_ROUNDS)
+            ? maxRounds : cfg().MAX_ROUNDS,
         round: 0, history: [],
         stopRequested: false, stopReason: null,
         message: null, _wake: null, _wakeTimer: null
     };
     sessions.set(userId, session);
     session.message = await channel.send({
-        content: `🔁 **AUTO ${GAME_LABEL[game]}** — bắt đầu: cược **${betLabel(session)}** ${renderEmote('ngoc')}/vòng, mỗi ${Math.round(cfg().INTERVAL_MS / 1000)}s, tối đa ${cfg().MAX_ROUNDS} vòng…`,
+        content: `🔁 **AUTO ${GAME_LABEL[game]}** — bắt đầu: cược **${betLabel(session)}** ${renderEmote('ngoc')}/vòng, mỗi ${Math.round(cfg().INTERVAL_MS / 1000)}s, tối đa ${session.maxRounds} vòng…`,
         components: [buildStopRow(userId)]
     }).catch(e => { log.warn('autoPlay: send session message failed', e); return null; });
     if (!session.message) {

@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '2.5.1';
+const CURRENT_VERSION = '2.6.0';
 
 const CHANGELOG = {
+    '2.6.0': {
+        date: '2026-06-12',
+        title: 'Auto chọn số vòng · !noitu mở rộng từ điển',
+        changes: [
+            'Bấm nút **🔁 Auto** (slot · coinflip · tổng · mặt) giờ mở **hộp thoại chọn số vòng** trước khi chạy: nhập 1-200 vòng tuỳ ý, bỏ trống hoặc nhập sai thì mặc định **200 vòng** như cũ.',
+            '`!noitu` — từ 2 âm tiết bị ❌ (không có trong từ điển) giờ được **ghi lại để admin duyệt**: từ thật sẽ được thêm vào từ điển dần dần, dataset ngày càng đầy đủ — từ bạn chơi hôm nay bị từ chối oan thì mai có thể đã nối được.'
+        ]
+    },
     '2.5.1': {
         date: '2026-06-12',
         title: 'Auto: ẩn lũy kế, reveal từng cột cho slot',

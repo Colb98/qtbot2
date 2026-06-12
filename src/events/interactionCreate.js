@@ -53,6 +53,8 @@ module.exports = {
                     await handleDiceModal(interaction, 'tong');
                 } else if (interaction.customId.startsWith('mat:meditsub:')) {
                     await handleDiceModal(interaction, 'mat');
+                } else if (/^(cf|slot|tong|mat):m?autosub:/.test(interaction.customId)) {
+                    await handleAutoModal(interaction);
                 }
             } catch (e) {
                 log.error('Error in modal submit interaction:', e);
@@ -217,11 +219,105 @@ async function handleAutoStopButton(interaction) {
     }
 }
 
+// ── Auto-play round-count dialog ────────────────────────────────────────────
+// Clicking 🔁 Auto opens a modal asking how many rounds to run. The modal's
+// customId carries the original bet params with the action token replaced by
+// `autosub`/`mautosub`, so the submit handler can rebuild the session params.
+
+async function showAutoRoundsModal(interaction, customId, title) {
+    const maxRounds = economy.AUTO_PLAY.MAX_ROUNDS;
+    const modal = new ModalBuilder()
+        .setCustomId(customId)
+        .setTitle(title);
+    const input = new TextInputBuilder()
+        .setCustomId('rounds')
+        .setLabel(`Số vòng auto (1-${maxRounds})`)
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder(`Mặc định ${maxRounds}`)
+        .setRequired(false)
+        .setMaxLength(6);
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    await interaction.showModal(modal).catch(e => log.warn(`auto rounds modal failed: ${e.message}`));
+}
+
+// Empty, non-numeric, non-integer, < 1 or > MAX_ROUNDS input → default (MAX_ROUNDS).
+function parseAutoRounds(interaction) {
+    const maxRounds = economy.AUTO_PLAY.MAX_ROUNDS;
+    const raw = (interaction.fields.getTextInputValue('rounds') || '').trim();
+    if (!raw) return maxRounds;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > maxRounds) return maxRounds;
+    return n;
+}
+
+// Modal submit from the 🔁 Auto button of any casino game: parse the round
+// count, re-run the affordability pre-flight and start the auto session.
+async function handleAutoModal(interaction) {
+    const parts = interaction.customId.split(':');
+    const [prefix, action, ownerUserId] = parts;
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    if (rejectIfOnButtonCooldown(interaction)) return;
+    const guildId = interaction.guildId;
+    const maxRounds = parseAutoRounds(interaction);
+
+    let game, params, costPerRound;
+    if (prefix === 'cf') {
+        const amount = Math.min(parseInt(parts[3], 10), economy.COINFLIP_MAX_BET);
+        const flips = Math.max(1, parseInt(parts[5], 10) || 1);
+        if (!Number.isInteger(amount) || amount <= 0) {
+            return interaction.reply({ content: 'Cược không hợp lệ.', flags: MessageFlags.Ephemeral });
+        }
+        game = 'coinflip';
+        params = { amount, side: tokenToSide(parts[4]), flips };
+        costPerRound = amount * flips;
+    } else if (prefix === 'slot') {
+        const amount = Math.min(parseInt(parts[3], 10), economy.SLOT_MAX_BET);
+        const rolls = Math.max(1, parseInt(parts[4], 10) || 1);
+        if (!Number.isInteger(amount) || amount <= 0) {
+            return interaction.reply({ content: 'Cược không hợp lệ.', flags: MessageFlags.Ephemeral });
+        }
+        game = 'slot';
+        params = { amount, rolls };
+        costPerRound = amount * rolls;
+    } else {
+        const maxBet = prefix === 'tong' ? economy.TONG_MAX_BET : economy.MAT_MAX_BET;
+        const amountPer = Math.min(parseInt(parts[3], 10) || 0, maxBet);
+        const guesses = (action === 'mautosub' ? (parts[4] || '').split('.') : [parts[4]])
+            .map(Number).filter(Number.isInteger);
+        if (!guesses.length || amountPer <= 0) {
+            return interaction.reply({ content: 'Cược không hợp lệ.', flags: MessageFlags.Ephemeral });
+        }
+        game = prefix;
+        params = { amountPer, guesses };
+        costPerRound = amountPer * guesses.length;
+    }
+
+    const w = getWallet(guildId, ownerUserId);
+    if ((w.ngoc + (w.lockedNgoc || 0)) < costPerRound) {
+        return interaction.reply({ content: `Bạn không đủ ngọc để chạy auto (cần ${fmt(costPerRound)}/vòng).`, flags: MessageFlags.Ephemeral });
+    }
+    await interaction.deferUpdate().catch(e => log.error('auto modal defer error:', e));
+    if (interaction.message) await disableMessageButtons(interaction);
+    const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
+    const displayName = member ? member.displayName : interaction.user.username;
+    await autoPlay.startAuto({
+        game, channel: interaction.channel, guildId,
+        userId: ownerUserId, displayName, params, maxRounds
+    });
+}
+
 async function handleCoinflipButton(interaction) {
     const parts = interaction.customId.split(':');
     const [, action, ownerUserId, amountStr, sideToken] = parts;
     if (interaction.user.id !== ownerUserId) {
         return interaction.reply({ content: 'Đây không phải lượt của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    if (action === 'auto') {
+        return showAutoRoundsModal(interaction,
+            `cf:autosub:${ownerUserId}:${amountStr}:${sideToken}:${parts[5] || 1}`,
+            'Auto Coinflip — số vòng');
     }
     if (rejectIfOnButtonCooldown(interaction)) return;
     const side = tokenToSide(sideToken);
@@ -257,15 +353,6 @@ async function handleCoinflipButton(interaction) {
 
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
-
-    if (action === 'auto') {
-        await autoPlay.startAuto({
-            game: 'coinflip', channel: interaction.channel, guildId,
-            userId: ownerUserId, displayName,
-            params: { amount: perFlip, side, flips }
-        });
-        return;
-    }
 
     const res = runCoinflipMulti({
         guildId, userId: ownerUserId, displayName,
@@ -388,31 +475,14 @@ async function handleDiceButton(interaction, game) {
         const amountPer = parseInt(parts[3], 10);
         return showDiceMultiModal(interaction, game, amountPer);
     }
-    if (rejectIfOnButtonCooldown(interaction)) return;
 
-    // ── Auto mode (single-cửa `auto` / multi-cửa `mauto`) ──────────────────
+    // ── Auto mode (single-cửa `auto` / multi-cửa `mauto`): ask round count ──
     if (action === 'auto' || action === 'mauto') {
-        const amountPer = Math.min(parseInt(parts[3], 10) || 0, maxBet);
-        const guesses = (action === 'auto' ? [parts[4]] : (parts[4] || '').split('.'))
-            .map(Number).filter(Number.isInteger);
-        if (!guesses.length || amountPer <= 0) {
-            return interaction.reply({ content: 'Cược không hợp lệ.', flags: MessageFlags.Ephemeral });
-        }
-        const w = getWallet(guildId, ownerUserId);
-        if ((w.ngoc + (w.lockedNgoc || 0)) < amountPer * guesses.length) {
-            return interaction.reply({ content: `Bạn không đủ ngọc để chạy auto (cần ${fmt(amountPer * guesses.length)}/vòng).`, flags: MessageFlags.Ephemeral });
-        }
-        await interaction.deferUpdate().catch(e => log.error('dice defer error:', e));
-        await disableMessageButtons(interaction);
-        const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
-        const displayName = member ? member.displayName : interaction.user.username;
-        await autoPlay.startAuto({
-            game, channel: interaction.channel, guildId,
-            userId: ownerUserId, displayName,
-            params: { amountPer, guesses }
-        });
-        return;
+        return showAutoRoundsModal(interaction,
+            `${game}:${action === 'auto' ? 'autosub' : 'mautosub'}:${ownerUserId}:${parts[3]}:${parts[4]}`,
+            `Auto ${game === 'tong' ? 'Cược Tổng' : 'Cược Mặt'} — số vòng`);
     }
+    if (rejectIfOnButtonCooldown(interaction)) return;
 
     if (action === 'mcont' || action === 'mallin') {
         const w = getWallet(guildId, ownerUserId);
@@ -517,6 +587,11 @@ async function handleSlotButton(interaction) {
     if (!Number.isInteger(rolls) || rolls < 1 || rolls > SLOT_MAX_ROLLS) {
         return interaction.reply({ content: 'Số lượt không hợp lệ.', flags: MessageFlags.Ephemeral });
     }
+    if (action === 'auto') {
+        return showAutoRoundsModal(interaction,
+            `slot:autosub:${ownerUserId}:${amountStr}:${rolls}`,
+            'Auto Slot — số vòng');
+    }
     if (rejectIfOnButtonCooldown(interaction)) return;
 
     await interaction.deferUpdate().catch(e => log.error('slot defer error:', e));
@@ -534,15 +609,6 @@ async function handleSlotButton(interaction) {
 
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
-
-    if (action === 'auto') {
-        await autoPlay.startAuto({
-            game: 'slot', channel: interaction.channel, guildId,
-            userId: ownerUserId, displayName,
-            params: { amount: Math.min(requestedAmount, economy.SLOT_MAX_BET), rolls }
-        });
-        return;
-    }
 
     const result = await runSlotMultiRoll({
         guildId, userId: ownerUserId, displayName,

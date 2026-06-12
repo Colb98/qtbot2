@@ -5,6 +5,7 @@ const metrics = require('./metrics');
 const economyConfig = require('./economyConfig');
 const adminAuth = require('./adminAuth');
 const sysStatus = require('./sysStatus');
+const wordReview = require('./wordReview');
 
 const DEFAULT_PORT = 3000;
 const SESSION_COOKIE = 'qtadmin';
@@ -742,7 +743,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <div id="appView" class="hidden">
   <header>
     <h1>qtbot — kinh tế</h1>
-    <span class="muted">· <a href="/">metrics dashboard</a> · <a href="/status">VPS status</a></span>
+    <span class="muted">· <a href="/">metrics dashboard</a> · <a href="/status">VPS status</a> · <a href="/words">từ điển nối từ</a></span>
     <span style="flex:1"></span>
     <span class="muted">Đăng nhập: <b id="meUser">—</b> (<span id="meRole">—</span>)</span>
     <button id="logoutBtn">Đăng xuất</button>
@@ -1016,7 +1017,7 @@ const STATUS_HTML = `<!DOCTYPE html>
 <body>
 <header>
   <h1>qtbot — VPS status</h1>
-  <span class="muted">· <a href="/">metrics</a> · <a href="/admin">kinh tế</a></span>
+  <span class="muted">· <a href="/">metrics</a> · <a href="/admin">kinh tế</a> · <a href="/words">từ điển nối từ</a></span>
   <span style="flex:1"></span>
   <span class="pill" id="host">—</span>
   <span class="muted">cập nhật: <span id="updated">—</span></span>
@@ -1153,6 +1154,241 @@ setInterval(tick, REFRESH_MS);
 </body>
 </html>`;
 
+const WORDS_HTML = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>qtbot — từ điển Nối Từ</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2027; --panel-2:#232b35; --border:#2f3a47;
+    --text:#e6e6e6; --muted:#8a96a3; --accent:#4fc3f7; --good:#66bb6a; --bad:#ef5350; --warn:#ffb74d; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; margin:0; background:var(--bg); color:var(--text); padding:16px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:20px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  a { color:var(--accent); }
+  .muted { color:var(--muted); font-size:13px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+  @media (max-width: 900px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:14px; }
+  button { background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 12px; font-size:13px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#0f1419; border:none; font-weight:600; }
+  button.icon { padding:4px 10px; font-size:15px; line-height:1; }
+  textarea { width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px; font-size:13px; min-height:70px; resize:vertical; }
+  .wrow { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
+  .wrow .w { font-size:15px; font-weight:600; }
+  .wrow .meta { color:var(--muted); font-size:11px; flex:1; }
+  .badge { font-size:10px; padding:1px 7px; border-radius:999px; background:var(--panel-2); border:1px solid var(--border); color:var(--muted); white-space:nowrap; }
+  .badge.chain { background:var(--accent); border:none; color:#0f1419; font-weight:600; }
+  .badge.manual { background:var(--warn); border:none; color:#0f1419; font-weight:600; }
+  .count { font-size:11px; color:var(--warn); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .toast { position:fixed; right:20px; bottom:20px; padding:12px 18px; border-radius:8px; font-size:13px; box-shadow:0 4px 14px rgba(0,0,0,.5); display:none; z-index:100; max-width:420px; }
+  .toast.ok { background:var(--good); color:#0f1419; }
+  .toast.err { background:var(--bad); color:#fff; }
+  .err-banner { background:var(--bad); color:#fff; padding:12px; border-radius:8px; display:none; margin-bottom:14px; }
+  .err-banner a { color:#fff; text-decoration:underline; }
+  .empty { color:var(--muted); font-size:13px; padding:8px 0; }
+  details summary { cursor:pointer; font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>qtbot — từ điển Nối Từ (!noitu)</h1>
+  <span class="muted">· <a href="/">metrics</a> · <a href="/admin">kinh tế</a> · <a href="/status">VPS status</a></span>
+  <span style="flex:1"></span>
+  <span class="muted">Từ điển: <b id="dictSize">—</b> từ</span>
+  <button id="reloadBtn">↻ Tải lại</button>
+</header>
+
+<div class="err-banner" id="errBanner">Chưa đăng nhập. Mở <a href="/admin">/admin</a> để đăng nhập, rồi tải lại trang này.</div>
+
+<div class="grid">
+  <div>
+    <div class="card">
+      <h2>❌ Từ bị từ chối trong game — chờ duyệt (<span id="pendingCount">0</span>)</h2>
+      <p class="muted">Bấm ✅ để đưa vào danh sách chờ ghi, ❌ để loại (không hiện lại). Badge <span class="badge chain">đúng âm</span> = người chơi nối đúng âm kế (khả năng cao là từ thật).</p>
+      <div id="pendingList"></div>
+    </div>
+    <div class="card">
+      <details>
+        <summary>🗑️ Đã loại (<span id="rejectedCount">0</span>) — bấm ↺ để khôi phục</summary>
+        <div id="rejectedList" style="margin-top:8px"></div>
+      </details>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="toolbar">
+        <h2 style="margin:0">📝 Chờ ghi vào từ điển (<span id="stagedCount">0</span>)</h2>
+        <span style="flex:1"></span>
+        <button class="primary" id="writeBtn">💾 Ghi vào từ điển</button>
+      </div>
+      <p class="muted">Từ đã duyệt nằm chờ ở đây, bấm <b>Ghi vào từ điển</b> để ghi cả danh sách vào wordlist một lần. Bấm ✖ để bỏ ra (từ trong game quay về chờ duyệt).</p>
+      <div id="stagedList"></div>
+    </div>
+    <div class="card">
+      <h2>✍️ Thêm từ thủ công</h2>
+      <p class="muted">Mỗi dòng một từ (2 âm tiết), hoặc cách nhau dấu phẩy. Ví dụ: <i>mây trời, trời xanh</i></p>
+      <textarea id="manualText" placeholder="mây trời&#10;trời xanh"></textarea>
+      <div style="margin-top:8px; text-align:right">
+        <button class="primary" id="manualBtn">Thêm vào danh sách chờ</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let STATE = null;
+
+function toast(msg, ok = true) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (ok ? 'ok' : 'err');
+  t.style.display = 'block';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.display = 'none'; }, 4000);
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts));
+  if (res.status === 401) {
+    $('errBanner').style.display = 'block';
+    throw new Error('Chưa đăng nhập.');
+  }
+  $('errBanner').style.display = 'none';
+  let body = {};
+  try { body = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+  return body;
+}
+
+function ago(ts) {
+  if (!ts) return '';
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return s + 's trước';
+  const m = Math.floor(s / 60); if (m < 60) return m + ' phút trước';
+  const h = Math.floor(m / 60); if (h < 24) return h + ' giờ trước';
+  return Math.floor(h / 24) + ' ngày trước';
+}
+
+// Words are raw player input — build rows with textContent, never innerHTML.
+function el(tag, cls, text) {
+  const d = document.createElement(tag);
+  if (cls) d.className = cls;
+  if (text !== undefined) d.textContent = text;
+  return d;
+}
+
+function iconBtn(label, title, onClick) {
+  const b = el('button', 'icon', label);
+  b.title = title;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+async function act(action, word) {
+  try {
+    STATE = await api('/api/admin/words/action', { method: 'POST', body: JSON.stringify({ action, word }) });
+    render();
+  } catch (e) { toast(e.message, false); }
+}
+
+function renderList(containerId, items, emptyText, rowBuilder) {
+  const c = $(containerId);
+  c.textContent = '';
+  if (!items.length) { c.appendChild(el('div', 'empty', emptyText)); return; }
+  for (const item of items) c.appendChild(rowBuilder(item));
+}
+
+function render() {
+  if (!STATE) return;
+  $('dictSize').textContent = Number(STATE.dictSize || 0).toLocaleString('en-US');
+  $('pendingCount').textContent = STATE.pending.length;
+  $('stagedCount').textContent = STATE.staged.length;
+  $('rejectedCount').textContent = STATE.rejected.length;
+
+  renderList('pendingList', STATE.pending, 'Không có từ nào chờ duyệt. 🎉', (item) => {
+    const row = el('div', 'wrow');
+    row.appendChild(el('span', 'w', item.word));
+    if (item.chained) row.appendChild(el('span', 'badge chain', 'đúng âm'));
+    const meta = el('span', 'meta', item.count + ' lần · ' + ago(item.lastAt));
+    row.appendChild(meta);
+    row.appendChild(iconBtn('✅', 'Duyệt — thêm vào danh sách chờ ghi', () => act('accept', item.word)));
+    row.appendChild(iconBtn('❌', 'Loại — không phải từ hợp lệ', () => act('reject', item.word)));
+    return row;
+  });
+
+  renderList('stagedList', STATE.staged, 'Chưa có từ nào chờ ghi.', (item) => {
+    const row = el('div', 'wrow');
+    row.appendChild(el('span', 'w', item.word));
+    row.appendChild(el('span', 'badge' + (item.source === 'manual' ? ' manual' : ''),
+      item.source === 'manual' ? 'nhập tay' : 'từ game'));
+    row.appendChild(el('span', 'meta', ''));
+    row.appendChild(iconBtn('✖', 'Bỏ khỏi danh sách chờ ghi', () => act('unstage', item.word)));
+    return row;
+  });
+
+  renderList('rejectedList', STATE.rejected, 'Chưa loại từ nào.', (item) => {
+    const row = el('div', 'wrow');
+    row.appendChild(el('span', 'w', item.word));
+    row.appendChild(el('span', 'meta', item.count + ' lần · ' + ago(item.lastAt)));
+    row.appendChild(iconBtn('↺', 'Khôi phục về chờ duyệt', () => act('restore', item.word)));
+    return row;
+  });
+}
+
+async function load() {
+  try {
+    STATE = await api('/api/admin/words');
+    render();
+  } catch (e) { /* banner already shown for 401 */ }
+}
+
+$('reloadBtn').addEventListener('click', load);
+
+$('manualBtn').addEventListener('click', async () => {
+  const text = $('manualText').value.trim();
+  if (!text) return toast('Nhập ít nhất 1 từ.', false);
+  try {
+    const r = await api('/api/admin/words/manual', { method: 'POST', body: JSON.stringify({ text }) });
+    STATE = r;
+    render();
+    $('manualText').value = '';
+    let msg = 'Đã thêm ' + r.result.added.length + ' từ vào danh sách chờ.';
+    if (r.result.skipped.length) {
+      msg += ' Bỏ qua ' + r.result.skipped.length + ': ' +
+        r.result.skipped.slice(0, 3).map(s => s.word + ' (' + s.reason + ')').join(', ') +
+        (r.result.skipped.length > 3 ? '…' : '');
+    }
+    toast(msg, r.result.added.length > 0);
+  } catch (e) { toast(e.message, false); }
+});
+
+$('writeBtn').addEventListener('click', async () => {
+  if (!STATE || !STATE.staged.length) return toast('Danh sách chờ ghi đang trống.', false);
+  if (!confirm('Ghi ' + STATE.staged.length + ' từ vào từ điển? Từ mới dùng được trong game ngay.')) return;
+  try {
+    const r = await api('/api/admin/words/write', { method: 'POST' });
+    STATE = r;
+    render();
+    toast('Đã ghi ' + r.result.added.length + ' từ vào từ điển.' +
+      (r.result.skipped.length ? ' (' + r.result.skipped.length + ' từ bị bỏ qua)' : ''));
+  } catch (e) { toast(e.message, false); }
+});
+
+load();
+</script>
+</body>
+</html>`;
+
 // Async router for /api/admin/* and /admin. Returns nothing; writes the response
 // itself. All routes that mutate require a valid session; account-management
 // routes additionally require the root role.
@@ -1216,6 +1452,26 @@ async function handleAdmin(req, res, pathname) {
             });
         }
 
+        // Nối Từ dictionary review (/words page). Every response carries the
+        // fresh review state so the page re-renders from it directly.
+        if (pathname === '/api/admin/words' && method === 'GET') {
+            return sendJson(res, 200, wordReview.listState());
+        }
+        if (pathname === '/api/admin/words/action' && method === 'POST') {
+            const body = await readJsonBody(req);
+            wordReview.applyAction(body.action, body.word);
+            return sendJson(res, 200, wordReview.listState());
+        }
+        if (pathname === '/api/admin/words/manual' && method === 'POST') {
+            const body = await readJsonBody(req);
+            const result = wordReview.addManual(body.text);
+            return sendJson(res, 200, { result, ...wordReview.listState() });
+        }
+        if (pathname === '/api/admin/words/write' && method === 'POST') {
+            const result = wordReview.writeStaged();
+            return sendJson(res, 200, { result, ...wordReview.listState() });
+        }
+
         // Account management: root only.
         if (pathname === '/api/admin/accounts') {
             if (session.role !== 'root') return sendJson(res, 403, { error: 'Chỉ tài khoản gốc mới quản lý tài khoản.' });
@@ -1257,6 +1513,9 @@ function handle(req, res) {
     const pathname = parsed.pathname || '/';
     if (pathname === '/admin' || pathname === '/admin.html') {
         return sendHtml(res, ADMIN_HTML);
+    }
+    if (pathname === '/words' || pathname === '/words.html') {
+        return sendHtml(res, WORDS_HTML);
     }
     if (pathname.startsWith('/api/admin/')) {
         handleAdmin(req, res, pathname);
