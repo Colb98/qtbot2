@@ -113,6 +113,7 @@ const DEFAULTS = {
         WIN_BONUS_DAILY_CAP: 10000,    // ngọc/user/day from win bonuses
         WIN_BONUS_MIN_WORDS: 5,        // run must have ≥ this many player words to pay the bonus (blocks word-1 insta-kills)
         BOT_FRIENDLY_WORDS: 20,
+        BOT_FRIENDLY_MIN_CONT: 3,      // friendly pick must leave players ≥ this many continuations
         BOT_HOSTILE_RAMP: 0.05,        // +5% hostile chance per player word past friendly
         BOT_HOSTILE_MAX: 0.9,
         BOT_HOSTILE_MAX_CONT: 2,       // hostile pick = random word leaving players ≤ this many continuations

@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '2.4.0';
+const CURRENT_VERSION = '2.4.1';
 
 const CHANGELOG = {
+    '2.4.1': {
+        date: '2026-06-12',
+        title: '!noitu: bot hiền bớt hiểm hơn',
+        changes: [
+            '`!noitu` — Khi còn **hiền**, bot không chọn từ làm cả nhóm gần hết đường nối nữa: từ bot trả lời giờ luôn chừa cho người chơi **ít nhất 3 từ** để nối tiếp (trừ khi không còn từ nào như vậy). Trước đây bot hiền chỉ lo tự sống sót nên đôi khi trả từ rất khó nối.'
+        ]
+    },
     '2.4.0': {
         date: '2026-06-11',
         title: 'Game mới: !noitu — Nối Từ Co-op (faucet)',

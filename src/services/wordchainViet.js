@@ -302,7 +302,8 @@ function pickRandomOpener(usedWords) {
 // The bot answers from the full pool. Friendly: depth-1 minimax — pick the
 // word that maximizes the bot's chances on its NEXT turn assuming players
 // reply adversarially (i.e. maximize the minimum number of answers the bot
-// keeps across every possible player reply). Hostile: pick randomly among
+// keeps across every possible player reply), restricted to words leaving the
+// players ≥ BOT_FRIENDLY_MIN_CONT continuations. Hostile: pick randomly among
 // words leaving players ≤ BOT_HOSTILE_MAX_CONT options — a squeeze, not an
 // automatic kill. Hostile chance ramps with player words.
 
@@ -326,6 +327,14 @@ function buildUsedFirstCounts(usedWords) {
 }
 
 function pickFriendly(candidates, usedWords) {
+    // Friendly constraint: survival alone can pick words that strand the
+    // players, so only minimax over words leaving them at least
+    // BOT_FRIENDLY_MIN_CONT continuations. If none qualify the bot still has
+    // to answer, so fall back to the full pool.
+    const minCont = economy.WORDCHAIN_VIET.BOT_FRIENDLY_MIN_CONT;
+    const kind = candidates.filter(w => countUnusedContinuations(w, usedWords) >= minCont);
+    if (kind.length > 0) candidates = kind;
+
     const usedFirst = buildUsedFirstCounts(usedWords);
     let best = [];
     let bestScore = -Infinity;
