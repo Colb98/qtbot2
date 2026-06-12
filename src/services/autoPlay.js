@@ -76,11 +76,17 @@ function headerLine(session) {
 }
 
 function historySection(session) {
-    return session.history.join('\n\n');
+    return session.history.join('\n');
 }
 
-function pushHistory(session, block) {
-    session.history.push(block);
+function compactRoundLine(session, bet, payout) {
+    const net = payout - bet;
+    const sign = net >= 0 ? '+' : '−';
+    return `\`V${String(session.round).padStart(2)}\` cược ${fmt(bet)} → nhận ${fmt(payout)} ${renderEmote('ngoc')} (${sign}${fmt(Math.abs(net))})`;
+}
+
+function pushHistory(session, line) {
+    session.history.push(line);
     while (session.history.length > HISTORY_SIZE) session.history.shift();
 }
 
@@ -310,13 +316,21 @@ async function runLoop(session) {
             session.round += 1;
             const res = await playRound(session);
             if (res.error) { session.round -= 1; session.stopReason = 'broke'; break; }
-            pushHistory(session, res.block);
+            // Show the just-finished round in full, with prior rounds collapsed
+            // above it as one-line summaries. After the edit we collapse THIS
+            // round too — the next round's animation will show it as a compact
+            // line, keeping the message short enough to fit Discord's 2000-char
+            // limit even after many rounds.
+            const finalView = [headerLine(session)];
+            if (session.history.length) finalView.push(historySection(session));
+            finalView.push(res.block);
             const shown = await editSession(
                 session,
-                [headerLine(session), historySection(session)].join('\n\n'),
+                finalView.join('\n\n'),
                 [buildStopRow(session.userId, session.stopRequested)]
             );
             if (!shown) { session.stopReason = session.stopReason || 'error'; break; }
+            pushHistory(session, compactRoundLine(session, res.bet, res.payout));
 
             const waitMs = cfg().INTERVAL_MS - (Date.now() - roundStart);
             if (waitMs > 0 && !session.stopRequested) await waitInterval(session, waitMs);
