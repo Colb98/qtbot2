@@ -54,6 +54,21 @@ const DEFAULTS = {
     TONG_MAX_BET: 10000,
     MAT_MAX_BET: 50000,
 
+    // Auto-replay for the casino games (slot / coinflip / tong / mat): the
+    // Auto button repeats the last bet once per INTERVAL_MS (next round fires
+    // when the previous one is settled AND the interval has elapsed), capped
+    // at MAX_ROUNDS per session. One session per user.
+    AUTO_PLAY: {
+        INTERVAL_MS: 4000,
+        MAX_ROUNDS: 200,
+        // Wins at/above these mults are also posted as their own message
+        // during auto (with a ping), so the in-place round edits don't swallow
+        // a rare hit and the player can share it. Coinflip is always 2x, so it
+        // has no entry. slot 18 = jackpot tier (x18/x40/x150) · tong 21 = the
+        // edge sums 3-6/17-18 (x21..x200) · mat 6 = triple match.
+        KEEP_MIN_MULT: { slot: 18, tong: 21, mat: 6 }
+    },
+
     DAILY_REWARD: {
         nganphieuMin: 50000,
         nganphieuMax: 100000

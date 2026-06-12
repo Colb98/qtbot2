@@ -209,7 +209,9 @@ function formatResultShort({ mult, payout, outcomeName }) {
 
 const SLOT_MAX_ROLLS = 5;
 
-async function runMultiRoll({ guildId, userId, displayName, requestedAmount, isAll, rolls, sendInitial, log, metrics }) {
+// Resolve the bets, spins and metrics of a multi-roll without any rendering.
+// Shared by runMultiRoll (animated message flow) and auto mode.
+function resolveMultiRoll({ guildId, userId, requestedAmount, isAll, rolls, metrics }) {
     let perRollForAll = null;
     if (rolls > 1) {
         const w = getWallet(guildId, userId);
@@ -241,6 +243,23 @@ async function runMultiRoll({ guildId, userId, displayName, requestedAmount, isA
     }
     if (plays.length === 0) return { error: 'no_plays' };
 
+    if (metrics && metrics.recordSlot) {
+        for (const play of plays) {
+            metrics.recordSlot({
+                guildId, amount: play.amount, payout: play.payout,
+                outcomeName: play.outcomeName, pityTriggered: play.pityTriggered,
+                pityCapApplied: play.pityCapApplied, userId
+            });
+        }
+    }
+    return { plays };
+}
+
+async function runMultiRoll({ guildId, userId, displayName, requestedAmount, isAll, rolls, sendInitial, log, metrics }) {
+    const resolved = resolveMultiRoll({ guildId, userId, requestedAmount, isAll, rolls, metrics });
+    if (resolved.error) return resolved;
+    const plays = resolved.plays;
+
     const anim = renderEmote('slotanim');
     const ngocEmote = renderEmote('ngoc');
     const symsList = plays.map(p => [
@@ -271,16 +290,6 @@ async function runMultiRoll({ guildId, userId, displayName, requestedAmount, isA
     await new Promise(r => setTimeout(r, 500));
     await slotMsg.edit(render(state2)).catch(e => log && log.error && log.error('slot edit r3', e));
     await new Promise(r => setTimeout(r, 750));
-
-    if (metrics && metrics.recordSlot) {
-        for (const play of plays) {
-            metrics.recordSlot({
-                guildId, amount: play.amount, payout: play.payout,
-                outcomeName: play.outcomeName, pityTriggered: play.pityTriggered,
-                pityCapApplied: play.pityCapApplied, userId
-            });
-        }
-    }
 
     let resultBlock;
     if (plays.length === 1) {
@@ -340,8 +349,13 @@ function buildContinueButtons(userId, lastAmount, walletNgoc, rolls = 1) {
             .setCustomId(`slot:allin:${userId}:${allInPerRoll}:${rolls}`)
             .setLabel(`ALL IN (${fmt(allInPerRoll)}${suffix})`)
             .setStyle(ButtonStyle.Danger)
-            .setDisabled(!canAllIn)
+            .setDisabled(!canAllIn),
+        new ButtonBuilder()
+            .setCustomId(`slot:auto:${userId}:${lastAmount}:${rolls}`)
+            .setLabel('🔁 Auto')
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(!canAgain)
     );
 }
 
-module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD, SLOT_MAX_ROLLS, playSlot, formatResultLine, formatResultShort, buildContinueButtons, runMultiRoll };
+module.exports = { SYMBOLS, REELS, POOL, spin, PITY_THRESHOLD, SLOT_MAX_ROLLS, playSlot, formatResultLine, formatResultShort, buildContinueButtons, resolveMultiRoll, runMultiRoll };

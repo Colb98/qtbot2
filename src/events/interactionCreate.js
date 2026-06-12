@@ -14,6 +14,7 @@ const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { tokenToSide, runMultiFlip: runCoinflipMulti } = require('../services/coinflip');
 const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('../services/slot');
 const dice = require('../services/dice');
+const autoPlay = require('../services/autoPlay');
 const metrics = require('../services/metrics');
 const economy = require('../config/economy');
 const { data, saveData } = require('../state');
@@ -78,6 +79,8 @@ module.exports = {
                     await handleDiceButton(interaction, 'mat');
                 } else if (interaction.customId.startsWith('slot:')) {
                     await handleSlotButton(interaction);
+                } else if (interaction.customId.startsWith('auto:')) {
+                    await handleAutoStopButton(interaction);
                 } else if (interaction.customId.startsWith('gacha_all_')) {
                     const parts = interaction.customId.split(':');
                     const actionPart = interaction.customId.split('_')[2];
@@ -198,6 +201,22 @@ function rejectIfOnButtonCooldown(interaction) {
     return true;
 }
 
+// Stop button on an auto-play session message. Owner-only, and only the live
+// session's own message counts — stale Stop buttons (replaced session, bot
+// restart) just get their components cleared.
+async function handleAutoStopButton(interaction) {
+    const [, action, ownerUserId] = interaction.customId.split(':');
+    if (action !== 'stop') return;
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải phiên auto của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    // Show "stopping" feedback first so the loop's final edit lands after it.
+    await interaction.update({ components: [autoPlay.buildStopRow(ownerUserId, true)] }).catch(() => {});
+    if (!autoPlay.requestStopFromMessage(ownerUserId, interaction.message.id)) {
+        await interaction.message.edit({ components: [] }).catch(() => {});
+    }
+}
+
 async function handleCoinflipButton(interaction) {
     const parts = interaction.customId.split(':');
     const [, action, ownerUserId, amountStr, sideToken] = parts;
@@ -238,6 +257,16 @@ async function handleCoinflipButton(interaction) {
 
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
+
+    if (action === 'auto') {
+        await autoPlay.startAuto({
+            game: 'coinflip', channel: interaction.channel, guildId,
+            userId: ownerUserId, displayName,
+            params: { amount: perFlip, side, flips }
+        });
+        return;
+    }
+
     const res = runCoinflipMulti({
         guildId, userId: ownerUserId, displayName,
         side, isAll, requestedAmount: perFlip, flips, viaButton: true, metrics
@@ -268,25 +297,10 @@ async function runDiceMultiBet(interaction, game, guesses, amountPer, wasAllIn) 
     const ownerUserId = interaction.user.id;
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
-    const totalCost = amountPer * guesses.length;
-    const roll = dice.rollDice();
-    const play = game === 'tong'
-        ? dice.playTongMulti(roll, guesses, amountPer)
-        : dice.playMatMulti(roll, guesses, amountPer);
-
-    spendNgocForGame(guildId, ownerUserId, totalCost);
-    if (play.totalPayout > 0) {
-        addNgoc(guildId, ownerUserId, play.totalPayout);
-        profile.recordWin(guildId, ownerUserId, play.totalPayout, game === 'tong' ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
-    }
-    profile.recordGame(guildId, ownerUserId, game, totalCost, play.totalPayout);
-    for (const r of play.results) {
-        if (game === 'tong') {
-            metrics.recordTong({ guildId, amount: amountPer, won: r.won, mult: r.mult, guess: r.guess, viaButton: true, wasAllIn, userId: ownerUserId });
-        } else {
-            metrics.recordMat({ guildId, amount: amountPer, won: r.won, mult: r.mult, face: r.face, matches: r.matches, viaButton: true, wasAllIn, userId: ownerUserId });
-        }
-    }
+    const { roll, play, totalCost } = dice.settleMultiBet({
+        guildId, userId: ownerUserId, game, guesses, amountPer,
+        viaButton: true, wasAllIn, metrics, profile
+    });
 
     const newWallet = getWallet(guildId, ownerUserId);
     const totalAfter = newWallet.ngoc + (newWallet.lockedNgoc || 0);
@@ -375,6 +389,31 @@ async function handleDiceButton(interaction, game) {
         return showDiceMultiModal(interaction, game, amountPer);
     }
     if (rejectIfOnButtonCooldown(interaction)) return;
+
+    // ── Auto mode (single-cửa `auto` / multi-cửa `mauto`) ──────────────────
+    if (action === 'auto' || action === 'mauto') {
+        const amountPer = Math.min(parseInt(parts[3], 10) || 0, maxBet);
+        const guesses = (action === 'auto' ? [parts[4]] : (parts[4] || '').split('.'))
+            .map(Number).filter(Number.isInteger);
+        if (!guesses.length || amountPer <= 0) {
+            return interaction.reply({ content: 'Cược không hợp lệ.', flags: MessageFlags.Ephemeral });
+        }
+        const w = getWallet(guildId, ownerUserId);
+        if ((w.ngoc + (w.lockedNgoc || 0)) < amountPer * guesses.length) {
+            return interaction.reply({ content: `Bạn không đủ ngọc để chạy auto (cần ${fmt(amountPer * guesses.length)}/vòng).`, flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferUpdate().catch(e => log.error('dice defer error:', e));
+        await disableMessageButtons(interaction);
+        const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
+        const displayName = member ? member.displayName : interaction.user.username;
+        await autoPlay.startAuto({
+            game, channel: interaction.channel, guildId,
+            userId: ownerUserId, displayName,
+            params: { amountPer, guesses }
+        });
+        return;
+    }
+
     if (action === 'mcont' || action === 'mallin') {
         const w = getWallet(guildId, ownerUserId);
         const total = w.ngoc + (w.lockedNgoc || 0);
@@ -495,6 +534,15 @@ async function handleSlotButton(interaction) {
 
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
+
+    if (action === 'auto') {
+        await autoPlay.startAuto({
+            game: 'slot', channel: interaction.channel, guildId,
+            userId: ownerUserId, displayName,
+            params: { amount: Math.min(requestedAmount, economy.SLOT_MAX_BET), rolls }
+        });
+        return;
+    }
 
     const result = await runSlotMultiRoll({
         guildId, userId: ownerUserId, displayName,

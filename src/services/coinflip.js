@@ -52,7 +52,12 @@ function buildContinueButtons(userId, lastAmount, side, walletNgoc, flips = 1) {
             .setCustomId(`cf:allin:${userId}:${allInPerFlip}:${sideToken}:${flips}`)
             .setLabel(`ALL IN (${fmt(allInPerFlip)}${suffix})`)
             .setStyle(ButtonStyle.Danger)
-            .setDisabled(!canAllIn)
+            .setDisabled(!canAllIn),
+        new ButtonBuilder()
+            .setCustomId(`cf:auto:${userId}:${lastAmount}:${sideToken}:${flips}`)
+            .setLabel('🔁 Auto')
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(!canAgain)
     );
 }
 

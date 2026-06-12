@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '2.4.1';
+const CURRENT_VERSION = '2.5.0';
 
 const CHANGELOG = {
+    '2.5.0': {
+        date: '2026-06-12',
+        title: 'Auto mode cho game cược',
+        changes: [
+            'Các game **slot · coinflip · tổng · mặt** có thêm nút **🔁 Auto**: tự lặp lại đúng mức cược vừa chơi mỗi **4 giây** (vòng đầu chạy ngay khi bấm). Kết quả cập nhật trên **một tin nhắn duy nhất** kèm lũy kế cược/nhận, bấm **⏹️ Dừng Auto** để dừng bất cứ lúc nào.',
+            'Auto tự dừng khi **không đủ ngọc** cho vòng tiếp theo hoặc sau **200 vòng**; khi dừng, các nút chơi thường (Tiếp · x0.5 · x2 · All-in · Auto) hiện lại để tiếp tục. Mỗi người chỉ chạy **1 phiên auto** — bật auto mới sẽ tự dừng phiên cũ.',
+            '**Trúng lớn khi auto không bị trôi mất**: slot từ **x18** (Jackpot Ngọc/Thiên Thưởng/MEGA), tổng từ **x21** (cửa 3-6 · 17-18), mặt **x6** (ra 3 viên giống nhau) sẽ được đăng thành **tin nhắn riêng** kèm tag — giữ nguyên để khoe dù chuỗi auto đã chạy tiếp.'
+        ]
+    },
     '2.4.1': {
         date: '2026-06-12',
         title: '!noitu: bot hiền bớt hiểm hơn',

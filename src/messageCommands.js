@@ -1155,29 +1155,11 @@ ${DISCLAIMER}`;
                 return msg.reply(`Bạn cần ${fmt(amountPer * nBets)} ngọc (${fmt(amountPer)} × ${nBets} cửa) nhưng chỉ có ${fmt(totalNgocDice)}.`);
             }
         }
-        const totalCost = amountPer * nBets;
-
-        const roll = dice.rollDice();
-        const play = isTong
-            ? dice.playTongMulti(roll, guesses, amountPer)
-            : dice.playMatMulti(roll, guesses, amountPer);
-
-        spendNgocForGame(guildId, msg.author.id, totalCost);
-        if (play.totalPayout > 0) {
-            addNgoc(guildId, msg.author.id, play.totalPayout);
-            profile.recordWin(guildId, msg.author.id, play.totalPayout, isTong ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
-        }
-        profile.recordGame(guildId, msg.author.id, game, totalCost, play.totalPayout);
+        const { roll, play, totalCost } = dice.settleMultiBet({
+            guildId, userId: msg.author.id, game, guesses, amountPer,
+            viaButton: false, wasAllIn: isAll, metrics, profile
+        });
         const newW = getWallet(guildId, msg.author.id);
-
-        // One metrics record per cửa — each is a bet of amountPer.
-        for (const r of play.results) {
-            if (isTong) {
-                metrics.recordTong({ guildId, amount: amountPer, won: r.won, mult: r.mult, guess: r.guess, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
-            } else {
-                metrics.recordMat({ guildId, amount: amountPer, won: r.won, mult: r.mult, face: r.face, matches: r.matches, viaButton: false, wasAllIn: isAll, userId: msg.author.id });
-            }
-        }
 
         const totalNgocAfterDice = newW.ngoc + newW.lockedNgoc;
 

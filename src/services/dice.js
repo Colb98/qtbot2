@@ -1,6 +1,6 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('../config/economy');
-const { renderEmote, fmt } = require('./currency');
+const { renderEmote, fmt, spendNgocForGame, addNgoc } = require('./currency');
 
 const FACE_UNICODE = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
 
@@ -64,6 +64,34 @@ function playMatMulti(roll, faces, amountPer) {
     return { results, totalPayout, anyWon: results.some(r => r.won) };
 }
 
+// Settle one multi-cửa bet end-to-end (wallet, profile, metrics; a single
+// cửa is just N=1) and return the roll + per-cửa results. Shared by the
+// !tong/!mat commands, the replay buttons and auto mode so the bookkeeping
+// lives in one place. `metrics` and `profile` are passed in by the caller to
+// keep this module free of those dependencies.
+function settleMultiBet({ guildId, userId, game, guesses, amountPer, viaButton, wasAllIn, metrics, profile }) {
+    const totalCost = amountPer * guesses.length;
+    const roll = rollDice();
+    const play = game === 'tong'
+        ? playTongMulti(roll, guesses, amountPer)
+        : playMatMulti(roll, guesses, amountPer);
+
+    spendNgocForGame(guildId, userId, totalCost);
+    if (play.totalPayout > 0) {
+        addNgoc(guildId, userId, play.totalPayout);
+        profile.recordWin(guildId, userId, play.totalPayout, game === 'tong' ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
+    }
+    profile.recordGame(guildId, userId, game, totalCost, play.totalPayout);
+    for (const r of play.results) {
+        if (game === 'tong') {
+            metrics.recordTong({ guildId, amount: amountPer, won: r.won, mult: r.mult, guess: r.guess, viaButton, wasAllIn, userId });
+        } else {
+            metrics.recordMat({ guildId, amount: amountPer, won: r.won, mult: r.mult, face: r.face, matches: r.matches, viaButton, wasAllIn, userId });
+        }
+    }
+    return { roll, play, totalCost };
+}
+
 function buildTongButtons(userId, amount, guess, walletNgoc) {
     const canAfford = walletNgoc >= amount;
     const allInAmount = Math.min(walletNgoc, economy.TONG_MAX_BET);
@@ -96,7 +124,12 @@ function buildTongButtons(userId, amount, guess, walletNgoc) {
             .setCustomId(`tong:allin:${userId}:${allInAmount}:${guess}`)
             .setLabel(`💰 All-in (${fmt(allInAmount)})`)
             .setStyle(ButtonStyle.Danger)
-            .setDisabled(allInAmount <= 0)
+            .setDisabled(allInAmount <= 0),
+        new ButtonBuilder()
+            .setCustomId(`tong:auto:${userId}:${amount}:${guess}`)
+            .setLabel('🔁 Auto')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(!canAfford)
     ));
     return rows;
 }
@@ -128,7 +161,12 @@ function buildMatButtons(userId, amount, face, walletNgoc) {
             .setCustomId(`mat:allin:${userId}:${allInAmount}:${face}`)
             .setLabel(`💰 All-in (${fmt(allInAmount)})`)
             .setStyle(ButtonStyle.Danger)
-            .setDisabled(allInAmount <= 0)
+            .setDisabled(allInAmount <= 0),
+        new ButtonBuilder()
+            .setCustomId(`mat:auto:${userId}:${amount}:${face}`)
+            .setLabel('🔁 Auto')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(!canAfford)
     ));
     return rows;
 }
@@ -173,7 +211,12 @@ function buildTongButtonsMulti(userId, amountPer, guesses, walletNgoc) {
         new ButtonBuilder()
             .setCustomId(`tong:medit:${userId}:${amountPer}`)
             .setLabel('✏️ Đổi cửa')
-            .setStyle(ButtonStyle.Secondary)
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(`tong:mauto:${userId}:${amountPer}:${list}`)
+            .setLabel('🔁 Auto')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(!canAffordSame)
     ));
     return rows;
 }
@@ -213,7 +256,12 @@ function buildMatButtonsMulti(userId, amountPer, guesses, walletNgoc) {
         new ButtonBuilder()
             .setCustomId(`mat:medit:${userId}:${amountPer}`)
             .setLabel('✏️ Đổi cửa')
-            .setStyle(ButtonStyle.Secondary)
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(`mat:mauto:${userId}:${amountPer}:${list}`)
+            .setLabel('🔁 Auto')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(!canAffordSame)
     ));
     return rows;
 }
@@ -305,6 +353,7 @@ module.exports = {
     playMat,
     playTongMulti,
     playMatMulti,
+    settleMultiBet,
     buildTongButtons,
     buildMatButtons,
     buildTongButtonsMulti,
