@@ -329,9 +329,11 @@ function shuffled(chars) {
 
 function syllableChars(syl, difficulty) {
     const chars = [...syl];
-    return difficulty === 'easy'
-        ? chars.map((c, i) => i === 0 ? c.toUpperCase() : c.toLowerCase())
-        : chars.map(c => c.toUpperCase());
+    if (difficulty === 'easy') return chars.map((c, i) => i === 0 ? c.toUpperCase() : c.toLowerCase());
+    // Hard: keep everything lowercase — uppercase Vietnamese diacritics clip in
+    // Discord's font and become hard to read.
+    if (difficulty === 'hard') return chars.map(c => c.toLowerCase());
+    return chars.map(c => c.toUpperCase());
 }
 
 function scrambleWord(word, difficulty) {

@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '2.6.2';
+const CURRENT_VERSION = '2.6.3';
 
 const CHANGELOG = {
+    '2.6.3': {
+        date: '2026-06-13',
+        title: 'Vua Tiếng Việt: chế độ Khó dễ đọc hơn',
+        changes: [
+            'Chữ cái xáo trộn ở chế độ **Khó** giờ hiển thị **chữ thường** thay vì IN HOA — dấu tiếng Việt trên chữ in hoa hay bị phông chữ Discord cắt mất, giờ dễ đọc hơn. (Chế độ Dễ / Vừa giữ nguyên.)'
+        ]
+    },
     '2.6.2': {
         date: '2026-06-13',
         title: 'Xổ số: jackpot khủng hơn — base 100.000 ngọc',
