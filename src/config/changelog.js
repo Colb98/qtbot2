@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '2.6.0';
+const CURRENT_VERSION = '2.6.2';
 
 const CHANGELOG = {
+    '2.6.2': {
+        date: '2026-06-13',
+        title: 'Xổ số: jackpot khủng hơn — base 100.000 ngọc',
+        changes: [
+            '**Jackpot base tăng 40.000 → 100.000 ngọc.** Pool khởi điểm mỗi đợt giờ là 100k và tích lũy lên từ đó — trúng jackpot thường rơi vào khoảng **~220.000 ngọc**.',
+            '**Giá vé 300 → 500 ngọc** để cân với pool lớn hơn. Mỗi vé góp **375 vào jackpot · 125 vào quỹ giải phụ**.',
+            '**Giải phụ tăng:** 3/4 số **750 → 1.000 ngọc** · 2/4 số **60 → 100 ngọc**.',
+            '**Pool số 10 → 11** (chọn 4 số trong **1-11**). Tỉ lệ jackpot 1/330 mỗi vé — jackpot vẫn đổi chủ vài ngày một lần với lượng vé hiện tại, nhưng phần thưởng to hơn nhiều.'
+        ]
+    },
     '2.6.1': {
         date: '2026-06-13',
         title: 'Xổ số dễ trúng hơn — pool 14 → 10 số',

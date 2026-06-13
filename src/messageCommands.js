@@ -204,6 +204,7 @@ ${DISCLAIMER}`;
 • \`!setxoso_noti [#channel|clear]\` — Cài kênh thông báo xổ số tích lũy. Bắt buộc set để bot announce.
 • \`!xoso_drawnow\` — Chạy quay xổ số thủ công (test / chữa cháy nếu cron lỡ).
 • \`!xoso_refund [@user]\` — Hoàn vé + ngọc đợt hiện tại cho mọi người (hoặc 1 người), đảo lại pool/reserve. Dùng khi đổi luật giữa đợt.
+• \`!xoso_setpool <số ngọc>\` — Đặt lại pool jackpot hiện tại (sàn = seed). Dùng để chỉnh tay khi cần.
 • \`!vtv_fixscore @user <±delta>\` — Cộng/trừ điểm lifetime Vua Tiếng Việt của 1 người (vd \`+5000\` / \`-3000\`).
 
 **Mùa Giải (Season):**
@@ -1317,6 +1318,20 @@ ${DISCLAIMER}`;
         }
         lines.push(`-# Pool đợt sau: **${fmt(res.poolAfter)}** ${ngocEmote}`);
         return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+    }
+
+    if (cmd === '!xoso_setpool') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const ngocEmote = renderEmote('ngoc');
+        const raw = parts[1] ? parts[1].replace(/[.,]/g, '') : '';
+        const amount = parseInt(raw, 10);
+        if (!Number.isInteger(amount) || amount <= 0) {
+            return msg.reply(`Cú pháp: \`!xoso_setpool <số ngọc>\` — đặt lại pool jackpot hiện tại (sàn ${fmt(lottery.LOTTERY.SEED_POOL)}).`);
+        }
+        const res = lottery.setPool(guildId, amount);
+        let reply = `✅ Pool jackpot: **${fmt(res.before)}** → **${fmt(res.after)}** ${ngocEmote}.`;
+        if (res.floored) reply += `\n-# Sàn pool là ${fmt(lottery.LOTTERY.SEED_POOL)} ${ngocEmote} — đã nâng lên mức sàn.`;
+        return msg.reply(reply);
     }
 
     if (cmd === '!blockgames') {

@@ -18,6 +18,11 @@ function ensureRoot(guildId) {
     }
     const g = data.lottery[guildId];
     if (typeof g.pool !== 'number') g.pool = LOTTERY.SEED_POOL;
+    // The seed is the pool's floor: the pool only ever resets to SEED_POOL then
+    // grows, so it's never legitimately below it. This also rebases the live pool
+    // when SEED_POOL is raised (e.g. 40k → 100k) — the carried-over value bumps
+    // up to the new base on first access after deploy, no manual migration needed.
+    if (g.pool < LOTTERY.SEED_POOL) g.pool = LOTTERY.SEED_POOL;
     if (typeof g.reserveFund !== 'number') g.reserveFund = 0;
     if (!Array.isArray(g.tickets)) g.tickets = [];
     return g;
@@ -375,6 +380,16 @@ function getPool(guildId) {
     return ensureRoot(guildId).pool;
 }
 
+// Admin override of the current jackpot pool. Clamps to the seed floor (the pool
+// can never sit below the base jackpot). Returns { before, after, floored }.
+function setPool(guildId, amount) {
+    const g = ensureRoot(guildId);
+    const before = g.pool;
+    g.pool = Math.max(amount, LOTTERY.SEED_POOL);
+    saveData();
+    return { before, after: g.pool, floored: amount < LOTTERY.SEED_POOL };
+}
+
 function getTicketCount(guildId) {
     return ensureRoot(guildId).tickets.length;
 }
@@ -399,5 +414,6 @@ module.exports = {
     setNotificationChannel,
     getNotificationChannelId,
     getPool,
+    setPool,
     getTicketCount
 };
