@@ -201,6 +201,49 @@ function runDraw(guildId) {
     };
 }
 
+// ── Refund ────────────────────────────────────────────────────────────────
+
+// Refund tickets in the current (not-yet-drawn) batch: return TICKET_PRICE per
+// ticket to each buyer as ngọc, reverse the pool/reserve accumulation those
+// tickets caused, and remove them from the draw. Pass onlyUserId to refund just
+// one person; omit it to refund everyone. Used after a balance change (e.g. pool
+// resize invalidates already-bought numbers) or as a manual chữa-cháy tool.
+// Refunds go to spendable ngọc — we don't track how much was paid from locked
+// ngọc at buy time, so refunds may unlock a bit; acceptable for an admin tool.
+// Returns { refundedTickets, refundedNgoc, perUser: [{userId,count,ngoc}], poolAfter }.
+function refundCurrentDraw(guildId, onlyUserId = null) {
+    const g = ensureRoot(guildId);
+    const keep = [];
+    const refund = [];
+    for (const t of g.tickets) {
+        if (onlyUserId && t.userId !== onlyUserId) keep.push(t);
+        else refund.push(t);
+    }
+    const perUserMap = new Map();
+    let refundedNgoc = 0;
+    for (const t of refund) {
+        addNgoc(guildId, t.userId, LOTTERY.TICKET_PRICE);
+        refundedNgoc += LOTTERY.TICKET_PRICE;
+        g.pool -= LOTTERY.POOL_SHARE;
+        g.reserveFund -= LOTTERY.CONSOLATION_SHARE;
+        const e = perUserMap.get(t.userId) || { userId: t.userId, count: 0, ngoc: 0 };
+        e.count += 1;
+        e.ngoc += LOTTERY.TICKET_PRICE;
+        perUserMap.set(t.userId, e);
+    }
+    // Pool should never fall below seed (the carried-over balance before this
+    // draw is always ≥ seed); clamp defensively against odd/double-refund states.
+    if (g.pool < LOTTERY.SEED_POOL) g.pool = LOTTERY.SEED_POOL;
+    g.tickets = keep;
+    saveData();
+    return {
+        refundedTickets: refund.length,
+        refundedNgoc,
+        perUser: Array.from(perUserMap.values()),
+        poolAfter: g.pool
+    };
+}
+
 // ── Announce ────────────────────────────────────────────────────────────────
 
 async function announceDraw(result) {
@@ -347,6 +390,7 @@ module.exports = {
     buyTicket,
     buyRandomTickets,
     userTicketsThisDraw,
+    refundCurrentDraw,
     runDraw,
     runAllDraws,
     announceDraw,

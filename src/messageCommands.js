@@ -203,6 +203,7 @@ ${DISCLAIMER}`;
 • \`!setwordchain_noti [#channel|clear]\` — Cài kênh riêng nhận thông báo thưởng tuần wordchain (ManageGuild). Mặc định dùng kênh bot.
 • \`!setxoso_noti [#channel|clear]\` — Cài kênh thông báo xổ số tích lũy. Bắt buộc set để bot announce.
 • \`!xoso_drawnow\` — Chạy quay xổ số thủ công (test / chữa cháy nếu cron lỡ).
+• \`!xoso_refund [@user]\` — Hoàn vé + ngọc đợt hiện tại cho mọi người (hoặc 1 người), đảo lại pool/reserve. Dùng khi đổi luật giữa đợt.
 • \`!vtv_fixscore @user <±delta>\` — Cộng/trừ điểm lifetime Vua Tiếng Việt của 1 người (vd \`+5000\` / \`-3000\`).
 
 **Mùa Giải (Season):**
@@ -1294,6 +1295,28 @@ ${DISCLAIMER}`;
         const result = lottery.runDraw(guildId);
         await lottery.announceDraw(result);
         return msg.reply(`✅ Đã chạy quay xổ số thủ công (${result.ticketCount} vé). Kết quả ở kênh thông báo.`);
+    }
+
+    if (cmd === '!xoso_refund') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const ngocEmote = renderEmote('ngoc');
+        let onlyUserId = null;
+        if (parts[1]) {
+            onlyUserId = parts[1].replace(/[^0-9]/g, '');
+            if (!onlyUserId) return msg.reply('Cú pháp: `!xoso_refund` (hoàn toàn bộ vé đợt này) hoặc `!xoso_refund @user` (hoàn vé của 1 người).');
+        }
+        const res = lottery.refundCurrentDraw(guildId, onlyUserId);
+        if (res.refundedTickets === 0) {
+            return msg.reply(onlyUserId ? 'Người này chưa mua vé đợt này.' : 'Không có vé nào để hoàn đợt này.');
+        }
+        const lines = [
+            `✅ Đã hoàn **${res.refundedTickets}** vé · **${fmt(res.refundedNgoc)}** ${ngocEmote} cho **${res.perUser.length}** người.`,
+        ];
+        for (const u of res.perUser) {
+            lines.push(`> <@${u.userId}> — ${u.count} vé · +${fmt(u.ngoc)} ${ngocEmote}`);
+        }
+        lines.push(`-# Pool đợt sau: **${fmt(res.poolAfter)}** ${ngocEmote}`);
+        return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
     }
 
     if (cmd === '!blockgames') {

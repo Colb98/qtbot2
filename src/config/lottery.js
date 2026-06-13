@@ -1,7 +1,7 @@
 module.exports = {
     TICKET_PRICE: 300,
     MAX_TICKETS_PER_DRAW: 5,
-    NUMBER_POOL_MAX: 14,
+    NUMBER_POOL_MAX: 10,
     NUMBERS_PER_TICKET: 4,
     SEED_POOL: 40000,
     POOL_SHARE: 225,           // per ticket → jackpot pool

@@ -1,6 +1,14 @@
 const CURRENT_VERSION = '2.6.0';
 
 const CHANGELOG = {
+    '2.6.1': {
+        date: '2026-06-13',
+        title: 'Xổ số dễ trúng hơn — pool 14 → 10 số',
+        changes: [
+            '**Xổ số:** chọn 4 số trong **1-10** thay vì 1-14. Tỉ lệ trúng jackpot tăng mạnh (1/210 mỗi vé thay vì 1/1.001) nên jackpot **đổi chủ thường xuyên hơn nhiều** với lượng vé hiện tại — jackpot mỗi đợt nhỏ hơn nhưng nổ nhanh hơn.',
+            'Admin: thêm `!xoso_refund [@user]` — hoàn vé + ngọc của đợt đang mở (toàn bộ hoặc 1 người) và đảo lại pool, dùng khi đổi luật giữa đợt.'
+        ]
+    },
     '2.6.0': {
         date: '2026-06-12',
         title: 'Auto chọn số vòng · !noitu mở rộng từ điển',
