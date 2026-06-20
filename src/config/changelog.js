@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '2.6.4';
+const CURRENT_VERSION = '2.7.0';
 
 const CHANGELOG = {
+    '2.7.0': {
+        date: '2026-06-20',
+        title: 'Admin: chỉnh cấu hình Xổ số trong trang economy',
+        changes: [
+            'Trang **economy admin** giờ có mục **LOTTERY** chỉnh trực tiếp (không cần restart): **giá vé**, **số vé tối đa mỗi đợt**, seed jackpot, quỹ giải phụ (consolation), và thưởng 3/4 · 2/4.',
+            'Đổi giá vé là pool/quỹ tự cân theo (mỗi vé vẫn chia trọn vào jackpot + quỹ phụ). Số lượng số trong pool, số số mỗi vé và giờ quay vẫn cố định trong code (đổi cần restart vì ảnh hưởng tỉ lệ / lịch quay).'
+        ]
+    },
     '2.6.4': {
         date: '2026-06-20',
         title: 'Nối Từ: chấp nhận cả hai kiểu bỏ dấu (luỹ = lũy)',

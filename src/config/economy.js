@@ -230,6 +230,22 @@ const DEFAULTS = {
             NGOC_POOL: 12000, SUMMON_CAP: 1, MIN: 1, MAX: 99, OPS: ['+', '-', '*'],
             WIPE_AFTER_FAILS: 3, MOVESET: 'wipe'
         }
+    },
+
+    // ── Xổ số (!xoso) — live-tunable balance knobs ───────────────────────────
+    // The admin economy page edits these in place (no restart). Structural fields
+    // that change odds/scheduling (NUMBER_POOL_MAX, NUMBERS_PER_TICKET, DRAW_HOURS,
+    // TIMEZONE) stay in config/lottery.js — they need a restart to take effect.
+    // POOL_SHARE is NOT stored here: it's derived as TICKET_PRICE − CONSOLATION_SHARE
+    // in config/lottery.js, so every ticket always splits entirely into pool +
+    // reserve no matter how TICKET_PRICE is retuned.
+    LOTTERY: {
+        TICKET_PRICE: 500,
+        MAX_TICKETS_PER_DRAW: 5,
+        SEED_POOL: 100000,        // jackpot floor / reset value
+        CONSOLATION_SHARE: 125,   // per ticket → consolation reserve (pool gets the rest)
+        PRIZE_3_OF_4: 1000,
+        PRIZE_2_OF_4: 100
     }
 };
 
