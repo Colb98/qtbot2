@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '2.6.3';
+const CURRENT_VERSION = '2.6.4';
 
 const CHANGELOG = {
+    '2.6.4': {
+        date: '2026-06-20',
+        title: 'Nối Từ: chấp nhận cả hai kiểu bỏ dấu (luỹ = lũy)',
+        changes: [
+            '`!noitu` — từ có vần **oa / oe / uy** viết theo **kiểu cũ** (dấu trên nguyên âm đầu: lũy, hòa, khỏe) và **kiểu mới** (dấu trên nguyên âm sau: luỹ, hoà, khoẻ) giờ được coi là **một từ**. Gõ kiểu nào cũng được chấp nhận, và **nối từ thông nhau** — ví dụ `thành luỹ` nối được sang cả `lũy tiến` lẫn `luỹ tiến`.',
+            'Nhờ vậy không còn cảnh một từ có thật bị ❌ chỉ vì viết khác kiểu dấu, và mỗi từ chỉ tính **một lần/ván** dù gõ kiểu nào.'
+        ]
+    },
     '2.6.3': {
         date: '2026-06-13',
         title: 'Vua Tiếng Việt: chế độ Khó dễ đọc hơn',

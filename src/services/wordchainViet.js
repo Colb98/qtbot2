@@ -21,6 +21,33 @@ const wordReview = require('./wordReview');
 const DICT_PATH = path.resolve(__dirname, '../../word_dict/tu2amtiet.json');
 const rawDict = require('../../word_dict/tu2amtiet.json');
 
+// ── Diacritic canonicalization ──────────────────────────────────────────────
+// Vietnamese allows two legal tone-mark placements for the same word: the old
+// style ("kiểu cũ") marks the FIRST vowel of an open oa/oe/uy rime, the modern
+// style ("kiểu mới") the SECOND — e.g. lũy=luỹ, hòa=hoà, khỏe=khoẻ. They are the
+// same word, so we fold every syllable to the modern form before matching,
+// indexing and dedup; both spellings then validate, chain and count as one.
+// (Only the genuinely-ambiguous open rimes oa/oe/uy differ this way — ia/ua/ui…
+// have a single spelling, and rare triphthongs uyu/oeo are out of scope.)
+const OLD_TONE_FOLD = (() => {
+    const FIRST = { o: ['ò', 'ó', 'ỏ', 'õ', 'ọ'], u: ['ù', 'ú', 'ủ', 'ũ', 'ụ'] };
+    const SECOND = { a: ['à', 'á', 'ả', 'ã', 'ạ'], e: ['è', 'é', 'ẻ', 'ẽ', 'ẹ'], y: ['ỳ', 'ý', 'ỷ', 'ỹ', 'ỵ'] };
+    const map = Object.create(null);
+    for (const [f, s] of [['o', 'a'], ['o', 'e'], ['u', 'y']]) {
+        for (let i = 0; i < 5; i++) map[FIRST[f][i] + s] = f + SECOND[s][i];
+    }
+    return map;
+})();
+
+// Fold a single syllable's trailing old-style oa/oe/uy tone to modern placement.
+// The old carrier is the 2nd-to-last char only in an *open* rime, so matching on
+// the last two chars naturally skips closed syllables (hoàn, huỳnh) — which have
+// one spelling anyway — and leaves everything else untouched.
+function foldSyllable(syl) {
+    const folded = OLD_TONE_FOLD[syl.slice(-2)];
+    return folded ? syl.slice(0, -2) + folded : syl;
+}
+
 function buildFirstSyllableIndex(words) {
     const byFirst = {};
     for (const w of words) {
@@ -30,10 +57,12 @@ function buildFirstSyllableIndex(words) {
     return byFirst;
 }
 
-const fullSet = new Set(rawDict.full);
-const fullByFirst = buildFirstSyllableIndex(rawDict.full);
-const commonByFirst = buildFirstSyllableIndex(rawDict.common);
-log.info(`wordchainViet: dictionary loaded — full ${fullSet.size} words (${Object.keys(fullByFirst).length} buckets), common ${rawDict.common.length} words (${Object.keys(commonByFirst).length} buckets)`);
+// Dictionary is folded to canonical form at load, so the two spellings collapse
+// to one entry/bucket and the bot always answers in the modern spelling.
+const fullSet = new Set(rawDict.full.map(normalize));
+const fullByFirst = buildFirstSyllableIndex(fullSet);
+const commonByFirst = buildFirstSyllableIndex(rawDict.common.map(normalize));
+log.info(`wordchainViet: dictionary loaded — full ${fullSet.size} words (${Object.keys(fullByFirst).length} buckets), common ${Object.keys(commonByFirst).length} buckets`);
 
 const HARD_CAP_MS = 2 * 24 * 60 * 60 * 1000;
 const SURRENDER_COOLDOWN_MS = 10 * 1000;
@@ -243,7 +272,8 @@ function scheduleWeeklyPayout() {
 // ── Word / dictionary helpers ──────────────────────────────────────────────
 
 function normalize(text) {
-    return text.trim().toLowerCase().replace(/\s+/g, ' ');
+    return text.normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ')
+        .split(' ').map(foldSyllable).join(' ');
 }
 
 function splitWord(word) {
@@ -957,5 +987,6 @@ module.exports = {
     pruneDaily,
     isWordInDict,
     dictSize,
-    addWordsToDict
+    addWordsToDict,
+    canonicalize: normalize
 };

@@ -49,7 +49,13 @@ function save() {
 }
 
 function normalizeWord(text) {
-    return String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const s = String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    // Fold old/new diacritic spellings (lũy=luỹ…) to the same canonical form the
+    // game matches on, so the review queue dedups variants and never queues a
+    // word that's already playable under its other spelling. Lazy-required to
+    // avoid the wordchainViet ↔ wordReview load cycle.
+    try { return require('./wordchainViet').canonicalize(s); }
+    catch (e) { return s; }
 }
 
 // Same shape the game accepts: exactly 2 syllables, letters only.
