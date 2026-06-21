@@ -1,6 +1,23 @@
-const CURRENT_VERSION = '2.7.0';
+const CURRENT_VERSION = '2.8.0';
 
 const CHANGELOG = {
+    '2.8.0': {
+        date: '2026-06-22',
+        title: 'Nối Từ: người chơi tự duyệt từ — vote nhận ngọc',
+        changes: [
+            '**Lệnh mới `!duyettu`** — duyệt giúp từ chờ vào từ điển Nối Từ và **nhận thưởng ngọc**. Bot hiện từng từ kèm nút **✅ Là từ thật / ❌ Không phải / ⏭️ Bỏ qua**.',
+            'Cần **3 phiếu ✅** để một từ được gửi lên admin chốt; **3 phiếu ❌** thì từ bị loại (nếu có người bênh thì vẫn đẩy lên admin xử cho công bằng).',
+            'Thưởng/phạt theo độ chính xác so với **kết quả cuối**: vote đúng **+70 ngọc**, đúng mà đi ngược số đông **+200** (bắt được lỗi của số đông); vote sai theo số đông **−50**, sai mà cố đi ngược số đông **−150**. Ngọc về ví khi từ được chốt.',
+            'Giới hạn **40 phiếu/người/ngày** để chống cày. Cần có hoạt động trong server (đã có ví ngọc) mới duyệt được.'
+        ]
+    },
+    '2.7.1': {
+        date: '2026-06-21',
+        title: 'Admin: nút "Xoá tất cả" từ chờ duyệt (Nối Từ)',
+        changes: [
+            'Trang **duyệt từ Nối Từ** (`/words`) có thêm nút **🗑️ Xoá tất cả** ở mục chờ duyệt: sau khi ✅ hết từ đúng, bấm một lần để loại toàn bộ từ sai còn lại thay vì loại từng từ.'
+        ]
+    },
     '2.7.0': {
         date: '2026-06-20',
         title: 'Admin: chỉnh cấu hình Xổ số trong trang economy',

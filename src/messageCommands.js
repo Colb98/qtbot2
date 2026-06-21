@@ -17,11 +17,12 @@ const { runMultiFlip: runCoinflipMulti, COINFLIP_MAX_FLIPS } = require('./servic
 const dice = require('./services/dice');
 const lottery = require('./services/lottery');
 const metrics = require('./services/metrics');
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, MessageFlags } = require('discord.js');
 const economy = require('./config/economy');
 const { CURRENT_VERSION, CHANGELOG } = require('./config/changelog');
 const wordchainEng = require('./services/wordchainEng');
 const wordchainViet = require('./services/wordchainViet');
+const wordReview = require('./services/wordReview');
 const vuaTiengViet = require('./services/vuaTiengViet');
 const flashMath = require('./services/flashMath');
 const mathBoss = require('./services/mathBoss');
@@ -1448,6 +1449,17 @@ ${DISCLAIMER}`;
         }
     }
 
+    if (cmd === '!duyettu') {
+        // Eligibility: must already have a wallet (some prior server activity) so
+        // fresh alt accounts can't farm the review payouts.
+        const hasWallet = data.wallet && data.wallet[guildId] && data.wallet[guildId][msg.author.id];
+        if (!hasWallet) {
+            return msg.reply('Bạn cần tham gia server (chat kiếm ngân phiếu, chơi `!noitu`, nhận `!daily`…) trước khi duyệt từ.');
+        }
+        const card = buildReviewCard(msg.author.id);
+        return msg.reply(card.payload);
+    }
+
     if (cmd === '!noitu_top') {
         const mode = (parts[1] || '').toLowerCase();
         const isLifetime = mode === 'lifetime' || mode === 'life' || mode === 'all' || mode === 'l';
@@ -2082,4 +2094,68 @@ ${DISCLAIMER}`;
 
 }
 
-module.exports = { handleMessageCommand };
+// ── !duyettu player word-review card ──────────────────────────────────────────
+// One card = the next pending word for this user + ✅/❌/⏭️ buttons. The buttons
+// are owner-gated (the userId is encoded in the customId) and carry the word, so
+// a click always votes on the word that was shown. After each action the same
+// message is edited in place to the user's next word.
+
+function buildReviewCard(userId, opts = {}) {
+    const { notice } = opts;
+    const item = wordReview.nextPendingFor(userId, opts);
+    const wr = economy.WORD_REVIEW;
+    if (!item) {
+        const lines = [];
+        if (notice) lines.push(notice, '');
+        lines.push('🎉 Hết từ chờ duyệt rồi! Cảm ơn bạn đã giúp duyệt — quay lại sau nhé.');
+        return { done: true, payload: { content: lines.join('\n'), components: [] } };
+    }
+    const cap = wordReview.getVoteCapInfo(userId);
+    const lines = [];
+    if (notice) lines.push(notice, '');
+    lines.push(
+        '🔎 **Duyệt từ Nối Từ** — vote đúng được thưởng ngọc, vote sai bị trừ.',
+        '',
+        `Từ: **${item.word}**`,
+        'Đây có phải **từ tiếng Việt có nghĩa**, dùng được trong Nối Từ không?',
+        `Hiện có: ✅ ${item.yes} · ❌ ${item.no}  _(cần ${wr.APPROVE_THRESHOLD} ✅ để gửi admin · ${wr.REJECT_THRESHOLD} ❌ để loại)_`,
+        `_Phiếu còn lại hôm nay: ${cap.remaining}/${cap.cap}_`
+    );
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`wr:y:${userId}:${item.word}`).setLabel('Là từ thật').setEmoji('✅').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`wr:n:${userId}:${item.word}`).setLabel('Không phải').setEmoji('❌').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`wr:s:${userId}:${item.word}`).setLabel('Bỏ qua').setEmoji('⏭️').setStyle(ButtonStyle.Secondary)
+    );
+    return { done: false, payload: { content: lines.join('\n'), components: [row] } };
+}
+
+async function handleWordReviewButton(interaction) {
+    const parts = interaction.customId.split(':'); // ['wr', action, ownerId, ...word]
+    const action = parts[1];
+    const ownerId = parts[2];
+    const word = parts.slice(3).join(':'); // word has no ':' but rejoin defensively
+    if (interaction.user.id !== ownerId) {
+        return interaction.reply({ content: 'Đây là thẻ duyệt của người khác — gõ `!duyettu` để mở thẻ của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    let notice;
+    let nextOpts = {};
+    if (action === 'y' || action === 'n') {
+        const res = wordReview.vote(interaction.guildId, interaction.user.id, word, action === 'y' ? 1 : -1);
+        if (res.status === 'capped') {
+            return interaction.reply({ content: `Bạn đã dùng hết ${economy.WORD_REVIEW.DAILY_VOTE_CAP} phiếu duyệt hôm nay. Quay lại ngày mai nhé!`, flags: MessageFlags.Ephemeral });
+        }
+        if (res.status === 'graduated') notice = `✅ Đã ghi nhận! Từ **${word}** đã đủ phiếu — chuyển sang admin duyệt cuối.`;
+        else if (res.status === 'autoRejected') notice = `✅ Đã ghi nhận! Từ **${word}** bị loại theo số đông.`;
+        else if (res.status === 'gone') notice = 'Từ đó vừa được chốt xong, chuyển từ kế tiếp.';
+        else notice = '✅ Đã ghi nhận phiếu của bạn.';
+    } else if (action === 's') {
+        nextOpts = { excludeWord: word, random: true };
+        notice = '⏭️ Đã bỏ qua.';
+    } else {
+        return;
+    }
+    const card = buildReviewCard(interaction.user.id, { ...nextOpts, notice });
+    await interaction.update(card.payload).catch(() => {});
+}
+
+module.exports = { handleMessageCommand, handleWordReviewButton };

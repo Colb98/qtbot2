@@ -1209,9 +1209,24 @@ const WORDS_HTML = `<!DOCTYPE html>
 <div class="grid">
   <div>
     <div class="card">
-      <h2>❌ Từ bị từ chối trong game — chờ duyệt (<span id="pendingCount">0</span>)</h2>
-      <p class="muted">Bấm ✅ để đưa vào danh sách chờ ghi, ❌ để loại (không hiện lại). Badge <span class="badge chain">đúng âm</span> = người chơi nối đúng âm kế (khả năng cao là từ thật).</p>
-      <div id="pendingList"></div>
+      <div class="toolbar">
+        <h2 style="margin:0">🎓 Người chơi đã duyệt — chờ admin chốt (<span id="graduatedCount">0</span>)</h2>
+        <span style="flex:1"></span>
+        <button id="rejectAllGradBtn">🗑️ Loại tất cả</button>
+      </div>
+      <p class="muted">Từ đã đủ phiếu người chơi. Tỉ số <span class="badge">✅ / ❌</span>; badge <span class="badge manual">đề xuất loại</span> = bị nhiều ❌ nhưng có người bênh (cần bạn quyết). Bấm ✅ để đưa vào danh sách chờ ghi, ❌ để loại — người chơi sẽ được <b>thưởng/trừ ngọc</b> theo quyết định của bạn. <b>Loại tất cả</b> dùng sau khi đã ✅ hết từ đúng.</p>
+      <div id="graduatedList"></div>
+    </div>
+    <div class="card">
+      <details>
+        <summary>⏳ Đang chờ người chơi vote (<span id="pendingCount">0</span>)</summary>
+        <div class="toolbar" style="margin-top:8px">
+          <span class="muted">Hàng chờ thô — người chơi đang vote qua <b>!duyettu</b>. Bạn có thể tự duyệt hoặc dọn bớt.</span>
+          <span style="flex:1"></span>
+          <button id="rejectAllBtn">🗑️ Xoá tất cả</button>
+        </div>
+        <div id="pendingList" style="margin-top:8px"></div>
+      </details>
     </div>
     <div class="card">
       <details>
@@ -1308,17 +1323,35 @@ function renderList(containerId, items, emptyText, rowBuilder) {
   for (const item of items) c.appendChild(rowBuilder(item));
 }
 
+function tally(item) {
+  return el('span', 'badge', '✅ ' + (item.yes || 0) + ' · ❌ ' + (item.no || 0));
+}
+
 function render() {
   if (!STATE) return;
   $('dictSize').textContent = Number(STATE.dictSize || 0).toLocaleString('en-US');
+  $('graduatedCount').textContent = (STATE.graduated || []).length;
   $('pendingCount').textContent = STATE.pending.length;
   $('stagedCount').textContent = STATE.staged.length;
   $('rejectedCount').textContent = STATE.rejected.length;
 
-  renderList('pendingList', STATE.pending, 'Không có từ nào chờ duyệt. 🎉', (item) => {
+  renderList('graduatedList', STATE.graduated || [], 'Chưa có từ nào người chơi duyệt xong.', (item) => {
+    const row = el('div', 'wrow');
+    row.appendChild(el('span', 'w', item.word));
+    row.appendChild(el('span', 'badge' + (item.contested ? ' manual' : ' chain'),
+      item.contested ? 'đề xuất loại' : 'đề xuất thêm'));
+    row.appendChild(tally(item));
+    row.appendChild(el('span', 'meta', item.count + ' lần · ' + ago(item.lastAt)));
+    row.appendChild(iconBtn('✅', 'Duyệt — thêm vào danh sách chờ ghi (thưởng người vote đúng)', () => act('accept', item.word)));
+    row.appendChild(iconBtn('❌', 'Loại — không phải từ hợp lệ (trừ người vote sai)', () => act('reject', item.word)));
+    return row;
+  });
+
+  renderList('pendingList', STATE.pending, 'Không có từ nào đang chờ vote. 🎉', (item) => {
     const row = el('div', 'wrow');
     row.appendChild(el('span', 'w', item.word));
     if (item.chained) row.appendChild(el('span', 'badge chain', 'đúng âm'));
+    row.appendChild(tally(item));
     const meta = el('span', 'meta', item.count + ' lần · ' + ago(item.lastAt));
     row.appendChild(meta);
     row.appendChild(iconBtn('✅', 'Duyệt — thêm vào danh sách chờ ghi', () => act('accept', item.word)));
@@ -1353,6 +1386,29 @@ async function load() {
 }
 
 $('reloadBtn').addEventListener('click', load);
+
+$('rejectAllGradBtn').addEventListener('click', async () => {
+  const n = (STATE && STATE.graduated) ? STATE.graduated.length : 0;
+  if (!n) return toast('Không có từ nào chờ admin chốt.', false);
+  if (!confirm('Loại tất cả ' + n + ' từ người chơi đã duyệt? Người vote ✅ sẽ bị trừ ngọc theo quyết định này. (Đảm bảo đã ✅ hết từ đúng trước.)')) return;
+  try {
+    const r = await api('/api/admin/words/reject-all', { method: 'POST', body: JSON.stringify({ scope: 'graduated' }) });
+    STATE = r;
+    render();
+    toast('Đã loại ' + r.result.rejected + ' từ.');
+  } catch (e) { toast(e.message, false); }
+});
+
+$('rejectAllBtn').addEventListener('click', async () => {
+  if (!STATE || !STATE.pending.length) return toast('Không có từ nào đang chờ vote.', false);
+  if (!confirm('Xoá tất cả ' + STATE.pending.length + ' từ đang chờ người chơi vote? Các từ này sẽ không hiện lại.')) return;
+  try {
+    const r = await api('/api/admin/words/reject-all', { method: 'POST', body: JSON.stringify({ scope: 'pending' }) });
+    STATE = r;
+    render();
+    toast('Đã loại ' + r.result.rejected + ' từ khỏi hàng chờ vote.');
+  } catch (e) { toast(e.message, false); }
+});
 
 $('manualBtn').addEventListener('click', async () => {
   const text = $('manualText').value.trim();
@@ -1461,6 +1517,13 @@ async function handleAdmin(req, res, pathname) {
             const body = await readJsonBody(req);
             wordReview.applyAction(body.action, body.word);
             return sendJson(res, 200, wordReview.listState());
+        }
+        if (pathname === '/api/admin/words/reject-all' && method === 'POST') {
+            const body = await readJsonBody(req);
+            const result = body.scope === 'graduated'
+                ? wordReview.rejectAllGraduated()
+                : wordReview.rejectAllPending();
+            return sendJson(res, 200, { result, ...wordReview.listState() });
         }
         if (pathname === '/api/admin/words/manual' && method === 'POST') {
             const body = await readJsonBody(req);

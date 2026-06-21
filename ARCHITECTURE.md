@@ -41,7 +41,7 @@ Graceful shutdown (SIGINT/SIGTERM/uncaught) flushes metrics + state synchronousl
 |---|---|---|
 | `!command` text | [messageCreate.js](src/events/messageCreate.js) → [messageCommands.js](src/messageCommands.js) | One giant `if (cmd === '!x')` chain (~2000 lines). **This is where almost every `!` feature lives.** |
 | `/slashcommand` | [interactionCreate.js](src/events/interactionCreate.js) → `client.commands.get(name).execute()` | Each file in [src/commands/](src/commands/) exports `{ data, execute }`. |
-| Buttons / modals / select menus | [interactionCreate.js](src/events/interactionCreate.js) | Dispatched by **`customId` prefix** (e.g. `cf:`, `slot:`, `tong:`, `mat:`, `gacha_all_`, `doi:`/`pg:`, `profile:`, `wce_`, `wcv_`, `vtv_`, `fm_`, `boss_`, `khodo:`, `arrange_`, `auto:`). |
+| Buttons / modals / select menus | [interactionCreate.js](src/events/interactionCreate.js) | Dispatched by **`customId` prefix** (e.g. `cf:`, `slot:`, `tong:`, `mat:`, `gacha_all_`, `doi:`/`pg:`, `profile:`, `wce_`, `wcv_`, `vtv_`, `fm_`, `boss_`, `khodo:`, `wr:` (word-review vote), `arrange_`, `auto:`). |
 | Reactions (✅/❌, 🧧 lì xì, ngọc giveaway, class vote) | [messageReactionAdd.js](src/events/messageReactionAdd.js) / [messageReactionRemove.js](src/events/messageReactionRemove.js) | Branch by which tracked message the reaction is on. |
 | Thread messages (word/math co-op games) | [messageCreate.js](src/events/messageCreate.js) | `service.hasThread(id)` → `service.handleThreadMessage(msg)` for each game service. |
 | Chat (any message) | [messageCreate.js](src/events/messageCreate.js) | `currency.tryEarnFromChat` (passive ngân phiếu, daily-capped). |
@@ -111,7 +111,7 @@ via `state.js` and call `saveData()`.
 - `lottery.js` — accumulating-jackpot lottery (`!xoso`), twice-daily cron draws.
 - `wordchain.js` (legacy/1v1), `wordchainEng.js` (English co-op), `wordchainViet.js` (`!noitu` co-op vs bot), `vuaTiengViet.js`, `flashMath.js`, `mathBoss.js` — thread-based games. Each exposes `hasThread`/`handleThreadMessage`/`handleButtonInteraction` and (most) `scheduleWeeklyPayout` + `pruneDaily`.
 - `mathGen.js` — shared arithmetic question generator (Discord-free).
-- `wordReview.js` — admin review queue for rejected `!noitu` words (dashboard `/words`).
+- `wordReview.js` — two-layer review pipeline for rejected `!noitu` words. **Layer 1 (players):** `!duyettu` lets players vote ✅/❌ (`wr:` buttons); 3 ✅ "graduates" a word to the admin queue, 3 ❌ auto-rejects it (contested ones, ≥1 ✅, escalate to admin). **Layer 2 (admin):** dashboard `/words` (graduated → staged → written to dict). Voters are paid/penalised in ngọc when a word reaches a verdict (truth = admin verdict on accept, crowd consensus on clean auto-reject); reward/penalty depends on matching the truth and being with/against the crowd. Tunables in `economy.WORD_REVIEW`; daily vote cap pruned via `pruneDaily`.
 
 **Seasons & profile**
 - `season.js` — runtime season state (current/endsAt/length), scoring/ranking (`rankGuild`, `rankGuildNgoc`), item resolution (`resolveItem`, `mapGachaKey`), rollover + title/badge grants. Pairs with `config/season.js`.

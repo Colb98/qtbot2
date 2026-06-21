@@ -9,6 +9,7 @@ const flashMath = require('./flashMath');
 const mathBoss = require('./mathBoss');
 const vuaTiengViet = require('./vuaTiengViet');
 const wordchainViet = require('./wordchainViet');
+const wordReview = require('./wordReview');
 const season = require('./season');
 
 let weeklyTask = null;
@@ -64,7 +65,8 @@ function runDailyPrune() {
         ['flashMath', () => flashMath.pruneDaily()],
         ['mathBoss', () => mathBoss.pruneDaily()],
         ['vuaTiengViet', () => vuaTiengViet.pruneDaily()],
-        ['wordchainViet', () => wordchainViet.pruneDaily()]
+        ['wordchainViet', () => wordchainViet.pruneDaily()],
+        ['wordReview', () => wordReview.pruneDaily()]
     ];
     for (const [name, fn] of tasks) {
         try { total += fn() || 0; }

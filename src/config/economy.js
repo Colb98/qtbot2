@@ -146,6 +146,21 @@ const DEFAULTS = {
         ]
     },
 
+    // Player-driven moderation of the !noitu candidate queue. Players vote ✅/❌
+    // via !duyettu; payouts resolve against the "truth": the admin verdict on the
+    // accept branch, crowd consensus on clean auto-rejects. Reward/penalty depend
+    // on whether you matched the truth and whether you were with or against the
+    // crowd (see services/wordReview.js resolveWord).
+    WORD_REVIEW: {
+        APPROVE_THRESHOLD: 3,    // distinct ✅ → word graduates to the admin queue
+        REJECT_THRESHOLD: 3,     // distinct ❌ → auto-reject (but contested ones, ≥1 ✅, go to admin)
+        REWARD: 70,              // correct, and you were with the majority
+        REWARD_MINORITY: 200,    // correct against the crowd (caught a crowd mistake)
+        PENALTY: 50,             // wrong, but you followed the majority
+        PENALTY_MINORITY: 150,   // wrong AND contrarian (deliberately against the crowd)
+        DAILY_VOTE_CAP: 40       // distinct new votes/user/day (anti-farm; rewards land at resolution)
+    },
+
     WORDCHAIN_ENG: {
         NGOC_PER_WORD: 16,
         WORD_THRESHOLD: 25,

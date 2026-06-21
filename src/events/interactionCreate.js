@@ -23,6 +23,7 @@ const { isBlockedByMaintenance } = require('../services/maintenance');
 const profile = require('../services/profile');
 const season = require('../services/season');
 const exchange = require('../services/exchange');
+const { handleWordReviewButton } = require('../messageCommands');
 
 module.exports = {
     name: Events.InteractionCreate,
@@ -164,6 +165,8 @@ module.exports = {
                     await mathBoss.handleButtonInteraction(interaction);
                 } else if (interaction.customId.startsWith('khodo:')) {
                     await handleKhodoButton(interaction);
+                } else if (interaction.customId.startsWith('wr:')) {
+                    await handleWordReviewButton(interaction);
                 } else {
                     await wordchain.handleButtonInteraction(interaction);
                 }
