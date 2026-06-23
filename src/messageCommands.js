@@ -192,6 +192,7 @@ ${DISCLAIMER}`;
 • \`!upload_ingame_emotes [force]\` — Upload emote ingame (slot, dice...). Tự xoá emote trùng, chỉ upload cái thiếu; \`force\` = upload lại toàn bộ.
 • \`!uploademotes\` — Upload emote class.
 • \`!gangoc <n> [#kênh]\` — GA ngọc, user react để nhận.
+• \`!setngoc @user <n>\` — Ép đặt tổng ngọc của user thành n (mở khoá toàn bộ). Ghi log nhưng **không tính vào metrics**.
 
 **Metrics & Debug:**
 • \`!metrics [slot|coinflip|tong|mat|gacha|wordchain|noitu|vuatiengviet|flashmath|boss|daily|gangoc] [YYYY-MM-DD] [all|<guildId>]\` — Mặc định guild hiện tại; \`all\` để gộp; truyền guildId cụ thể để xem 1 guild khác.
@@ -743,6 +744,28 @@ ${DISCLAIMER}`;
         saveData();
         metrics.recordGangocCreated({ guildId, amount });
         return msg.reply(`✅ GA ngọc **${fmt(amount)}** đã được đăng lên ${targetChannel}`);
+    }
+
+    if (cmd === '!setngoc') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const mention = parts[1];
+        if (!mention) return msg.reply('Cú pháp: `!setngoc @user <số ngọc>` — ép đặt tổng ngọc của user.');
+        const targetId = mention.replace(/[^0-9]/g, '');
+        if (!targetId) return msg.reply('Vui lòng mention user hợp lệ.');
+        const targetMember = await msg.guild.members.fetch(targetId).catch(() => null);
+        if (!targetMember) return msg.reply('Không tìm thấy user trong server.');
+        if (targetMember.user.bot) return msg.reply('Không set ngọc cho bot được.');
+        const amount = parseInt(parts[2], 10);
+        if (!Number.isInteger(amount) || amount < 0) return msg.reply('Cú pháp: `!setngoc @user <số ngọc>` — số ngọc phải là số nguyên ≥ 0.');
+        const w = getWallet(guildId, targetId);
+        const oldTotal = w.ngoc + w.lockedNgoc;
+        w.ngoc = amount;
+        w.lockedNgoc = 0;
+        saveData();
+        // Audit-only: log for traceability but intentionally NOT recorded in
+        // metrics so admin overrides never skew the economy dashboard.
+        log.info(`[setngoc] admin=${msg.author.id} target=${targetId} guild=${guildId} old=${oldTotal} new=${amount}`);
+        return msg.reply(`🛠️ Đã ép đặt ngọc của ${targetMember.displayName}: ${fmt(oldTotal)} → **${fmt(amount)}** ${renderEmote('ngoc')} (toàn bộ mở khoá).`);
     }
 
     if (cmd === '!lixi') {
