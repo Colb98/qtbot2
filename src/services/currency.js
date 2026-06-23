@@ -47,7 +47,8 @@ function getWallet(guildId, userId) {
             lockedNgoc: 0,
             items: { nhuom: 0, dieu: 0, cao: 0, cao5: 0, cao9: 0, kythuong: 0, thienthuong: 0, phuonghoang1: 0, phuonghoang2: 0, thantrang: 0 },
             lockedItems: { nhuom: 0, dieu: 0, cao: 0, cao5: 0, cao9: 0, kythuong: 0, thienthuong: 0, phuonghoang1: 0, phuonghoang2: 0, thantrang: 0 },
-            pity: { kt: 0, tt: 0 }
+            pity: { kt: 0, tt: 0 },
+            bank: { ngoc: 0, locked: 0, snapshot: 0 }
         };
     }
     const w = data.wallet[guildId][userId];
@@ -61,6 +62,14 @@ function getWallet(guildId, userId) {
     if (!w.pity) w.pity = { kt: 0, tt: 0 };
     if (typeof w.pity.kt !== 'number') w.pity.kt = 0;
     if (typeof w.pity.tt !== 'number') w.pity.tt = 0;
+    // Ngọc "két an toàn" (safe). Split locked/free so withdrawals restore the
+    // exact locked-ness they went in with (locked ngọc earns no bond when
+    // re-gifted). `snapshot` = bank total at the last interest tick — see
+    // services/bank.js. `bankedTotal(w)` is included in the !topngoc total.
+    if (!w.bank || typeof w.bank !== 'object') w.bank = { ngoc: 0, locked: 0, snapshot: 0 };
+    if (typeof w.bank.ngoc !== 'number') w.bank.ngoc = 0;
+    if (typeof w.bank.locked !== 'number') w.bank.locked = 0;
+    if (typeof w.bank.snapshot !== 'number') w.bank.snapshot = 0;
     if (typeof w.slotPity !== 'number') w.slotPity = 0;
     if (typeof w.slotStreakMaxBet !== 'number') w.slotStreakMaxBet = 0;
     return w;
@@ -173,6 +182,13 @@ function pruneDaily(today) {
     return removed;
 }
 
+// Total ngọc parked in the safe (free + locked). Counts toward !topngoc but is
+// excluded from every spendable-balance check.
+function bankedTotal(w) {
+    if (!w || !w.bank) return 0;
+    return (w.bank.ngoc || 0) + (w.bank.locked || 0);
+}
+
 function fmt(n) {
     return Number(n).toLocaleString('en-US');
 }
@@ -208,11 +224,13 @@ function buildKhodoView(guildId, userId, displayName, showAll) {
     const premiumKeys = seasonCfg.allPremiumKeys();
     const commonKeys = ITEM_KEYS.filter(k => k !== 'thienthuong' && !premiumKeys.has(k));
 
+    const bankTotal = bankedTotal(w);
     const fields = [{
         name: 'Tiền tệ',
         value: [
             itemLine('thienthuong'),
             `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`,
+            ...(bankTotal > 0 ? [`🏦 Ngọc (két): **${fmt(bankTotal)}**`] : []),
             `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`
         ].join('\n'),
         inline: true
@@ -242,6 +260,7 @@ module.exports = {
     addLockedNgoc,
     addLockedItem,
     spendNgocForGame,
+    bankedTotal,
     tryEarnFromChat,
     tryClaimDaily,
     pruneDaily,

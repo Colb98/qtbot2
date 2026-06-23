@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '2.8.0';
+const CURRENT_VERSION = '2.9.0';
 
 const CHANGELOG = {
+    '2.9.0': {
+        date: '2026-06-23',
+        title: 'Két an toàn cho ngọc — gửi tiết kiệm, có lãi nhẹ',
+        changes: [
+            '**Lệnh mới `!ketngoc` / `!guingoc <n|all>` / `!rutngoc <n|all>`** — gửi ngọc vào **két an toàn** để khỏi lỡ tay tiêu hết (ngọc trong két **không dùng được** trong game/đổi/tặng).',
+            'Ngọc trong két **vẫn được tính** trong `!topngoc`, và có thể **rút về ví** bất cứ lúc nào. Gửi ưu tiên ngọc thường trước, ngọc khoá sau (rút trả lại đúng phần khoá).',
+            '**Lãi 0,5%/ngày** trả lúc 0:00 (GMT+7), tính trên **mức thấp hơn** giữa số dư đầu ngày và cuối ngày — gửi rồi rút ngay trong ngày sẽ không có lãi.',
+            'Admin: `!setngoc @user <n>` — ép đặt tổng ngọc của user (ghi log, không tính vào metrics).'
+        ]
+    },
     '2.8.0': {
         date: '2026-06-22',
         title: 'Nối Từ: người chơi tự duyệt từ — vote nhận ngọc',

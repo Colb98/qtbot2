@@ -838,7 +838,8 @@ async function renderProfileCard(player /* avatarBuffer ignored — reference de
 
     // 6f. Ngọc line (optional)
     if (player.profile && player.profile.showNgoc) {
-        const ngocTotal = (player.wallet && (player.wallet.ngoc || 0) + (player.wallet.lockedNgoc || 0)) || 0;
+        const bankedNgoc = (player.wallet && player.wallet.bank && (player.wallet.bank.ngoc || 0) + (player.wallet.bank.locked || 0)) || 0;
+        const ngocTotal = (player.wallet && (player.wallet.ngoc || 0) + (player.wallet.lockedNgoc || 0) + bankedNgoc) || 0;
         const x = PX;
         const y = cursorY;
 

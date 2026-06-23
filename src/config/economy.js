@@ -43,6 +43,15 @@ const DEFAULTS = {
         EMOJIS: ['😊', '🫰', '🫶', '🥰', '❤️', '💖', '💝', '💕', '💞', '❤️‍🔥']
     },
 
+    // Ngọc "két an toàn" (safe). Banked ngọc can't be spent on games but still
+    // counts toward !topngoc. Interest accrues once per GMT+7 day on the LOWER
+    // of (balance at the start of the day, balance now) — so parking ngọc only
+    // briefly earns nothing. Flat rate, no cap; keep it low to avoid making the
+    // bank a wealth engine for whales.
+    BANK: {
+        INTEREST_RATE: 0.005   // 0.5% / day
+    },
+
     BANG_CHIEN_REWARD: 1000,
 
     COINFLIP_MAX_BET: 50000,

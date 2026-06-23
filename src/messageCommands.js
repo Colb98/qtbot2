@@ -34,6 +34,7 @@ const season = require('./services/season');
 const seasonCfg = require('./config/season');
 const seasonTeaser = require('./services/seasonTeaser');
 const exchange = require('./services/exchange');
+const bank = require('./services/bank');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
@@ -123,7 +124,7 @@ async function handleMessageCommand(msg) {
         if ((parts[1] || '').toLowerCase() !== 'full') {
             const shortHelp = `**Bot v${CURRENT_VERSION}** — \`!help full\` xem giải thích chi tiết · \`!changelog\` xem tính năng mới.
 
-**💰 Tiền tệ & Kho đồ:** \`!khodo\` · \`!daily\` · \`!doingoc\` · \`!pity\`
+**💰 Tiền tệ & Kho đồ:** \`!khodo\` · \`!daily\` · \`!doingoc\` · \`!pity\` · \`!ketngoc\` · \`!guingoc\` · \`!rutngoc\`
 **🔄 Đổi & Bán:** \`!doi\` · \`!phangiai\` · \`!banthienthuong\` · \`!bancao\` · \`!bankythuong\` · \`!bandieu\` · \`!bannhuom\`
 **🎁 Tặng & Lì xì:** \`!tangngoc\` · \`!tangthienthuong\` · \`!tangcao\` · \`!tangcao5\` · \`!tangcao9\` · \`!tangdieu\` · \`!tangphuongbang\` · \`!tangphuonghoa\` · \`!tangthantrang\` · \`!lixi\`
 **🎮 Game:** \`!gacha\` · \`!coinflip\` · \`!slot\` · \`!tong\` · \`!mat\` · \`!xoso\` · \`!wordchain\` · \`!noitu\` · \`!flashmath\` · \`!boss\`
@@ -137,6 +138,7 @@ async function handleMessageCommand(msg) {
 • \`!khodo\` — Xem kho đồ (ngân phiếu, ngọc, vật phẩm).
 • \`!daily\` — Nhận thưởng hàng ngày (1 lần/ngày).
 • \`!doingoc <n|all>\` — Đổi ngân phiếu → ngọc.
+• \`!ketngoc\` / \`!guingoc <n|all>\` / \`!rutngoc <n|all>\` — Két an toàn cho ngọc: gửi ngọc vào két để **khỏi lỡ tay tiêu** (không dùng được trong game) nhưng **vẫn tính** \`!topngoc\` và có **lãi nhẹ ${Math.round(economy.BANK.INTEREST_RATE * 10000) / 100}%/ngày** (trên mức thấp hơn giữa số dư đầu/cuối ngày).
 • \`!doi [vật phẩm] [1|2|3|all]\` — Đổi vật phẩm cao cấp (TT → linh thú/trang phục, linh thú → bậc cao hơn). Không gõ vật phẩm → menu chọn. Vật phẩm mùa cũ vẫn đổi được nhưng **không tính điểm** BXH.
 • \`!phangiai [linh thú] [n|all]\` — Phân giải linh thú → thiên thưởng. Linh thú giá trị ≥9 TT bị phạt: −10% TT hoặc trừ 20% giá trị bằng ngọc (chọn khi xác nhận).
 • \`!gacha [1-100|all]\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Pity lượt 20 (KT+) / 200 (TT).
@@ -616,6 +618,62 @@ ${DISCLAIMER}`;
             : '';
         const lockedNote = lockedUsed > 0 ? ` (có ${fmt(lockedUsed)} ngọc khoá không tăng thân mật)` : '';
         return msg.reply(`${member.displayName} đã tặng **${fmt(amount)}** ${renderEmote('ngoc')} cho ${targetMember.displayName}.${bondLine}${lockedNote}`);
+    }
+
+    // ── Ngọc "két an toàn" (bank): !ketngoc / !guingoc / !rutngoc ──────────────
+    // Banked ngọc can't be spent (guards against accidental all-in) but still
+    // counts in !topngoc and earns a small daily interest. See services/bank.js.
+    if (cmd === '!ketngoc' || cmd === '!nganhang') {
+        const w = getWallet(guildId, msg.author.id);
+        const bankTotal = bank.bankedTotal(w);
+        const ratePct = Math.round(economy.BANK.INTEREST_RATE * 10000) / 100;
+        const lockedNote = w.bank.locked > 0 ? ` (gồm ${fmt(w.bank.locked)} khoá)` : '';
+        const lines = [
+            `🏦 **Két an toàn của ${member.displayName}**`,
+            `Trong két: **${fmt(bankTotal)}** ${renderEmote('ngoc')}${lockedNote}`,
+            `Dùng được trong ví: **${fmt(w.ngoc + w.lockedNgoc)}** ${renderEmote('ngoc')}`,
+            '',
+            `• Ngọc trong két **không tiêu được** (an toàn khỏi lỡ tay all-in) nhưng **vẫn tính** trong \`!topngoc\`.`,
+            `• Lãi **${fmt(ratePct)}%/ngày** trả lúc 0:00 (GMT+7) trên **mức thấp hơn** giữa số dư đầu ngày và cuối ngày — gửi rồi rút ngay trong ngày sẽ không có lãi.`,
+            `• \`!guingoc <số|all>\` để gửi · \`!rutngoc <số|all>\` để rút về ví.`
+        ];
+        return msg.reply(lines.join('\n'));
+    }
+
+    if (cmd === '!guingoc') {
+        let amount;
+        if (parts[1] === 'all') amount = 'all';
+        else {
+            amount = parseInt(parts[1], 10);
+            if (!Number.isInteger(amount) || amount <= 0) {
+                return msg.reply('Cú pháp: `!guingoc <số ngọc|all>` — gửi ngọc vào két an toàn (không tiêu được nhưng vẫn tính `!topngoc`, có lãi nhẹ). Xem `!ketngoc`.');
+            }
+        }
+        const res = bank.deposit(guildId, msg.author.id, amount);
+        if (!res.ok) {
+            if (res.error === 'insufficient') return msg.reply(`Bạn chỉ có ${fmt(res.have)} ngọc dùng được, không đủ gửi ${fmt(amount)}.`);
+            return msg.reply('Bạn không có ngọc để gửi.');
+        }
+        const lockNote = res.fromLocked > 0 ? ` (gồm ${fmt(res.fromLocked)} ngọc khoá)` : '';
+        return msg.reply(`🏦 Đã gửi **${fmt(res.deposited)}** ${renderEmote('ngoc')} vào két${lockNote}. Két: **${fmt(res.bank)}** · Ví dùng được: **${fmt(res.wallet)}**.`);
+    }
+
+    if (cmd === '!rutngoc') {
+        let amount;
+        if (parts[1] === 'all') amount = 'all';
+        else {
+            amount = parseInt(parts[1], 10);
+            if (!Number.isInteger(amount) || amount <= 0) {
+                return msg.reply('Cú pháp: `!rutngoc <số ngọc|all>` — rút ngọc từ két về ví để dùng. Xem `!ketngoc`.');
+            }
+        }
+        const res = bank.withdraw(guildId, msg.author.id, amount);
+        if (!res.ok) {
+            if (res.error === 'insufficient') return msg.reply(`Két chỉ có ${fmt(res.have)} ngọc, không đủ rút ${fmt(amount)}.`);
+            return msg.reply('Két của bạn đang trống.');
+        }
+        const lockNote = res.toLocked > 0 ? ` (gồm ${fmt(res.toLocked)} ngọc khoá)` : '';
+        return msg.reply(`🏦 Đã rút **${fmt(res.withdrawn)}** ${renderEmote('ngoc')} về ví${lockNote}. Ví dùng được: **${fmt(res.wallet)}** · Két: **${fmt(res.bank)}**.`);
     }
 
     if (cmd === '!banthienthuong' || cmd === '!bancao') {

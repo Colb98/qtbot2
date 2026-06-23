@@ -11,12 +11,14 @@ const vuaTiengViet = require('./vuaTiengViet');
 const wordchainViet = require('./wordchainViet');
 const wordReview = require('./wordReview');
 const season = require('./season');
+const bank = require('./bank');
 
 let weeklyTask = null;
 let clearPrioTask = null;
 let reminderTask = null;
 let dailyPruneTask = null;
 let seasonTask = null;
+let bankInterestTask = null;
 
 function scheduleWeeklyJobs() {
     if (weeklyTask) weeklyTask.destroy();
@@ -103,6 +105,19 @@ function scheduleSeasonRollover(client) {
     log.info('Scheduled season rollover check — 00:05 Asia/Ho_Chi_Minh');
 }
 
+// Ngọc bank interest. Pays once per GMT+7 day on min(start-of-day, now) banked
+// balance; bank.runDailyInterest() self-guards on the date so the 00:00 cron and
+// the boot catch-up (covering downtime across midnight) never double-pay.
+function scheduleDailyBankInterest() {
+    if (bankInterestTask) return;
+    bankInterestTask = cron.schedule('0 0 * * *', () => {
+        try { bank.runDailyInterest(); }
+        catch (e) { log.error('bank interest cron error:', e); }
+    }, { timezone: 'Asia/Ho_Chi_Minh' });
+    setTimeout(() => { try { bank.runDailyInterest(); } catch (e) { log.error('bank interest boot error:', e); } }, 20_000).unref?.();
+    log.info('Scheduled daily bank interest — 00:00 Asia/Ho_Chi_Minh');
+}
+
 function testSendReminders(day, hour, minute) {
     const testCron = `${minute} ${hour} * * ${dayMap[day.toLowerCase()]}`;
     log.info('Testing sendReminders with cron:', testCron);
@@ -114,4 +129,4 @@ function testSendReminders(day, hour, minute) {
     }, { timezone: 'Asia/Ho_Chi_Minh' });
 }
 
-module.exports = { scheduleWeeklyJobs, scheduleDailyPrune, scheduleSeasonRollover, runDailyPrune, testSendReminders };
+module.exports = { scheduleWeeklyJobs, scheduleDailyPrune, scheduleSeasonRollover, scheduleDailyBankInterest, runDailyPrune, testSendReminders };

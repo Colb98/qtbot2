@@ -206,7 +206,9 @@ function rankGuildNgoc(guildId) {
     const rankings = [];
     for (const [userId, w] of Object.entries(wallets)) {
         if (!w) continue;
-        const total = (w.ngoc || 0) + (w.lockedNgoc || 0);
+        // Banked ngọc (két an toàn) can't be spent but still counts here.
+        const banked = w.bank ? (w.bank.ngoc || 0) + (w.bank.locked || 0) : 0;
+        const total = (w.ngoc || 0) + (w.lockedNgoc || 0) + banked;
         if (total > 0) rankings.push({ userId, ngoc: total });
     }
     rankings.sort((a, b) => b.ngoc - a.ngoc);
