@@ -167,6 +167,10 @@ const DEFAULTS = {
         REWARD_MINORITY: 200,    // correct against the crowd (caught a crowd mistake)
         PENALTY: 50,             // wrong, but you followed the majority
         PENALTY_MINORITY: 150,   // wrong AND contrarian (deliberately against the crowd)
+        // Admin resolves a word that never reached a vote threshold (still pending,
+        // <3 ✅ and <3 ❌): no real crowd → flat payout, no majority/minority bonus.
+        REWARD_FLAT: 100,        // correct vs the admin verdict
+        PENALTY_FLAT: 20,        // wrong vs the admin verdict
         DAILY_VOTE_CAP: 40       // distinct new votes/user/day (anti-farm; rewards land at resolution)
     },
 

@@ -159,16 +159,26 @@ function resolveWord(word, truth) {
     if (!entries.length) { e.resolved = true; return null; }
     let yes = 0, no = 0;
     for (const [, r] of entries) { if (r.v === 1) yes += 1; else no += 1; }
-    const majority = yes > no ? 1 : (no > yes ? -1 : 0); // 0 = tie (no minority bonus/penalty)
     const cfg = economy.WORD_REVIEW;
+    // A word still under threshold (admin resolving it while pending) never built a
+    // real crowd, so skip the majority/minority bonus and pay a flat amount on the
+    // admin's verdict. Graduated/auto-rejected words (≥ a threshold) keep the
+    // crowd-aware payout.
+    const reachedThreshold = yes >= cfg.APPROVE_THRESHOLD || no >= cfg.REJECT_THRESHOLD;
+    const majority = yes > no ? 1 : (no > yes ? -1 : 0); // 0 = tie (no minority bonus/penalty)
     const currency = require('./currency');
     let paid = 0, docked = 0;
     for (const [uid, r] of entries) {
         const matched = (r.v === 1 && truth === 'add') || (r.v === -1 && truth === 'reject');
-        const inMajority = majority === 0 ? true : (r.v === majority);
-        const amount = matched
-            ? (inMajority ? cfg.REWARD : cfg.REWARD_MINORITY)
-            : (inMajority ? -cfg.PENALTY : -cfg.PENALTY_MINORITY);
+        let amount;
+        if (!reachedThreshold) {
+            amount = matched ? cfg.REWARD_FLAT : -cfg.PENALTY_FLAT;
+        } else {
+            const inMajority = majority === 0 ? true : (r.v === majority);
+            amount = matched
+                ? (inMajority ? cfg.REWARD : cfg.REWARD_MINORITY)
+                : (inMajority ? -cfg.PENALTY : -cfg.PENALTY_MINORITY);
+        }
         const applied = applyNgoc(currency, r.g, uid, amount);
         if (applied >= 0) paid += applied; else docked += -applied;
     }

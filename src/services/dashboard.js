@@ -1354,8 +1354,8 @@ function render() {
     row.appendChild(tally(item));
     const meta = el('span', 'meta', item.count + ' lần · ' + ago(item.lastAt));
     row.appendChild(meta);
-    row.appendChild(iconBtn('✅', 'Duyệt — thêm vào danh sách chờ ghi', () => act('accept', item.word)));
-    row.appendChild(iconBtn('❌', 'Loại — không phải từ hợp lệ', () => act('reject', item.word)));
+    row.appendChild(iconBtn('✅', 'Duyệt — thêm vào danh sách chờ ghi (thưởng +100 người vote đúng)', () => act('accept', item.word)));
+    row.appendChild(iconBtn('❌', 'Loại — không phải từ hợp lệ (trừ 20 người vote sai)', () => act('reject', item.word)));
     return row;
   });
 

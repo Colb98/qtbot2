@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '2.9.0';
+const CURRENT_VERSION = '2.9.1';
 
 const CHANGELOG = {
+    '2.9.1': {
+        date: '2026-06-24',
+        title: 'Nối Từ: admin chốt từ chưa đủ phiếu vẫn thưởng người vote',
+        changes: [
+            'Khi admin **duyệt/loại** một từ Nối Từ **chưa đủ phiếu** (chưa đạt ngưỡng 3 ✅/3 ❌), người đã vote từ đó **vẫn được tính thưởng/phạt** theo kết quả admin.',
+            'Mức cố định cho trường hợp này (**không tính số đông/số ít** vì chưa đủ người vote): vote **đúng +100 ngọc**, vote **sai −20 ngọc**. Từ đã đủ phiếu (graduated/auto-loại) vẫn giữ mức thưởng theo số đông như cũ.'
+        ]
+    },
     '2.9.0': {
         date: '2026-06-23',
         title: 'Két an toàn cho ngọc — gửi tiết kiệm, có lãi nhẹ',
