@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '2.9.1';
+const CURRENT_VERSION = '2.10.0';
 
 const CHANGELOG = {
+    '2.10.0': {
+        date: '2026-07-06',
+        title: 'Câu cá — lệnh mới !cauca',
+        changes: [
+            '**Lệnh mới `!cauca`** (hoặc `!fishing`) — quăng cần **miễn phí 10 lần/ngày**, xem GIF câu cá và hồi hộp chờ xem kéo lên được gì.',
+            '7 kết cục: **cá nhỏ +500 ngọc** · **cá ngừ +2.000 ngọc** · **rương báu +1 Thiên Thưởng** · rong biển / trắng tay (không có gì) · và coi chừng **cá trê / cá nóc −1.000 ngọc** — số dư có thể **âm**!',
+            'Phần thưởng được trao **sau khi GIF hé lộ kết quả** (~5 giây). Mỗi lượt câu hiện số lượt còn lại trong ngày.'
+        ]
+    },
     '2.9.1': {
         date: '2026-06-24',
         title: 'Nối Từ: admin chốt từ chưa đủ phiếu vẫn thưởng người vote',

@@ -35,10 +35,12 @@ const seasonCfg = require('./config/season');
 const seasonTeaser = require('./services/seasonTeaser');
 const exchange = require('./services/exchange');
 const bank = require('./services/bank');
+const fishing = require('./services/fishing');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
-    '!gacha', '!wordchain', '!noitu', '!vuatiengviet', '!flashmath', '!boss'
+    '!gacha', '!wordchain', '!noitu', '!vuatiengviet', '!flashmath', '!boss',
+    '!cauca', '!fishing'
 ]);
 
 const DISCLAIMER = `⚠️ **Lưu ý về tiền tệ & vật phẩm trong bot**
@@ -127,7 +129,7 @@ async function handleMessageCommand(msg) {
 **💰 Tiền tệ & Kho đồ:** \`!khodo\` · \`!daily\` · \`!doingoc\` · \`!pity\` · \`!ketngoc\` · \`!guingoc\` · \`!rutngoc\`
 **🔄 Đổi & Bán:** \`!doi\` · \`!phangiai\` · \`!banthienthuong\` · \`!bancao\` · \`!bankythuong\` · \`!bandieu\` · \`!bannhuom\`
 **🎁 Tặng & Lì xì:** \`!tangngoc\` · \`!tangthienthuong\` · \`!tangcao\` · \`!tangcao5\` · \`!tangcao9\` · \`!tangdieu\` · \`!tangphuongbang\` · \`!tangphuonghoa\` · \`!tangthantrang\` · \`!lixi\`
-**🎮 Game:** \`!gacha\` · \`!coinflip\` · \`!slot\` · \`!tong\` · \`!mat\` · \`!xoso\` · \`!wordchain\` · \`!noitu\` · \`!flashmath\` · \`!boss\`
+**🎮 Game:** \`!gacha\` · \`!coinflip\` · \`!slot\` · \`!tong\` · \`!mat\` · \`!xoso\` · \`!cauca\` · \`!wordchain\` · \`!noitu\` · \`!flashmath\` · \`!boss\`
 **🏆 BXH & Mùa giải:** \`!toptt\` · \`!topngoc\` · \`!season\` · \`!nextseason\` · \`!bond\` · \`!wordchain_top\` · \`!noitu_top\` · \`!flashmath_top\` · \`!boquathuong\`
 **📌 Khác:** \`!changelog\` · \`!disclaimer\``;
             return replyChunked(msg, shortHelp);
@@ -162,6 +164,7 @@ async function handleMessageCommand(msg) {
 • \`!tong <x|all> <3-18> [3-18 ...]\` — Đoán tổng 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.TONG_MAX_BET)}, vd \`!tong 200 10 11\`). Trúng x8–x200.
 • \`!mat <x|all> <1-6> [1-6 ...]\` — Đoán mặt xuất hiện trong 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.MAT_MAX_BET)}, vd \`!mat 200 5 6\`). Trúng x2/x4/x6.
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
+• \`!cauca\` (\`!fishing\`) — Câu cá **miễn phí** ${economy.FISHING.DAILY_LIMIT} lần/ngày, xem GIF chờ kết quả: cá nhỏ +${fmt(economy.FISHING.OUTCOMES.small.ngoc)} · cá ngừ +${fmt(economy.FISHING.OUTCOMES.tuna.ngoc)} · rương báu +1 ${renderEmote('thienthuong')} Thiên Thưởng… nhưng coi chừng cá trê/cá nóc **${fmt(economy.FISHING.OUTCOMES.catfish.ngoc)} ngọc** (số dư có thể âm!).
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
@@ -234,7 +237,7 @@ ${DISCLAIMER}`;
         // !metrics [slot|coinflip|tong|mat|...] [YYYY-MM-DD] [all]
         // Defaults to current guild's metrics; pass 'all' to aggregate across guilds.
         // !metrics list / !metrics guilds
-        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'noitu', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'boss', 'daily', 'gangoc']);
+        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'noitu', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'boss', 'daily', 'gangoc', 'fishing', 'cauca']);
         const argTokens = parts.slice(1).map(p => p.toLowerCase());
 
         if (argTokens[0] === 'list') {
@@ -464,6 +467,40 @@ ${DISCLAIMER}`;
         const r = res.reward;
         metrics.recordDaily({ guildId, nganphieu: r.nganphieu, userId: msg.author.id });
         return msg.reply(`🎁 Daily của ${member.displayName}: +${fmt(r.nganphieu)} ${renderEmote('nganphieu')}.`);
+    }
+
+    // ── Câu cá: free daily GIF faucet. The ending is rolled up front, the
+    // matching pre-rendered GIF plays, and the reward lands only after the
+    // ending is on screen (REVEAL_DELAY_MS ≈ throw animation + wait hold).
+    if (cmd === '!cauca' || cmd === '!fishing') {
+        const cd = checkGameCooldown(msg.author.id);
+        if (cd.onCooldown) {
+            const secLeft = Math.ceil(cd.msLeft / 1000);
+            return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
+        }
+        const cast = fishing.tryUseCast(guildId, msg.author.id);
+        if (!cast.ok) return msg.reply(`🎣 Bạn đã câu đủ ${cast.limit} lần hôm nay rồi. Mai ra hồ tiếp nhé!`);
+        const outcome = fishing.rollOutcome();
+        // Same neutral filename for every ending so the attachment name
+        // doesn't spoil the result before the GIF gets there.
+        const gifMsg = await msg.reply({
+            content: `🎣 **${member.displayName}** quăng cần câu... (hôm nay còn **${cast.remaining}/${cast.limit}** lượt)`,
+            files: [new AttachmentBuilder(fishing.gifPath(outcome), { name: 'cauca.gif' })]
+        });
+        await new Promise(r => setTimeout(r, economy.FISHING.REVEAL_DELAY_MS));
+        const res = fishing.settle(guildId, msg.author.id, outcome);
+        if (res.thienthuong > 0) season.bumpScoreTime(guildId, msg.author.id);
+        metrics.recordFishing({ guildId, outcome, ngocDelta: res.ngocDelta, ttDelta: res.thienthuong, userId: msg.author.id });
+        const t = fishing.OUTCOME_TEXT[outcome];
+        const rewards = [];
+        if (res.ngocDelta > 0) rewards.push(`+${fmt(res.ngocDelta)} ${renderEmote('ngoc')}`);
+        if (res.ngocDelta < 0) rewards.push(`**−${fmt(-res.ngocDelta)}** ${renderEmote('ngoc')}`);
+        if (res.thienthuong > 0) rewards.push(`+${fmt(res.thienthuong)} ${renderEmote('thienthuong')} Thiên Thưởng`);
+        const w = getWallet(guildId, msg.author.id);
+        return gifMsg.reply(
+            `${t.emoji} **${t.label}!** ${t.line}\n` +
+            `${rewards.length ? rewards.join(' · ') : 'Không nhận được gì.'} — số dư: ${fmt(w.ngoc + w.lockedNgoc)} ${renderEmote('ngoc')}`
+        );
     }
 
     // ── Unified exchange: !doi [item] [1|2|3|all] ───────────────────────────

@@ -85,6 +85,7 @@ src/
   scripts/ + src/scripts/  One-off dev/analysis scripts (sims, samples, metric imports). Not run in prod.
 
 assets/                  Fonts + profile-card art (backgrounds, character images, badges, samples).
+                         + fishing/ (source frames) and fishing/gif/ (pre-rendered !cauca GIFs, gitignored).
 emotes/                  Class emotes + in-game item emote PNGs (uploaded to Discord as custom emojis).
 word_dict/               Word lists/dicts for the wordchain & nối-từ games.
 ```
@@ -109,6 +110,7 @@ via `state.js` and call `saveData()`.
 - `coinflip.js`, `slot.js`, `dice.js` (tổng/mặt) — casino games (settle + result formatting + replay buttons).
 - `autoPlay.js` — "🔁 Auto" repeat-bet sessions for the casino games.
 - `lottery.js` — accumulating-jackpot lottery (`!xoso`), twice-daily cron draws.
+- `fishing.js` — `!cauca`/`!fishing` daily GIF faucet: weighted ending pre-rolled, matching pre-rendered GIF from `assets/fishing/gif/` (gitignored; regenerate with `scripts/gen_fishing_gifs.py`) plays, reward settles after the reveal delay. Tunables in `economy.FISHING`; daily cap in `data.fishing`, swept by `pruneDaily`.
 - `wordchain.js` (legacy/1v1), `wordchainEng.js` (English co-op), `wordchainViet.js` (`!noitu` co-op vs bot), `vuaTiengViet.js`, `flashMath.js`, `mathBoss.js` — thread-based games. Each exposes `hasThread`/`handleThreadMessage`/`handleButtonInteraction` and (most) `scheduleWeeklyPayout` + `pruneDaily`.
 - `mathGen.js` — shared arithmetic question generator (Discord-free).
 - `wordReview.js` — two-layer review pipeline for rejected `!noitu` words. **Layer 1 (players):** `!duyettu` lets players vote ✅/❌ (`wr:` buttons); 3 ✅ "graduates" a word to the admin queue, 3 ❌ auto-rejects it (contested ones, ≥1 ✅, escalate to admin). **Layer 2 (admin):** dashboard `/words` (graduated → staged → written to dict). Voters are paid/penalised in ngọc when a word reaches a verdict (truth = admin verdict on accept, crowd consensus on clean auto-reject); reward/penalty depends on matching the truth and being with/against the crowd. Tunables in `economy.WORD_REVIEW`; daily vote cap pruned via `pruneDaily`.

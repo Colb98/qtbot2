@@ -179,6 +179,14 @@ const GAME_DEFAULTS = {
             big:    { raids: 0, victories: 0, ngocAwarded: 0 }
         },
         playerIds: {}
+    },
+    fishing: {
+        casts: 0,
+        ngocMinted: 0,
+        ngocBurned: 0,
+        ttMinted: 0,
+        outcomes: {},
+        playerIds: {}
     }
 };
 
@@ -708,6 +716,20 @@ function recordWordchainReject({ guildId } = {}) {
     _dirty = true;
 }
 
+// Câu cá (faucet). ngocDelta may be negative (catfish/puffle endings).
+function recordFishing({ guildId, outcome, ngocDelta = 0, ttDelta = 0, userId }) {
+    if (isExcluded(userId)) return;
+    _checkRollover();
+    const m = _get(guildId, 'fishing');
+    m.casts++;
+    if (ngocDelta >= 0) m.ngocMinted += ngocDelta;
+    else m.ngocBurned += -ngocDelta;
+    m.ttMinted += ttDelta;
+    if (outcome) m.outcomes[outcome] = (m.outcomes[outcome] || 0) + 1;
+    if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
+    _dirty = true;
+}
+
 // ---- formatters ------------------------------------------------------------
 
 function pct(a, b) {
@@ -858,6 +880,16 @@ function _formatGame(game, perGuildStore, guildFilter) {
             `Nhỏ: ${tline('small')} | Vừa: ${tline('medium')} | Lớn: ${tline('big')}`
         ].join('\n');
     }
+    if (game === 'fishing' || game === 'cauca') {
+        const m = _flatGame(perGuildStore, guildFilter, 'fishing');
+        const uniq = uniqueCount(m.playerIds);
+        const net = (m.ngocMinted || 0) - (m.ngocBurned || 0);
+        return [
+            `🎣 CAUCA (faucet) — ${fmt(m.casts)} lượt câu | Unique: ${fmt(uniq)}`,
+            `**Minted**: ${fmt(m.ngocMinted)} ngọc | Burned (cá dữ): ${fmt(m.ngocBurned)} | Net: ${fmt(net)} | TT minted: ${fmt(m.ttMinted)}`,
+            `Endings: ${topEntries(m.outcomes, 7)}`
+        ].join('\n');
+    }
     if (game === 'wordchain_viet' || game === 'noitu') {
         const m = _flatGame(perGuildStore, guildFilter, 'wordchain_viet');
         const er = m.endReasons || { timeout: 0, dead_end: 0, bot_win: 0, surrender: 0 };
@@ -927,11 +959,14 @@ function netFromStore(perGuildStore, guildFilter) {
     const mintedFlashMath = (flat.flashmath && flat.flashmath.ngocAwarded) || 0;
     const mintedMathBoss = (flat.mathboss && flat.mathboss.ngocAwarded) || 0;
     const mintedNoitu = (flat.wordchain_viet && flat.wordchain_viet.ngocAwarded) || 0;
-    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss + mintedNoitu;
+    // Fishing counts NET (rewards − catfish/puffle losses); TT minted are items,
+    // not valued in ngọc here — same convention as gacha item drops.
+    const mintedFishing = ((flat.fishing && flat.fishing.ngocMinted) || 0) - ((flat.fishing && flat.fishing.ngocBurned) || 0);
+    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss + mintedNoitu + mintedFishing;
     const burned = (flat.gacha && flat.gacha.burned) || 0;
     return {
         netGame, minted, burned,
-        mintedWordchain, mintedGangoc, mintedDailyNganphieu, mintedVuaTiengViet, mintedFlashMath, mintedMathBoss, mintedNoitu,
+        mintedWordchain, mintedGangoc, mintedDailyNganphieu, mintedVuaTiengViet, mintedFlashMath, mintedMathBoss, mintedNoitu, mintedFishing,
         netEconomy: netGame + minted - burned
     };
 }
@@ -967,7 +1002,7 @@ function formatSummary(store, label, guildFilter) {
 function formatAllSections(bucket, guildFilter) {
     const label = bucket ? ` [${bucket}]` : ` [${_bucket}]`;
     const store = bucket ? loadBucket(bucket) : _store;
-    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'daily', 'gangoc']
+    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'daily', 'gangoc', 'fishing']
         .map(g => _formatGame(g, store, guildFilter))
         .filter(Boolean);
     sections.push(`${formatSummary(store, label, guildFilter)}\n📅 Ngày${label}`);
@@ -1018,7 +1053,7 @@ module.exports = {
     recordSlot, recordCoinflip, recordTong, recordMat, recordWordchainEng,
     recordWordchainViet, recordWordchainVietReject,
     recordGacha, recordWordchainReject, recordVuaTiengViet,
-    recordFlashMath, recordMathBoss,
+    recordFlashMath, recordMathBoss, recordFishing,
     recordDaily, recordGangocCreated, recordGangocClaim,
     formatSlot, formatCoinflip, formatTong, formatMat,
     formatAll, formatAllSections, formatGame, packSections, listBuckets,

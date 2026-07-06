@@ -10,6 +10,7 @@ const mathBoss = require('./mathBoss');
 const vuaTiengViet = require('./vuaTiengViet');
 const wordchainViet = require('./wordchainViet');
 const wordReview = require('./wordReview');
+const fishing = require('./fishing');
 const season = require('./season');
 const bank = require('./bank');
 
@@ -68,7 +69,8 @@ function runDailyPrune() {
         ['mathBoss', () => mathBoss.pruneDaily()],
         ['vuaTiengViet', () => vuaTiengViet.pruneDaily()],
         ['wordchainViet', () => wordchainViet.pruneDaily()],
-        ['wordReview', () => wordReview.pruneDaily()]
+        ['wordReview', () => wordReview.pruneDaily()],
+        ['fishing', () => fishing.pruneDaily()]
     ];
     for (const [name, fn] of tasks) {
         try { total += fn() || 0; }

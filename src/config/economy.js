@@ -83,6 +83,27 @@ const DEFAULTS = {
         nganphieuMax: 100000
     },
 
+    // ── Câu cá (!cauca / !fishing) — daily GIF faucet ────────────────────────
+    // Free cast, weighted ending, reward lands only after the pre-rendered GIF
+    // reveals the ending (REVEAL_DELAY_MS after the message is sent). ngoc can
+    // be negative (catfish/puffle) and the wallet is allowed to go below 0.
+    // EV per cast, valuing 1 thiên thưởng at TT_VALUE_NGOC = 5000:
+    //   .28×500 + .20×2000 − .12×1000 − .12×1000 + .14×5000 = 1000 ngọc.
+    FISHING: {
+        DAILY_LIMIT: 10,
+        REVEAL_DELAY_MS: 5000,
+        TT_VALUE_NGOC: 5000,
+        OUTCOMES: {
+            small:    { weight: 28, ngoc: 500 },
+            tuna:     { weight: 20, ngoc: 2000 },
+            catfish:  { weight: 12, ngoc: -1000 },
+            puffle:   { weight: 12, ngoc: -1000 },
+            treasure: { weight: 5, ngoc: 0, thienthuong: 1 },
+            kelp:     { weight: 7,  ngoc: 0 },
+            nothing:  { weight: 7,  ngoc: 0 }
+        }
+    },
+
     GACHA: {
         ROLL_COST: 100,
         SUPPORTED_COUNTS: [1, 10, 50],
