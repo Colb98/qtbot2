@@ -9,7 +9,7 @@ const flashMath = require('../services/flashMath');
 const mathBoss = require('../services/mathBoss');
 const arrangeCmd = require('../commands/arrange');
 const profileCmd = require('../commands/profile');
-const { getWallet, addNgoc, addItem, spendNgocForGame, renderEmote, buildKhodoView, fmt, ITEM_KEYS } = require('../services/currency');
+const { getWallet, addItem, spendNgocForGame, renderEmote, buildKhodoView, fmt, ITEM_KEYS } = require('../services/currency');
 const { rollMany, formatRollResult, ROLL_COST } = require('../services/gacha');
 const { tokenToSide, runMultiFlip: runCoinflipMulti } = require('../services/coinflip');
 const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('../services/slot');
@@ -387,7 +387,7 @@ async function runDiceMultiBet(interaction, game, guesses, amountPer, wasAllIn) 
     const ownerUserId = interaction.user.id;
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
-    const { roll, play, totalCost } = dice.settleMultiBet({
+    const { roll, play, totalCost, eventLines } = dice.settleMultiBet({
         guildId, userId: ownerUserId, game, guesses, amountPer,
         viaButton: true, wasAllIn, metrics, profile
     });
@@ -395,8 +395,8 @@ async function runDiceMultiBet(interaction, game, guesses, amountPer, wasAllIn) 
     const newWallet = getWallet(guildId, ownerUserId);
     const totalAfter = newWallet.ngoc + (newWallet.lockedNgoc || 0);
     const content = game === 'tong'
-        ? dice.formatTongResultMulti({ displayName, roll, sum: play.sum, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout })
-        : dice.formatMatResultMulti({ displayName, roll, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout });
+        ? dice.formatTongResultMulti({ displayName, roll, sum: play.sum, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout, eventLines })
+        : dice.formatMatResultMulti({ displayName, roll, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout, eventLines });
     const buildMulti = game === 'tong' ? dice.buildTongButtonsMulti : dice.buildMatButtonsMulti;
     const components = totalAfter > 0 ? buildMulti(ownerUserId, amountPer, guesses, totalAfter) : [];
     await interaction.followUp({ content, components }).catch(e => log.error('dice multi followUp error:', e));
@@ -534,41 +534,28 @@ async function handleDiceButton(interaction, game) {
     await interaction.deferUpdate().catch(e => log.error('dice defer error:', e));
     await disableMessageButtons(interaction);
 
-    const roll = dice.rollDice();
     const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
     const displayName = member ? member.displayName : interaction.user.username;
+    const wasAllIn = action === 'allin';
+
+    // Single cửa is settleMultiBet with N=1 — keeps wallet/profile/metrics
+    // bookkeeping (and fortune effects) in the one shared code path.
+    const { roll, play, eventLines } = dice.settleMultiBet({
+        guildId, userId: ownerUserId, game, guesses: [guess], amountPer: amount,
+        viaButton: true, wasAllIn, metrics, profile
+    });
+    const r = play.results[0];
+    const newWallet = getWallet(guildId, ownerUserId);
+    const totalAfterDice = newWallet.ngoc + (newWallet.lockedNgoc || 0);
 
     let content;
     let components;
-    const wasAllIn = action === 'allin';
     if (game === 'tong') {
-        const { sum, won, mult } = dice.playTong(roll, guess);
-        spendNgocForGame(guildId, ownerUserId, amount);
-        const tongPayout = won ? amount * mult : 0;
-        if (won) {
-            addNgoc(guildId, ownerUserId, tongPayout);
-            profile.recordWin(guildId, ownerUserId, tongPayout, 'Tổng xúc xắc');
-        }
-        profile.recordGame(guildId, ownerUserId, 'tong', amount, tongPayout);
-        metrics.recordTong({ guildId, amount, won, mult, guess, viaButton: true, wasAllIn, userId: ownerUserId });
-        const newWallet = getWallet(guildId, ownerUserId);
-        const totalAfterTong = newWallet.ngoc + (newWallet.lockedNgoc || 0);
-        content = dice.formatTongResult({ displayName, guess, roll, sum, won, amount, mult });
-        components = totalAfterTong > 0 ? dice.buildTongButtons(ownerUserId, amount, guess, totalAfterTong) : [];
+        content = dice.formatTongResult({ displayName, guess, roll, sum: play.sum, won: r.won, amount, mult: r.mult, payout: r.payout, eventLines });
+        components = totalAfterDice > 0 ? dice.buildTongButtons(ownerUserId, amount, guess, totalAfterDice) : [];
     } else {
-        const { matches, won, mult } = dice.playMat(roll, guess);
-        spendNgocForGame(guildId, ownerUserId, amount);
-        const matPayout = won ? amount * mult : 0;
-        if (won) {
-            addNgoc(guildId, ownerUserId, matPayout);
-            profile.recordWin(guildId, ownerUserId, matPayout, 'Mặt xúc xắc');
-        }
-        profile.recordGame(guildId, ownerUserId, 'mat', amount, matPayout);
-        metrics.recordMat({ guildId, amount, won, mult, face: guess, matches, viaButton: true, wasAllIn, userId: ownerUserId });
-        const newWallet = getWallet(guildId, ownerUserId);
-        const totalAfterMat = newWallet.ngoc + (newWallet.lockedNgoc || 0);
-        content = dice.formatMatResult({ displayName, face: guess, roll, matches, won, amount, mult });
-        components = totalAfterMat > 0 ? dice.buildMatButtons(ownerUserId, amount, guess, totalAfterMat) : [];
+        content = dice.formatMatResult({ displayName, face: guess, roll, matches: r.matches, won: r.won, amount, mult: r.mult, payout: r.payout, eventLines });
+        components = totalAfterDice > 0 ? dice.buildMatButtons(ownerUserId, amount, guess, totalAfterDice) : [];
     }
 
     await interaction.followUp({ content, components }).catch(e => log.error('dice followUp error:', e));

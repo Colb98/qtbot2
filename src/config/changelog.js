@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '2.10.0';
+const CURRENT_VERSION = '2.11.0';
 
 const CHANGELOG = {
+    '2.11.0': {
+        date: '2026-07-06',
+        title: 'Rút quẻ — vận may mỗi ngày (!rutque)',
+        changes: [
+            '**Lệnh mới `!rutque`** (hoặc `!fortune`) — rút quẻ vận may **miễn phí 1 lần/ngày**. Quẻ ứng vào các game **coinflip · slot · tổng · mặt** đến 0:00: quẻ **Cát** tăng tỉ lệ thắng, quẻ **Hung** giảm.',
+            '6 quẻ: 🌤️ Tiểu Cát · 🌞 Trung Cát · 🌕 **Đại Cát** (hên lớn — nhưng người xưa dặn: *hưởng lộc có hạn, biết dừng đúng lúc*) · 🌥️ Tiểu Hung · 🌧️ Trung Hung · 🌑 **Đại Hung** (vận rủi tận cùng… *cùng tắc biến, biến tắc thông*).',
+            '`!rutque lai` — **đổi quẻ** nếu không ưng: giá = **1% tổng ngọc đang có** (tính cả két, tối thiểu 1.000) và **×2 mỗi lần đổi tiếp** trong ngày. Đổi là rút lại từ đầu, không đảm bảo quẻ đẹp hơn!',
+            'Không rút quẻ = ngày bình thường, không ảnh hưởng gì. Cược trải **quá nửa số cửa** ở tổng/mặt (tổng ≥8 cửa, mặt ≥3 mặt) không được quẻ phù hộ.'
+        ]
+    },
     '2.10.0': {
         date: '2026-07-06',
         title: 'Câu cá — lệnh mới !cauca',

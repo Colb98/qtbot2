@@ -3,6 +3,7 @@ const economy = require('../config/economy');
 const { getWallet, addNgoc, spendNgocForGame, fmt, renderEmote } = require('./currency');
 const { saveData } = require('../state');
 const profile = require('./profile');
+const rutque = require('./rutque');
 
 const SYMBOLS = {
     M1: { emote: 'cao' },
@@ -32,17 +33,6 @@ const POOL = [
     { name: 'Nhỏ x0.25',            mult: 0.25, weight: 365,  kind: '2x', symbols: ['M5', 'M6'] },
     { name: 'Thua',                 mult: 0,    weight: 1230, kind: 'thua' }
 ];
-
-const _totalWeight = POOL.reduce((a, p) => a + p.weight, 0);
-
-function pickOutcome() {
-    let r = Math.random() * _totalWeight;
-    for (const p of POOL) {
-        r -= p.weight;
-        if (r < 0) return p;
-    }
-    return POOL[POOL.length - 1];
-}
 
 function pickRandom(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
@@ -98,14 +88,17 @@ function pickFromPool(pool) {
     return pool[pool.length - 1];
 }
 
-function spin(pityCount = 0, threshold = PITY_MIN) {
+// `adjustedPool` (optional) is the fortune-scaled POOL (rút quẻ). The pity
+// branch ignores it on purpose: the pity pool is already all-wins, so a win
+// rate multiplier is meaningless there and would only distort the payout mix.
+function spin(pityCount = 0, threshold = PITY_MIN, adjustedPool = null) {
     let outcome;
     let pityTriggered = false;
     if (pityCount >= threshold) {
         outcome = pickFromPool(POOL.filter(p => p.mult >= 3));
         pityTriggered = true;
     } else {
-        outcome = pickOutcome();
+        outcome = pickFromPool(adjustedPool || POOL);
     }
     const result = buildReels(outcome);
     return { result, mult: outcome.mult, name: outcome.name, pityTriggered };
@@ -150,8 +143,19 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     }
     spendNgocForGame(guildId, userId, amount);
 
-    const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore, pityThreshold);
-    const payout = Math.round(amount * mult);
+    // Fortune (rút quẻ): scale the win-side weights for this spin; payout-side
+    // effects (jackpot boost / reverse / decay) still apply under pity.
+    const mods = rutque.getModifiers(guildId, userId);
+    const spinPool = (mods.active && mods.rateMult !== 1)
+        ? rutque.scaleWinWeights(POOL, p => p.mult > 1, mods.rateMult)
+        : null;
+    const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore, pityThreshold, spinPool);
+    let payout = Math.round(amount * mult);
+    let eventLines = [];
+    if (mult > 1 && payout > 0) {
+        const jackpotPortion = mult >= economy.RUTQUE.JACKPOT_TIER.SLOT_MIN_MULT ? payout : 0;
+        ({ payout, eventLines } = rutque.applyWinPayout(guildId, userId, { payout, stake: amount, jackpotPortion, game: 'slot' }));
+    }
     if (payout > 0) {
         addNgoc(guildId, userId, payout);
         profile.recordWin(guildId, userId, payout, 'Slot');
@@ -173,7 +177,7 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     saveData();
 
     return {
-        amount, payout, mult, outcomeName, spinResult,
+        amount, payout, mult, outcomeName, spinResult, eventLines,
         pityTriggered: slotPityBefore >= pityThreshold,
         pityCapApplied,
         walletAfter
@@ -293,9 +297,15 @@ async function runMultiRoll({ guildId, userId, displayName, requestedAmount, isA
 
     let resultBlock;
     if (plays.length === 1) {
-        resultBlock = formatResultLine({ mult: plays[0].mult, payout: plays[0].payout, outcomeName: plays[0].outcomeName });
+        resultBlock = [
+            formatResultLine({ mult: plays[0].mult, payout: plays[0].payout, outcomeName: plays[0].outcomeName }),
+            ...(plays[0].eventLines || [])
+        ].join('\n');
     } else {
-        const lines = plays.map((p, i) => `\`${String(i + 1).padStart(2)}.\` ${formatResultShort({ mult: p.mult, payout: p.payout, outcomeName: p.outcomeName })}`);
+        const lines = plays.flatMap((p, i) => [
+            `\`${String(i + 1).padStart(2)}.\` ${formatResultShort({ mult: p.mult, payout: p.payout, outcomeName: p.outcomeName })}`,
+            ...(p.eventLines || [])
+        ]);
         const net = totalPayout - totalAmount;
         const sign = net >= 0 ? '+' : '−';
         lines.push(`**Tổng:** cược ${fmt(totalAmount)} → thắng ${fmt(totalPayout)} ${ngocEmote} (${sign}${fmt(Math.abs(net))})`);

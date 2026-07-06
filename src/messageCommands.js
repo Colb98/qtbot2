@@ -36,11 +36,12 @@ const seasonTeaser = require('./services/seasonTeaser');
 const exchange = require('./services/exchange');
 const bank = require('./services/bank');
 const fishing = require('./services/fishing');
+const rutque = require('./services/rutque');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
     '!gacha', '!wordchain', '!noitu', '!vuatiengviet', '!flashmath', '!boss',
-    '!cauca', '!fishing'
+    '!cauca', '!fishing', '!rutque', '!fortune'
 ]);
 
 const DISCLAIMER = `⚠️ **Lưu ý về tiền tệ & vật phẩm trong bot**
@@ -129,7 +130,7 @@ async function handleMessageCommand(msg) {
 **💰 Tiền tệ & Kho đồ:** \`!khodo\` · \`!daily\` · \`!doingoc\` · \`!pity\` · \`!ketngoc\` · \`!guingoc\` · \`!rutngoc\`
 **🔄 Đổi & Bán:** \`!doi\` · \`!phangiai\` · \`!banthienthuong\` · \`!bancao\` · \`!bankythuong\` · \`!bandieu\` · \`!bannhuom\`
 **🎁 Tặng & Lì xì:** \`!tangngoc\` · \`!tangthienthuong\` · \`!tangcao\` · \`!tangcao5\` · \`!tangcao9\` · \`!tangdieu\` · \`!tangphuongbang\` · \`!tangphuonghoa\` · \`!tangthantrang\` · \`!lixi\`
-**🎮 Game:** \`!gacha\` · \`!coinflip\` · \`!slot\` · \`!tong\` · \`!mat\` · \`!xoso\` · \`!cauca\` · \`!wordchain\` · \`!noitu\` · \`!flashmath\` · \`!boss\`
+**🎮 Game:** \`!gacha\` · \`!coinflip\` · \`!slot\` · \`!tong\` · \`!mat\` · \`!xoso\` · \`!cauca\` · \`!rutque\` · \`!wordchain\` · \`!noitu\` · \`!flashmath\` · \`!boss\`
 **🏆 BXH & Mùa giải:** \`!toptt\` · \`!topngoc\` · \`!season\` · \`!nextseason\` · \`!bond\` · \`!wordchain_top\` · \`!noitu_top\` · \`!flashmath_top\` · \`!boquathuong\`
 **📌 Khác:** \`!changelog\` · \`!disclaimer\``;
             return replyChunked(msg, shortHelp);
@@ -165,6 +166,7 @@ async function handleMessageCommand(msg) {
 • \`!mat <x|all> <1-6> [1-6 ...]\` — Đoán mặt xuất hiện trong 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.MAT_MAX_BET)}, vd \`!mat 200 5 6\`). Trúng x2/x4/x6.
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
 • \`!cauca\` (\`!fishing\`) — Câu cá **miễn phí** ${economy.FISHING.DAILY_LIMIT} lần/ngày, xem GIF chờ kết quả: cá nhỏ +${fmt(economy.FISHING.OUTCOMES.small.ngoc)} · cá ngừ +${fmt(economy.FISHING.OUTCOMES.tuna.ngoc)} · rương báu +1 ${renderEmote('thienthuong')} Thiên Thưởng… nhưng coi chừng cá trê/cá nóc **${fmt(economy.FISHING.OUTCOMES.catfish.ngoc)} ngọc** (số dư có thể âm!).
+• \`!rutque\` (\`!fortune\`) — Rút quẻ vận may **miễn phí 1 lần/ngày**: quẻ Cát tăng tỉ lệ thắng, quẻ Hung giảm — ứng vào coinflip/slot/tổng/mặt đến 0:00. \`!rutque lai\` đổi quẻ: giá = ${Math.round(economy.RUTQUE.REDRAW_WEALTH_PCT * 100)}% tổng ngọc đang có (tính cả két, tối thiểu ${fmt(economy.RUTQUE.REDRAW_BASE_COST)}), mỗi lần đổi tiếp giá ×${economy.RUTQUE.REDRAW_COST_MULT}.
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
@@ -200,7 +202,7 @@ ${DISCLAIMER}`;
 • \`!setngoc @user <n>\` — Ép đặt tổng ngọc của user thành n (mở khoá toàn bộ). Ghi log nhưng **không tính vào metrics**.
 
 **Metrics & Debug:**
-• \`!metrics [slot|coinflip|tong|mat|gacha|wordchain|noitu|vuatiengviet|flashmath|boss|daily|gangoc] [YYYY-MM-DD] [all|<guildId>]\` — Mặc định guild hiện tại; \`all\` để gộp; truyền guildId cụ thể để xem 1 guild khác.
+• \`!metrics [slot|coinflip|tong|mat|gacha|rutque|wordchain|noitu|vuatiengviet|flashmath|boss|daily|gangoc] [YYYY-MM-DD] [all|<guildId>]\` — Mặc định guild hiện tại; \`all\` để gộp; truyền guildId cụ thể để xem 1 guild khác.
 • \`!metrics list\` — Liệt kê các file metrics đã lưu. \`!metrics guilds\` — Liệt kê guilds có data.
 • \`!metrics_exclude [list|add|remove|clean] @user\` — Loại user khỏi metrics (skip toàn bộ record + dọn playerIds cũ).
 • \`!metrics_adjust <guildId|_legacy> <YYYY-MM-DD|today> <game> <field=delta> [...]\` — Cộng/trừ trực tiếp vào bucket (vd: \`rolls=-30 burned=-3000 itemCounts.cao=-1\`).
@@ -237,7 +239,7 @@ ${DISCLAIMER}`;
         // !metrics [slot|coinflip|tong|mat|...] [YYYY-MM-DD] [all]
         // Defaults to current guild's metrics; pass 'all' to aggregate across guilds.
         // !metrics list / !metrics guilds
-        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'noitu', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'boss', 'daily', 'gangoc', 'fishing', 'cauca']);
+        const GAMES = new Set(['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain', 'wordchain_eng', 'noitu', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'boss', 'daily', 'gangoc', 'fishing', 'cauca', 'rutque']);
         const argTokens = parts.slice(1).map(p => p.toLowerCase());
 
         if (argTokens[0] === 'list') {
@@ -501,6 +503,47 @@ ${DISCLAIMER}`;
             `${t.emoji} **${t.label}!** ${t.line}\n` +
             `${rewards.length ? rewards.join(' · ') : 'Không nhận được gì.'} — số dư: ${fmt(w.ngoc + w.lockedNgoc)} ${renderEmote('ngoc')}`
         );
+    }
+
+    // ── Rút quẻ: daily fortune. One free draw/day sets a luck state that
+    // coinflip/slot/tổng/mặt read; `!rutque lai` re-rolls at an escalating
+    // price (a re-roll, NOT a guaranteed escape from a bad quẻ).
+    if (cmd === '!rutque' || cmd === '!fortune') {
+        const cd = checkGameCooldown(msg.author.id);
+        if (cd.onCooldown) {
+            const secLeft = Math.ceil(cd.msLeft / 1000);
+            return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
+        }
+        const sub = (parts[1] || '').toLowerCase();
+
+        // Superadmin test helper: force a tier for today.
+        if (sub === 'set') {
+            if (!isSuperAdmin(msg.author.id)) return;
+            const res = rutque.setTier(guildId, msg.author.id, (parts[2] || '').toLowerCase());
+            if (res.error) return msg.reply(`Quẻ không hợp lệ. Dùng: ${Object.keys(rutque.TIER_META).join(', ')}`);
+            return msg.reply(rutque.formatCard({ displayName: member.displayName, guildId, userId: msg.author.id, entry: res.entry }));
+        }
+
+        if (sub === 'lai' || sub === 'redraw') {
+            const entry = rutque.getEntry(guildId, msg.author.id);
+            if (!entry) return msg.reply('Hôm nay bạn chưa rút quẻ — gõ `!rutque` trước đã.');
+            const price = rutque.getRedrawPrice(guildId, msg.author.id);
+            const w = getWallet(guildId, msg.author.id);
+            if (w.ngoc + w.lockedNgoc < price) {
+                return msg.reply(`Đổi quẻ lần này tốn ${fmt(price)} ${renderEmote('ngoc')}, bạn chỉ có ${fmt(w.ngoc + w.lockedNgoc)}.`);
+            }
+            spendNgocForGame(guildId, msg.author.id, price);
+            const res = rutque.redraw(guildId, msg.author.id);
+            metrics.recordRutque({ guildId, action: 'redraw', tier: res.tier, cost: price, userId: msg.author.id });
+            return msg.reply(rutque.formatCard({ displayName: member.displayName, guildId, userId: msg.author.id, entry: res.entry, redrawPaid: price }));
+        }
+
+        const res = rutque.draw(guildId, msg.author.id);
+        if (res.already) {
+            return msg.reply(rutque.formatCard({ displayName: member.displayName, guildId, userId: msg.author.id, entry: res.entry, isStatus: true }));
+        }
+        metrics.recordRutque({ guildId, action: 'draw', tier: res.tier, userId: msg.author.id });
+        return msg.reply(rutque.formatCard({ displayName: member.displayName, guildId, userId: msg.author.id, entry: res.entry }));
     }
 
     // ── Unified exchange: !doi [item] [1|2|3|all] ───────────────────────────
@@ -1276,7 +1319,7 @@ ${DISCLAIMER}`;
                 return msg.reply(`Bạn cần ${fmt(amountPer * nBets)} ngọc (${fmt(amountPer)} × ${nBets} cửa) nhưng chỉ có ${fmt(totalNgocDice)}.`);
             }
         }
-        const { roll, play, totalCost } = dice.settleMultiBet({
+        const { roll, play, totalCost, eventLines } = dice.settleMultiBet({
             guildId, userId: msg.author.id, game, guesses, amountPer,
             viaButton: false, wasAllIn: isAll, metrics, profile
         });
@@ -1289,8 +1332,8 @@ ${DISCLAIMER}`;
             const g = guesses[0];
             const r = play.results[0];
             const content = isTong
-                ? dice.formatTongResult({ displayName: member.displayName, guess: g, roll, sum: play.sum, won: r.won, amount: amountPer, mult: r.mult })
-                : dice.formatMatResult({ displayName: member.displayName, face: g, roll, matches: r.matches, won: r.won, amount: amountPer, mult: r.mult });
+                ? dice.formatTongResult({ displayName: member.displayName, guess: g, roll, sum: play.sum, won: r.won, amount: amountPer, mult: r.mult, payout: r.payout, eventLines })
+                : dice.formatMatResult({ displayName: member.displayName, face: g, roll, matches: r.matches, won: r.won, amount: amountPer, mult: r.mult, payout: r.payout, eventLines });
             const buildBtns = isTong ? dice.buildTongButtons : dice.buildMatButtons;
             const components = totalNgocAfterDice > 0 ? buildBtns(msg.author.id, amountPer, g, totalNgocAfterDice) : [];
             return msg.reply({ content, components });
@@ -1298,8 +1341,8 @@ ${DISCLAIMER}`;
 
         // Multi cửa → rich aggregate result + multi-cửa replay buttons.
         const content = isTong
-            ? dice.formatTongResultMulti({ displayName: member.displayName, roll, sum: play.sum, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout })
-            : dice.formatMatResultMulti({ displayName: member.displayName, roll, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout });
+            ? dice.formatTongResultMulti({ displayName: member.displayName, roll, sum: play.sum, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout, eventLines })
+            : dice.formatMatResultMulti({ displayName: member.displayName, roll, results: play.results, amountPer, totalCost, totalPayout: play.totalPayout, eventLines });
         const buildMulti = isTong ? dice.buildTongButtonsMulti : dice.buildMatButtonsMulti;
         const components = totalNgocAfterDice > 0 ? buildMulti(msg.author.id, amountPer, guesses, totalNgocAfterDice) : [];
         return msg.reply({ content, components });

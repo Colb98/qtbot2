@@ -163,11 +163,16 @@ async function playSlotRound(session) {
     await new Promise(r => setTimeout(r, 750));
     let block;
     if (plays.length === 1) {
-        block = `[ ${reels[0][0]} | ${reels[0][1]} | ${reels[0][2]} ] (-${fmt(totalAmount)} ${ngocE})\n` +
-            slot.formatResultLine({ mult: plays[0].mult, payout: plays[0].payout, outcomeName: plays[0].outcomeName });
+        block = [
+            `[ ${reels[0][0]} | ${reels[0][1]} | ${reels[0][2]} ] (-${fmt(totalAmount)} ${ngocE})`,
+            slot.formatResultLine({ mult: plays[0].mult, payout: plays[0].payout, outcomeName: plays[0].outcomeName }),
+            ...(plays[0].eventLines || [])
+        ].join('\n');
     } else {
-        const lines = plays.map((x, i) =>
-            `\`${String(i + 1).padStart(2)}.\` ${reels[i][0]} | ${reels[i][1]} | ${reels[i][2]} — ${slot.formatResultShort({ mult: x.mult, payout: x.payout, outcomeName: x.outcomeName })}`);
+        const lines = plays.flatMap((x, i) => [
+            `\`${String(i + 1).padStart(2)}.\` ${reels[i][0]} | ${reels[i][1]} | ${reels[i][2]} — ${slot.formatResultShort({ mult: x.mult, payout: x.payout, outcomeName: x.outcomeName })}`,
+            ...(x.eventLines || [])
+        ]);
         const net = totalPayout - totalAmount;
         const sign = net >= 0 ? '+' : '−';
         lines.push(`**Vòng này:** cược ${fmt(totalAmount)} → thắng ${fmt(totalPayout)} ${ngocE} (${sign}${fmt(Math.abs(net))})`);
@@ -197,13 +202,13 @@ function playCoinflipRound(session) {
     });
     if (res.error) return { error: res.error };
     const bet = res.plays.reduce((a, x) => a + x.amount, 0);
-    const payout = res.plays.reduce((a, x) => a + (x.won ? x.amount * 2 : 0), 0);
+    const payout = res.plays.reduce((a, x) => a + (x.payout != null ? x.payout : (x.won ? x.amount * 2 : 0)), 0);
     return { block: res.content, bet, payout };
 }
 
 function playDiceRound(session) {
     const p = session.params;
-    const { roll, play, totalCost } = dice.settleMultiBet({
+    const { roll, play, totalCost, eventLines } = dice.settleMultiBet({
         guildId: session.guildId, userId: session.userId, game: session.game,
         guesses: p.guesses, amountPer: p.amountPer, viaButton: true, wasAllIn: false,
         metrics, profile
@@ -213,12 +218,12 @@ function playDiceRound(session) {
     if (p.guesses.length === 1) {
         const r = play.results[0];
         block = session.game === 'tong'
-            ? dice.formatTongResult({ displayName, guess: r.guess, roll, sum: play.sum, won: r.won, amount: p.amountPer, mult: r.mult })
-            : dice.formatMatResult({ displayName, face: r.face, roll, matches: r.matches, won: r.won, amount: p.amountPer, mult: r.mult });
+            ? dice.formatTongResult({ displayName, guess: r.guess, roll, sum: play.sum, won: r.won, amount: p.amountPer, mult: r.mult, payout: r.payout, eventLines })
+            : dice.formatMatResult({ displayName, face: r.face, roll, matches: r.matches, won: r.won, amount: p.amountPer, mult: r.mult, payout: r.payout, eventLines });
     } else {
         block = session.game === 'tong'
-            ? dice.formatTongResultMulti({ displayName, roll, sum: play.sum, results: play.results, amountPer: p.amountPer, totalCost, totalPayout: play.totalPayout })
-            : dice.formatMatResultMulti({ displayName, roll, results: play.results, amountPer: p.amountPer, totalCost, totalPayout: play.totalPayout });
+            ? dice.formatTongResultMulti({ displayName, roll, sum: play.sum, results: play.results, amountPer: p.amountPer, totalCost, totalPayout: play.totalPayout, eventLines })
+            : dice.formatMatResultMulti({ displayName, roll, results: play.results, amountPer: p.amountPer, totalCost, totalPayout: play.totalPayout, eventLines });
     }
 
     const bigWins = play.results.filter(r => r.won && r.mult >= keepMinMult(session.game));

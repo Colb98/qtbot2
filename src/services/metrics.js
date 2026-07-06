@@ -187,6 +187,18 @@ const GAME_DEFAULTS = {
         ttMinted: 0,
         outcomes: {},
         playerIds: {}
+    },
+    rutque: {
+        draws: 0,
+        redraws: 0,
+        redrawBurned: 0,
+        tierCounts: {},
+        reverseProcs: 0,
+        reverseBonus: 0,
+        jackpotProcs: 0,
+        jackpotBonus: 0,
+        decayProcs: 0,
+        playerIds: {}
     }
 };
 
@@ -470,13 +482,14 @@ function recordSlot({ guildId, amount, payout, outcomeName, pityTriggered, pityC
     _dirty = true;
 }
 
-function recordCoinflip({ guildId, amount, won, side, viaButton = false, wasAllIn = false, bigWin = false, userId }) {
+function recordCoinflip({ guildId, amount, won, payout, side, viaButton = false, wasAllIn = false, bigWin = false, userId }) {
     if (isExcluded(userId)) return;
     _checkRollover();
     const m = _get(guildId, 'coinflip');
     m.spins++;
     m.wagered += amount;
-    const payout = won ? amount * 2 : 0;
+    // Fortune effects (rút quẻ) can push payout past the flat 2x.
+    if (payout == null) payout = won ? amount * 2 : 0;
     m.payout += payout;
     if (won) {
         m.wins++;
@@ -491,13 +504,14 @@ function recordCoinflip({ guildId, amount, won, side, viaButton = false, wasAllI
     _dirty = true;
 }
 
-function recordTong({ guildId, amount, won, mult, guess, viaButton = false, wasAllIn = false, userId }) {
+function recordTong({ guildId, amount, won, mult, payout, guess, viaButton = false, wasAllIn = false, userId }) {
     if (isExcluded(userId)) return;
     _checkRollover();
     const m = _get(guildId, 'tong');
     m.spins++;
     m.wagered += amount;
-    const payout = won ? amount * mult : 0;
+    // Fortune effects (rút quẻ) can push payout past amount×mult.
+    if (payout == null) payout = won ? amount * mult : 0;
     m.payout += payout;
     if (won) {
         m.wins++;
@@ -511,13 +525,14 @@ function recordTong({ guildId, amount, won, mult, guess, viaButton = false, wasA
     _dirty = true;
 }
 
-function recordMat({ guildId, amount, won, mult, face, matches, viaButton = false, wasAllIn = false, userId }) {
+function recordMat({ guildId, amount, won, mult, payout, face, matches, viaButton = false, wasAllIn = false, userId }) {
     if (isExcluded(userId)) return;
     _checkRollover();
     const m = _get(guildId, 'mat');
     m.spins++;
     m.wagered += amount;
-    const payout = won ? amount * mult : 0;
+    // Fortune effects (rút quẻ) can push payout past amount×mult.
+    if (payout == null) payout = won ? amount * mult : 0;
     m.payout += payout;
     if (won) {
         m.wins++;
@@ -730,6 +745,35 @@ function recordFishing({ guildId, outcome, ngocDelta = 0, ttDelta = 0, userId })
     _dirty = true;
 }
 
+// Rút quẻ. Draws/redraws come from the command; effects (reverse / jackpot
+// boost / decay) are recorded by rutque.applyWinPayout as they fire. The
+// reverse/jackpot bonus ngọc already flows through each game's recorded
+// payout — netFromStore must NOT add it again (only redrawBurned is a sink).
+function recordRutque({ guildId, action, tier, cost = 0, userId }) {
+    if (isExcluded(userId)) return;
+    _checkRollover();
+    const m = _get(guildId, 'rutque');
+    if (action === 'redraw') {
+        m.redraws++;
+        m.redrawBurned += cost;
+    } else {
+        m.draws++;
+    }
+    if (tier) m.tierCounts[tier] = (m.tierCounts[tier] || 0) + 1;
+    if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
+    _dirty = true;
+}
+
+function recordRutqueEffect({ guildId, type, amount = 0, userId }) {
+    if (isExcluded(userId)) return;
+    _checkRollover();
+    const m = _get(guildId, 'rutque');
+    if (type === 'reverse') { m.reverseProcs++; m.reverseBonus += amount; }
+    else if (type === 'jackpot') { m.jackpotProcs++; m.jackpotBonus += amount; }
+    else if (type === 'decay') { m.decayProcs++; }
+    _dirty = true;
+}
+
 // ---- formatters ------------------------------------------------------------
 
 function pct(a, b) {
@@ -890,6 +934,16 @@ function _formatGame(game, perGuildStore, guildFilter) {
             `Endings: ${topEntries(m.outcomes, 7)}`
         ].join('\n');
     }
+    if (game === 'rutque') {
+        const m = _flatGame(perGuildStore, guildFilter, 'rutque');
+        const uniq = uniqueCount(m.playerIds);
+        return [
+            `🎴 RUTQUE — ${fmt(m.draws)} lượt rút | ${fmt(m.redraws)} đổi quẻ | Unique: ${fmt(uniq)}`,
+            `**Burned** (đổi quẻ): ${fmt(m.redrawBurned)} ngọc`,
+            `Tiers: ${topEntries(m.tierCounts, 6)}`,
+            `Nghịch thiên: ${fmt(m.reverseProcs)} procs (+${fmt(m.reverseBonus)} ngọc) | Jackpot boost: ${fmt(m.jackpotProcs)} (+${fmt(m.jackpotBonus)} ngọc) | Mãn chiêu tổn: ${fmt(m.decayProcs)}`
+        ].join('\n');
+    }
     if (game === 'wordchain_viet' || game === 'noitu') {
         const m = _flatGame(perGuildStore, guildFilter, 'wordchain_viet');
         const er = m.endReasons || { timeout: 0, dead_end: 0, bot_win: 0, surrender: 0 };
@@ -963,9 +1017,13 @@ function netFromStore(perGuildStore, guildFilter) {
     // not valued in ngọc here — same convention as gacha item drops.
     const mintedFishing = ((flat.fishing && flat.fishing.ngocMinted) || 0) - ((flat.fishing && flat.fishing.ngocBurned) || 0);
     const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss + mintedNoitu + mintedFishing;
-    const burned = (flat.gacha && flat.gacha.burned) || 0;
+    // Rutque redraw fees are a pure sink; its reverse/jackpot bonuses are NOT
+    // added here — they already sit inside each game's recorded payout.
+    const burnedGacha = (flat.gacha && flat.gacha.burned) || 0;
+    const burnedRutque = (flat.rutque && flat.rutque.redrawBurned) || 0;
+    const burned = burnedGacha + burnedRutque;
     return {
-        netGame, minted, burned,
+        netGame, minted, burned, burnedGacha, burnedRutque,
         mintedWordchain, mintedGangoc, mintedDailyNganphieu, mintedVuaTiengViet, mintedFlashMath, mintedMathBoss, mintedNoitu, mintedFishing,
         netEconomy: netGame + minted - burned
     };
@@ -994,7 +1052,7 @@ function formatSummary(store, label, guildFilter) {
     return [
         `━━━━━━━━━━━━━━━━━━━━━━━━━`,
         `💹 NET KINH TẾ${label}${scope} = ${sign(netEconomy)} ngọc`,
-        `  = net game (${sign(netGame)}) + faucet (${sign(minted)}) − gacha burned (${fmt(burned)})`,
+        `  = net game (${sign(netGame)}) + faucet (${sign(minted)}) − burned gacha+quẻ (${fmt(burned)})`,
         `📈 7-day rolling avg net economy: ${sign(Math.round(r.avg))} ngọc/ngày (${r.days} ngày)`
     ].join('\n');
 }
@@ -1002,7 +1060,7 @@ function formatSummary(store, label, guildFilter) {
 function formatAllSections(bucket, guildFilter) {
     const label = bucket ? ` [${bucket}]` : ` [${_bucket}]`;
     const store = bucket ? loadBucket(bucket) : _store;
-    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'wordchain_eng', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'daily', 'gangoc', 'fishing']
+    const sections = ['slot', 'coinflip', 'tong', 'mat', 'gacha', 'rutque', 'wordchain_eng', 'wordchain_viet', 'vuatiengviet', 'flashmath', 'mathboss', 'daily', 'gangoc', 'fishing']
         .map(g => _formatGame(g, store, guildFilter))
         .filter(Boolean);
     sections.push(`${formatSummary(store, label, guildFilter)}\n📅 Ngày${label}`);
@@ -1054,6 +1112,7 @@ module.exports = {
     recordWordchainViet, recordWordchainVietReject,
     recordGacha, recordWordchainReject, recordVuaTiengViet,
     recordFlashMath, recordMathBoss, recordFishing,
+    recordRutque, recordRutqueEffect,
     recordDaily, recordGangocCreated, recordGangocClaim,
     formatSlot, formatCoinflip, formatTong, formatMat,
     formatAll, formatAllSections, formatGame, packSections, listBuckets,

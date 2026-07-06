@@ -104,6 +104,66 @@ const DEFAULTS = {
         }
     },
 
+    // ── Rút quẻ (!rutque / !fortune) — daily fortune, modifies casino odds ──
+    // One draw per user per GMT+7 day; no draw = neutral day. RATE_MULT
+    // multiplies the win probability of coinflip/slot/tổng/mặt; JACKPOT_MULT
+    // multiplies jackpot-tier payouts (slot mult ≥ SLOT_MIN_MULT, mặt 3-match;
+    // tổng is DISABLED via 999 — its multiplier is player-chosen and near-fair,
+    // so a x1.5 jackpot on chosen x36+/x70+ sums would be a +24–28% EV farm).
+    // Đại Hung "reverse": a win with payout ≥ REVERSE_MIN_PAYOUT_RATIO × stake
+    // procs ×REVERSE_MULT at REVERSE_PROC. EV ratio = RATE_MULT × (1 +
+    // (REVERSE_MULT−1) × REVERSE_PROC) must stay < 1 → hard ceiling
+    // REVERSE_PROC < 0.107 at mult 5, or Đại Hung goes +EV and gets farmed
+    // (0.095 → EV ratio 0.966). The ratio gate is defense in depth against
+    // refund-grind shapes (e.g. mặt 2-face wins that pay ≈ the stake back).
+    // Đại Cát "man decay" (Mãn Chiêu Tổn): wins score points by net profit;
+    // past MAN_THRESHOLD each scoring win rolls hazard (pts − threshold) ×
+    // MAN_STEP_PER_POINT; on proc the win rate silently becomes
+    // DECAY_RATE_MULT for the rest of the day. There is deliberately NO
+    // binary tell: instead of cutting the jackpot boost off, the chance a
+    // jackpot still gets the full JACKPOT_MULT fades linearly from 100% at
+    // MAN_THRESHOLD pts to MAN_JACKPOT_LUCKY_MIN at MAN_JACKPOT_FADE_END pts
+    // (pinned at the minimum once decay has fired) — the player keeps seeing
+    // occasional x1.35 jackpots and can never pinpoint when the luck died.
+    // Points and decay are PER-DAY, not per-draw: a redraw never refreshes a
+    // spent Đại Cát.
+    // DICE_COVERAGE_MAX_RATIO: a tổng/mặt bet covering ≥ this share of all
+    // cửa (tổng ≥ 8/16 sums, mặt ≥ 3/6 faces) gets NO fortune effects at all —
+    // high-coverage bets are near-guaranteed "wins" (mặt all-6 always refunds
+    // its stake) and would turn any payout multiplier into a riskless grinder.
+    // Redraw price = max(REDRAW_BASE_COST, total ngọc × REDRAW_WEALTH_PCT)
+    // × REDRAW_COST_MULT^(redraws today) — scales with wealth so whales can't
+    // fish for Đại Cát with pocket change. Total counts ví + locked + bank
+    // két (same as !topngoc), so banking ngọc doesn't dodge the scaling.
+    RUTQUE: {
+        REDRAW_BASE_COST: 1000,
+        REDRAW_WEALTH_PCT: 0.01,
+        REDRAW_COST_MULT: 2,
+        REVERSE_PROC: 0.095,
+        REVERSE_MULT: 5,
+        REVERSE_MIN_PAYOUT_RATIO: 2,
+        DICE_COVERAGE_MAX_RATIO: 0.5,
+        COINFLIP_MAX_WIN_RATE: 0.95,
+        DECAY_RATE_MULT: 0.975,
+        MAN_THRESHOLD: 1000,
+        MAN_STEP_PER_POINT: 0.002,
+        MAN_JACKPOT_FADE_END: 2000,
+        MAN_JACKPOT_LUCKY_MIN: 0.05,
+        MAN_BIG_NET: 50000,  MAN_BIG_PTS: 100,
+        MAN_MID_NET: 20000,  MAN_MID_PTS: 40,
+        MAN_SMALL_NET: 5000, MAN_SMALL_PTS: 10,
+        MAN_TINY_PTS: 2,
+        JACKPOT_TIER: { SLOT_MIN_MULT: 18, TONG_MIN_MULT: 999, MAT_MIN_MATCHES: 3 },
+        TIERS: {
+            tieu_cat:   { WEIGHT: 28, RATE_MULT: 1.05, JACKPOT_MULT: 1.00 },
+            trung_cat:  { WEIGHT: 16, RATE_MULT: 1.10, JACKPOT_MULT: 1.00 },
+            dai_cat:    { WEIGHT: 6,  RATE_MULT: 1.30, JACKPOT_MULT: 1.35 },
+            tieu_hung:  { WEIGHT: 28, RATE_MULT: 0.95, JACKPOT_MULT: 1.00 },
+            trung_hung: { WEIGHT: 16, RATE_MULT: 0.85, JACKPOT_MULT: 1.50 },
+            dai_hung:   { WEIGHT: 6,  RATE_MULT: 0.70, JACKPOT_MULT: 1.00 }
+        }
+    },
+
     GACHA: {
         ROLL_COST: 100,
         SUPPORTED_COUNTS: [1, 10, 50],
