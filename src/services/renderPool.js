@@ -30,6 +30,7 @@ function inProcess(kind, args) {
     const partyImage = require('./partyImage');
     if (kind === 'profile') return profileCard.renderProfileCard(args.player);
     if (kind === 'party') return partyImage.renderArrangement(args.result, args.mode, args.names);
+    if (kind === 'summary') return require('./summaryCard').renderSummaryCard(args.summary);
     return Promise.reject(new Error(`unknown render kind: ${kind}`));
 }
 
@@ -104,5 +105,6 @@ function start() {
 
 function renderProfileCard(player) { return submit('profile', { player }); }
 function renderArrangement(result, mode, names) { return submit('party', { result, mode, names }); }
+function renderAutoSummary(summary) { return submit('summary', { summary }); }
 
-module.exports = { start, renderProfileCard, renderArrangement };
+module.exports = { start, renderProfileCard, renderArrangement, renderAutoSummary };

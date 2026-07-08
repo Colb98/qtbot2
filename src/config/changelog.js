@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '2.11.0';
+const CURRENT_VERSION = '2.12.0';
 
 const CHANGELOG = {
+    '2.12.0': {
+        date: '2026-07-08',
+        title: 'Tổng kết Auto · Câu tiếp · nút Kho đồ',
+        changes: [
+            '📊 **Tổng kết phiên Auto** — sau khi auto dừng, bấm **📊 Tổng kết** để xem ảnh thống kê: số lần thắng/thua, **tổng thắng** (xanh) / **tổng thua** (đỏ) → lãi/lỗ ròng, thắng lớn nhất, và các lần quẻ ứng nghiệm (⚡ Nghịch Thiên Cải Mệnh, 🎊 Jackpot quẻ).',
+            '🎣 **Câu tiếp** — nút ngay dưới kết quả câu cá để quăng cần tiếp mà không cần gõ lại `!cauca`.',
+            '📦 **Kho đồ** — nút ở mọi bàn game (slot · coinflip · tổng · mặt · câu cá · auto). Ai bấm sẽ xem **kho đồ của chính mình** (chỉ mình thấy).'
+        ]
+    },
     '2.11.0': {
         date: '2026-07-06',
         title: 'Rút quẻ — vận may mỗi ngày (!rutque)',

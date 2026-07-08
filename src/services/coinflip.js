@@ -3,6 +3,7 @@ const economy = require('../config/economy');
 const { renderEmote, fmt, getWallet, addNgoc, spendNgocForGame } = require('./currency');
 const profile = require('./profile');
 const rutque = require('./rutque');
+const { khodoButton } = require('./uiButtons');
 
 const SIDE_LABEL = { sap: 'Sấp', ngua: 'Ngửa' };
 const COINFLIP_MAX_FLIPS = 5;
@@ -142,9 +143,10 @@ function runMultiFlip({ guildId, userId, displayName, side, isAll, requestedAmou
             : (Math.random() < 0.5 ? 'sap' : 'ngua');
         let payout = won ? perFlip * 2 : 0;
         let eventLines = [];
+        let events = [];
         if (won) {
             // Coinflip has no jackpot tier — only reverse/decay can apply.
-            ({ payout, eventLines } = rutque.applyWinPayout(guildId, userId, { payout, stake: perFlip, game: 'coinflip' }));
+            ({ payout, eventLines, events } = rutque.applyWinPayout(guildId, userId, { payout, stake: perFlip, game: 'coinflip' }));
             addNgoc(guildId, userId, payout);
             profile.recordWin(guildId, userId, payout, 'Coinflip');
         }
@@ -153,7 +155,7 @@ function runMultiFlip({ guildId, userId, displayName, side, isAll, requestedAmou
         if (metrics && metrics.recordCoinflip) {
             metrics.recordCoinflip({ guildId, amount: perFlip, won, payout, side, viaButton, wasAllIn: isAll, bigWin, userId });
         }
-        plays.push({ result, won, amount: perFlip, payout, eventLines });
+        plays.push({ result, won, amount: perFlip, payout, eventLines, events });
     }
     if (plays.length === 0) return { error: 'no_ngoc', available: total };
 
@@ -162,7 +164,10 @@ function runMultiFlip({ guildId, userId, displayName, side, isAll, requestedAmou
     const content = plays.length === 1
         ? formatResult({ displayName, side, result: plays[0].result, won: plays[0].won, amount: plays[0].amount, payout: plays[0].payout, wasAllIn: isAll, eventLines: plays[0].eventLines })
         : formatResultMulti({ displayName, side, plays });
-    const components = totalAfter > 0 ? [buildContinueButtons(userId, perFlip, side, totalAfter, plays.length)] : [];
+    const khodoRow = new ActionRowBuilder().addComponents(khodoButton());
+    const components = totalAfter > 0
+        ? [buildContinueButtons(userId, perFlip, side, totalAfter, plays.length), khodoRow]
+        : [khodoRow];
     return { content, components, perFlip, plays };
 }
 

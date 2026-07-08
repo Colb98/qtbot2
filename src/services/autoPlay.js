@@ -8,6 +8,7 @@ const dice = require('./dice');
 const profile = require('./profile');
 const metrics = require('./metrics');
 const { isBlockedByMaintenance } = require('./maintenance');
+const { khodoButton, appendButtons } = require('./uiButtons');
 
 // Auto mode for the casino games: repeat the player's last bet once per
 // AUTO_PLAY.INTERVAL_MS (the next round fires when the previous one is
@@ -25,6 +26,59 @@ const sessions = new Map(); // userId -> session
 const HISTORY_SIZE = 5;
 
 const GAME_LABEL = { slot: 'Slot', coinflip: 'Coinflip', tong: 'Cược Tổng', mat: 'Cược Mặt' };
+// Per-game counting unit for the summary card: slot counts spins, coinflip
+// counts flips, tổng/mặt count rounds (the cửa of a multi-bet are aggregated).
+const UNIT_LABEL = { slot: 'lượt', coinflip: 'lần', tong: 'vòng', mat: 'vòng' };
+
+// ── Session stats (for the 📊 Tổng kết summary card) ────────────────────────
+// Accumulated per unit as the session runs; a snapshot is stored on finalize so
+// the summary button can render a stats image after the message moves on.
+function newStats() {
+    return {
+        plays: 0, wins: 0, losses: 0,
+        totalWin: 0, totalLoss: 0, biggestPayout: 0,
+        reverseCount: 0, reverseTotal: 0,
+        jackpotCount: 0, jackpotTotal: 0,
+        pityCount: 0
+    };
+}
+
+function accumulateStats(stats, entries) {
+    if (!stats) return;
+    for (const e of entries) {
+        const bet = e.bet || 0;
+        const payout = e.payout || 0;
+        stats.plays += 1;
+        if (payout > 0) stats.wins += 1; else stats.losses += 1;
+        stats.totalWin += Math.max(0, payout - bet);
+        stats.totalLoss += Math.max(0, bet - payout);
+        if (payout > stats.biggestPayout) stats.biggestPayout = payout;
+        for (const ev of (e.events || [])) {
+            if (ev.type === 'reverse') { stats.reverseCount += 1; stats.reverseTotal += ev.bonus || 0; }
+            else if (ev.type === 'jackpot') { stats.jackpotCount += 1; stats.jackpotTotal += ev.extra || 0; }
+        }
+        if (e.pityTriggered) stats.pityCount += 1;
+    }
+}
+
+// Finished-session summaries keyed by the session message id, so the 📊 button
+// (which carries only the userId) can look its data up. In-memory only, FIFO
+// capped so a long-lived process doesn't grow this without bound.
+const summaries = new Map();
+const SUMMARY_CAP = 100;
+
+function storeSummary(messageId, summary) {
+    if (!messageId) return;
+    summaries.set(messageId, summary);
+    while (summaries.size > SUMMARY_CAP) {
+        const oldest = summaries.keys().next().value;
+        summaries.delete(oldest);
+    }
+}
+
+function getSummary(messageId) {
+    return summaries.get(messageId) || null;
+}
 
 const STOP_REASON_TEXT = {
     user: 'đã dừng theo yêu cầu',
@@ -60,7 +114,8 @@ function buildStopRow(userId, stopping = false) {
             .setCustomId(`auto:stop:${userId}`)
             .setLabel(stopping ? 'Đang dừng…' : '⏹️ Dừng Auto')
             .setStyle(ButtonStyle.Danger)
-            .setDisabled(stopping)
+            .setDisabled(stopping),
+        khodoButton()
     );
 }
 
@@ -190,6 +245,9 @@ async function playSlotRound(session) {
         postKeepsake(session, lines.join('\n'));
     }
 
+    accumulateStats(session.stats, plays.map(x => ({
+        bet: x.amount, payout: x.payout, events: x.events, pityTriggered: x.pityTriggered
+    })));
     return { block, bet: totalAmount, payout: totalPayout };
 }
 
@@ -203,12 +261,17 @@ function playCoinflipRound(session) {
     if (res.error) return { error: res.error };
     const bet = res.plays.reduce((a, x) => a + x.amount, 0);
     const payout = res.plays.reduce((a, x) => a + (x.payout != null ? x.payout : (x.won ? x.amount * 2 : 0)), 0);
+    accumulateStats(session.stats, res.plays.map(x => ({
+        bet: x.amount,
+        payout: x.payout != null ? x.payout : (x.won ? x.amount * 2 : 0),
+        events: x.events
+    })));
     return { block: res.content, bet, payout };
 }
 
 function playDiceRound(session) {
     const p = session.params;
-    const { roll, play, totalCost, eventLines } = dice.settleMultiBet({
+    const { roll, play, totalCost, eventLines, events } = dice.settleMultiBet({
         guildId: session.guildId, userId: session.userId, game: session.game,
         guesses: p.guesses, amountPer: p.amountPer, viaButton: true, wasAllIn: false,
         metrics, profile
@@ -240,6 +303,7 @@ function playDiceRound(session) {
         postKeepsake(session, lines.join('\n'));
     }
 
+    accumulateStats(session.stats, [{ bet: totalCost, payout: play.totalPayout, events }]);
     return { block, bet: totalCost, payout: play.totalPayout };
 }
 
@@ -306,7 +370,33 @@ async function finalize(session) {
         : (STOP_REASON_TEXT[reason] || STOP_REASON_TEXT.user);
     const parts = [`🔁 **AUTO ${GAME_LABEL[session.game]}** — ⏹️ ${reasonText} (${session.round} vòng · cược **${betLabel(session)}**/vòng)`];
     if (session.history.length) parts.push(historySection(session));
-    await editSession(session, parts.join('\n\n'), buildResumeComponents(session));
+
+    const rows = buildResumeComponents(session);
+    if (session.round > 0) {
+        // 📊 Tổng kết is always offered; add 📦 Kho đồ except on dice resume
+        // grids, whose action row already carries it (don't double-add). A
+        // broke session has no resume rows (rows = []) so it needs 📦 too.
+        const extra = [
+            new ButtonBuilder()
+                .setCustomId(`auto:sum:${session.userId}`)
+                .setLabel('📊 Tổng kết')
+                .setStyle(ButtonStyle.Primary)
+        ];
+        if (session.game === 'slot' || session.game === 'coinflip' || rows.length === 0) {
+            extra.push(khodoButton());
+        }
+        appendButtons(rows, extra);
+        storeSummary(session.message && session.message.id, {
+            game: session.game,
+            gameLabel: GAME_LABEL[session.game],
+            betLabel: betLabel(session),
+            rounds: session.round,
+            unit: UNIT_LABEL[session.game],
+            reasonText,
+            stats: session.stats
+        });
+    }
+    await editSession(session, parts.join('\n\n'), rows);
 }
 
 async function runLoop(session) {
@@ -357,7 +447,7 @@ async function startAuto({ game, channel, guildId, userId, displayName, params, 
         game, guildId, guild: channel.guild, channel, userId, displayName, params,
         maxRounds: (Number.isInteger(maxRounds) && maxRounds >= 1 && maxRounds <= cfg().MAX_ROUNDS)
             ? maxRounds : cfg().MAX_ROUNDS,
-        round: 0, history: [],
+        round: 0, history: [], stats: newStats(),
         stopRequested: false, stopReason: null,
         message: null, _wake: null, _wakeTimer: null
     };
@@ -379,5 +469,6 @@ module.exports = {
     requestStop,
     requestStopFromMessage,
     isActive,
-    buildStopRow
+    buildStopRow,
+    getSummary
 };

@@ -165,7 +165,8 @@ async function handleMessageCommand(msg) {
 • \`!tong <x|all> <3-18> [3-18 ...]\` — Đoán tổng 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.TONG_MAX_BET)}, vd \`!tong 200 10 11\`). Trúng x8–x200.
 • \`!mat <x|all> <1-6> [1-6 ...]\` — Đoán mặt xuất hiện trong 3 xúc xắc, cược nhiều cửa cùng lúc (mỗi cửa tối đa ${fmt(economy.MAT_MAX_BET)}, vd \`!mat 200 5 6\`). Trúng x2/x4/x6.
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
-• \`!cauca\` (\`!fishing\`) — Câu cá **miễn phí** ${economy.FISHING.DAILY_LIMIT} lần/ngày, xem GIF chờ kết quả: cá nhỏ +${fmt(economy.FISHING.OUTCOMES.small.ngoc)} · cá ngừ +${fmt(economy.FISHING.OUTCOMES.tuna.ngoc)} · rương báu +1 ${renderEmote('thienthuong')} Thiên Thưởng… nhưng coi chừng cá trê/cá nóc **${fmt(economy.FISHING.OUTCOMES.catfish.ngoc)} ngọc** (số dư có thể âm!).
+• \`!cauca\` (\`!fishing\`) — Câu cá **miễn phí** ${economy.FISHING.DAILY_LIMIT} lần/ngày, xem GIF chờ kết quả: cá nhỏ +${fmt(economy.FISHING.OUTCOMES.small.ngoc)} · cá ngừ +${fmt(economy.FISHING.OUTCOMES.tuna.ngoc)} · rương báu +1 ${renderEmote('thienthuong')} Thiên Thưởng… nhưng coi chừng cá trê/cá nóc **${fmt(economy.FISHING.OUTCOMES.catfish.ngoc)} ngọc** (số dư có thể âm!). Bấm **🎣 Câu tiếp** để câu tiếp không cần gõ lại.
+• **Nút 📦 Kho đồ** ở mọi bàn game — ai bấm cũng xem được **kho đồ của chính mình** (chỉ mình thấy). Sau khi **Auto** dừng, bấm **📊 Tổng kết** để xem ảnh thống kê thắng/thua cả phiên.
 • \`!rutque\` (\`!fortune\`) — Rút quẻ vận may **miễn phí 1 lần/ngày**: quẻ Cát tăng tỉ lệ thắng, quẻ Hung giảm — ứng vào coinflip/slot/tổng/mặt đến 0:00. \`!rutque lai\` đổi quẻ: giá = ${Math.round(economy.RUTQUE.REDRAW_WEALTH_PCT * 100)}% tổng ngọc đang có (tính cả két, tối thiểu ${fmt(economy.RUTQUE.REDRAW_BASE_COST)}), mỗi lần đổi tiếp giá ×${economy.RUTQUE.REDRAW_COST_MULT}.
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
@@ -480,29 +481,14 @@ ${DISCLAIMER}`;
             const secLeft = Math.ceil(cd.msLeft / 1000);
             return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
         }
-        const cast = fishing.tryUseCast(guildId, msg.author.id);
-        if (!cast.ok) return msg.reply(`🎣 Bạn đã câu đủ ${cast.limit} lần hôm nay rồi. Mai ra hồ tiếp nhé!`);
-        const outcome = fishing.rollOutcome();
-        // Same neutral filename for every ending so the attachment name
-        // doesn't spoil the result before the GIF gets there.
-        const gifMsg = await msg.reply({
-            content: `🎣 **${member.displayName}** quăng cần câu... (hôm nay còn **${cast.remaining}/${cast.limit}** lượt)`,
-            files: [new AttachmentBuilder(fishing.gifPath(outcome), { name: 'cauca.gif' })]
+        const res = await fishing.runFishingCast({
+            guildId, userId: msg.author.id, displayName: member.displayName,
+            send: (p) => msg.reply(p), metrics, season
         });
-        await new Promise(r => setTimeout(r, economy.FISHING.REVEAL_DELAY_MS));
-        const res = fishing.settle(guildId, msg.author.id, outcome);
-        if (res.thienthuong > 0) season.bumpScoreTime(guildId, msg.author.id);
-        metrics.recordFishing({ guildId, outcome, ngocDelta: res.ngocDelta, ttDelta: res.thienthuong, userId: msg.author.id });
-        const t = fishing.OUTCOME_TEXT[outcome];
-        const rewards = [];
-        if (res.ngocDelta > 0) rewards.push(`+${fmt(res.ngocDelta)} ${renderEmote('ngoc')}`);
-        if (res.ngocDelta < 0) rewards.push(`**−${fmt(-res.ngocDelta)}** ${renderEmote('ngoc')}`);
-        if (res.thienthuong > 0) rewards.push(`+${fmt(res.thienthuong)} ${renderEmote('thienthuong')} Thiên Thưởng`);
-        const w = getWallet(guildId, msg.author.id);
-        return gifMsg.reply(
-            `${t.emoji} **${t.label}!** ${t.line}\n` +
-            `${rewards.length ? rewards.join(' · ') : 'Không nhận được gì.'} — số dư: ${fmt(w.ngoc + w.lockedNgoc)} ${renderEmote('ngoc')}`
-        );
+        if (res && res.ok === false && res.reason === 'limit') {
+            return msg.reply(`🎣 Bạn đã câu đủ ${res.limit} lần hôm nay rồi. Mai ra hồ tiếp nhé!`);
+        }
+        return;
     }
 
     // ── Rút quẻ: daily fortune. One free draw/day sets a luck state that

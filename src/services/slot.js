@@ -4,6 +4,7 @@ const { getWallet, addNgoc, spendNgocForGame, fmt, renderEmote } = require('./cu
 const { saveData } = require('../state');
 const profile = require('./profile');
 const rutque = require('./rutque');
+const { khodoButton } = require('./uiButtons');
 
 const SYMBOLS = {
     M1: { emote: 'cao' },
@@ -152,9 +153,10 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore, pityThreshold, spinPool);
     let payout = Math.round(amount * mult);
     let eventLines = [];
+    let events = [];
     if (mult > 1 && payout > 0) {
         const jackpotPortion = mult >= economy.RUTQUE.JACKPOT_TIER.SLOT_MIN_MULT ? payout : 0;
-        ({ payout, eventLines } = rutque.applyWinPayout(guildId, userId, { payout, stake: amount, jackpotPortion, game: 'slot' }));
+        ({ payout, eventLines, events } = rutque.applyWinPayout(guildId, userId, { payout, stake: amount, jackpotPortion, game: 'slot' }));
     }
     if (payout > 0) {
         addNgoc(guildId, userId, payout);
@@ -177,7 +179,7 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     saveData();
 
     return {
-        amount, payout, mult, outcomeName, spinResult, eventLines,
+        amount, payout, mult, outcomeName, spinResult, eventLines, events,
         pityTriggered: slotPityBefore >= pityThreshold,
         pityCapApplied,
         walletAfter
@@ -314,9 +316,10 @@ async function runMultiRoll({ guildId, userId, displayName, requestedAmount, isA
 
     const lastPlay = plays[plays.length - 1];
     const totalNgocAfter = lastPlay.walletAfter.ngoc + (lastPlay.walletAfter.lockedNgoc || 0);
+    const khodoRow = new ActionRowBuilder().addComponents(khodoButton());
     const components = totalNgocAfter > 0
-        ? [buildContinueButtons(userId, lastPlay.amount, totalNgocAfter, plays.length)]
-        : [];
+        ? [buildContinueButtons(userId, lastPlay.amount, totalNgocAfter, plays.length), khodoRow]
+        : [khodoRow];
     await slotMsg.edit({
         content: `${render(stateFinal)}\n${resultBlock}`,
         components

@@ -1,4 +1,4 @@
-const { Events, MessageFlags, ActionRowBuilder, ButtonBuilder, AttachmentBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Events, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const path = require('path');
 const log = require('../../logger');
 const wordchain = require('../services/wordchain');
@@ -15,6 +15,8 @@ const { tokenToSide, runMultiFlip: runCoinflipMulti } = require('../services/coi
 const { runMultiRoll: runSlotMultiRoll, SLOT_MAX_ROLLS } = require('../services/slot');
 const dice = require('../services/dice');
 const autoPlay = require('../services/autoPlay');
+const renderPool = require('../services/renderPool');
+const fishing = require('../services/fishing');
 const metrics = require('../services/metrics');
 const economy = require('../config/economy');
 const { data, saveData } = require('../state');
@@ -165,6 +167,8 @@ module.exports = {
                     await mathBoss.handleButtonInteraction(interaction);
                 } else if (interaction.customId.startsWith('khodo:')) {
                     await handleKhodoButton(interaction);
+                } else if (interaction.customId.startsWith('cauca:')) {
+                    await handleFishingButton(interaction);
                 } else if (interaction.customId.startsWith('wr:')) {
                     await handleWordReviewButton(interaction);
                 } else {
@@ -211,6 +215,7 @@ function rejectIfOnButtonCooldown(interaction) {
 // restart) just get their components cleared.
 async function handleAutoStopButton(interaction) {
     const [, action, ownerUserId] = interaction.customId.split(':');
+    if (action === 'sum') return handleAutoSummaryButton(interaction, ownerUserId);
     if (action !== 'stop') return;
     if (interaction.user.id !== ownerUserId) {
         return interaction.reply({ content: 'Đây không phải phiên auto của bạn.', flags: MessageFlags.Ephemeral });
@@ -219,6 +224,45 @@ async function handleAutoStopButton(interaction) {
     await interaction.update({ components: [autoPlay.buildStopRow(ownerUserId, true)] }).catch(() => {});
     if (!autoPlay.requestStopFromMessage(ownerUserId, interaction.message.id)) {
         await interaction.message.edit({ components: [] }).catch(() => {});
+    }
+}
+
+// Rendered summary PNGs, cached on the main thread by session message id so a
+// repeated 📊 click doesn't re-render. FIFO-capped like the summary data map.
+const summaryPngCache = new Map();
+const SUMMARY_PNG_CAP = 50;
+
+function cacheSummaryPng(messageId, png) {
+    summaryPngCache.set(messageId, png);
+    while (summaryPngCache.size > SUMMARY_PNG_CAP) {
+        summaryPngCache.delete(summaryPngCache.keys().next().value);
+    }
+}
+
+// 📊 Tổng kết on an auto-play final message. Owner-locked; posts the stats
+// card PUBLICLY (user-confirmed). Data lives in an in-memory FIFO cache, so an
+// old session's button reports that its summary has expired.
+async function handleAutoSummaryButton(interaction, ownerUserId) {
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải phiên auto của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    if (rejectIfOnButtonCooldown(interaction)) return;
+    const messageId = interaction.message.id;
+    const summary = autoPlay.getSummary(messageId);
+    if (!summary) {
+        return interaction.reply({ content: '📊 Phiên auto này đã cũ — dữ liệu tổng kết không còn.', flags: MessageFlags.Ephemeral });
+    }
+    await interaction.deferReply().catch(e => log.error('auto summary defer error:', e));
+    try {
+        let png = summaryPngCache.get(messageId);
+        if (!png) {
+            png = await renderPool.renderAutoSummary(summary);
+            cacheSummaryPng(messageId, png);
+        }
+        await interaction.editReply({ files: [new AttachmentBuilder(png, { name: 'auto-tongket.png' })] });
+    } catch (e) {
+        log.error('auto summary render error:', e);
+        await interaction.editReply({ content: '⚠️ Không tạo được ảnh tổng kết, thử lại sau.' }).catch(() => {});
     }
 }
 
@@ -617,8 +661,52 @@ async function handleSlotButton(interaction) {
     }
 }
 
+// 🎣 Câu tiếp on a fishing settle message: recast without retyping !cauca.
+// Owner-locked, and uses the full game cooldown (not the shorter button
+// window) so it can't out-pace a fresh !cauca.
+async function handleFishingButton(interaction) {
+    const [, action, ownerUserId] = interaction.customId.split(':');
+    if (action !== 'again') return;
+    if (interaction.user.id !== ownerUserId) {
+        return interaction.reply({ content: 'Đây không phải cần câu của bạn.', flags: MessageFlags.Ephemeral });
+    }
+    const cd = checkGameCooldown(interaction.user.id);
+    if (cd.onCooldown) {
+        const secLeft = Math.ceil(cd.msLeft / 1000);
+        return interaction.reply({ content: `⏳ Vui lòng chờ ${secLeft}s trước khi câu tiếp.`, flags: MessageFlags.Ephemeral });
+    }
+    await interaction.deferUpdate().catch(e => log.error('cauca defer error:', e));
+    await disableMessageButtons(interaction);
+    const member = await interaction.guild.members.fetch(ownerUserId).catch(() => null);
+    const displayName = member ? member.displayName : interaction.user.username;
+    const res = await fishing.runFishingCast({
+        guildId: interaction.guildId, userId: ownerUserId, displayName,
+        send: (p) => interaction.followUp(p), metrics, season
+    });
+    if (res && res.ok === false && res.reason === 'limit') {
+        await interaction.followUp({ content: `🎣 Bạn đã câu đủ ${res.limit} lần hôm nay rồi. Mai ra hồ tiếp nhé!`, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+}
+
 async function handleKhodoButton(interaction) {
     const [, action, ownerUserId] = interaction.customId.split(':');
+    // 📦 Kho đồ button attached to game messages: whoever clicks sees THEIR OWN
+    // inventory as an ephemeral embed (no owner id — customId is just `khodo:me`).
+    if (action === 'me') {
+        const clickerId = interaction.user.id;
+        const member = await interaction.guild.members.fetch(clickerId).catch(() => null);
+        const displayName = member ? member.displayName : interaction.user.username;
+        const { embed, hiddenCount } = buildKhodoView(interaction.guildId, clickerId, displayName, false);
+        const components = hiddenCount > 0
+            ? [new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`khodo:all:${clickerId}`)
+                    .setLabel(`Xem hết (+${hiddenCount} trống)`)
+                    .setStyle(ButtonStyle.Secondary)
+            )]
+            : [];
+        return interaction.reply({ embeds: [embed], components, flags: MessageFlags.Ephemeral }).catch(e => log.error('khodo me error', e));
+    }
     if (action !== 'all') return;
     if (interaction.user.id !== ownerUserId) {
         return interaction.reply({ content: 'Đây không phải kho đồ của bạn.', flags: MessageFlags.Ephemeral });

@@ -9,6 +9,7 @@ const { parentPort } = require('worker_threads');
 const log = require('../../logger');
 const profileCard = require('./profileCard');
 const partyImage = require('./partyImage');
+const summaryCard = require('./summaryCard');
 
 if (!parentPort) {
     throw new Error('renderWorker must be run as a worker thread');
@@ -22,6 +23,8 @@ parentPort.on('message', async (msg) => {
             buf = await profileCard.renderProfileCard(args.player);
         } else if (kind === 'party') {
             buf = await partyImage.renderArrangement(args.result, args.mode, args.names);
+        } else if (kind === 'summary') {
+            buf = await summaryCard.renderSummaryCard(args.summary);
         } else {
             throw new Error(`unknown render kind: ${kind}`);
         }

@@ -1200,6 +1200,8 @@ module.exports = {
     achCtx,
     formatAchievementValue,
     registerFonts,
+    FONT_BODY,
+    FONT_CAPS,
     SECT_TO_CODE,
     ITEM_LABELS,
     CARD_W,

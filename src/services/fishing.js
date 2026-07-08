@@ -1,7 +1,9 @@
 const path = require('path');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
 const { data, saveData } = require('../state');
 const economy = require('../config/economy');
-const { todayStr, addNgoc, addItem } = require('./currency');
+const { todayStr, addNgoc, addItem, getWallet, renderEmote, fmt } = require('./currency');
+const { khodoButton } = require('./uiButtons');
 
 // Câu cá (!cauca / !fishing) — daily faucet with pre-rendered GIF endings.
 // The GIFs live in assets/fishing/gif/ (gitignored while the art is under
@@ -71,6 +73,56 @@ function settle(guildId, userId, outcome) {
     return { ngocDelta, thienthuong: tt };
 }
 
+// 🎣 Câu tiếp button + 📦 Kho đồ, appended to the settle reply so the player
+// can recast without retyping !cauca. The button disables at 0 lượt.
+function buildFishingRow(userId, remaining, limit) {
+    const canCast = remaining > 0;
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`cauca:again:${userId}`)
+            .setLabel(canCast ? `🎣 Câu tiếp (còn ${remaining}/${limit})` : 'Hết lượt hôm nay')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(!canCast),
+        khodoButton()
+    );
+}
+
+// One end-to-end cast: consume a daily use, play the GIF, wait for the reveal,
+// settle the reward and post the result (with the 🎣/📦 buttons) as a reply to
+// the GIF message. Shared by the !cauca command and the 🎣 Câu tiếp button.
+// `send` posts the GIF message (msg.reply / interaction.followUp) and returns
+// it; `metrics`/`season` are injected so this module stays dependency-light.
+// Returns { ok:false, reason:'limit', limit } when the daily cap is hit.
+async function runFishingCast({ guildId, userId, displayName, send, metrics, season }) {
+    const cast = tryUseCast(guildId, userId);
+    if (!cast.ok) return { ok: false, reason: 'limit', limit: cast.limit };
+    const outcome = rollOutcome();
+    // Same neutral filename for every ending so the attachment name doesn't
+    // spoil the result before the GIF gets there.
+    const gifMsg = await send({
+        content: `🎣 **${displayName}** quăng cần câu... (hôm nay còn **${cast.remaining}/${cast.limit}** lượt)`,
+        files: [new AttachmentBuilder(gifPath(outcome), { name: 'cauca.gif' })]
+    });
+    await new Promise(r => setTimeout(r, economy.FISHING.REVEAL_DELAY_MS));
+    const res = settle(guildId, userId, outcome);
+    if (res.thienthuong > 0 && season) season.bumpScoreTime(guildId, userId);
+    if (metrics && metrics.recordFishing) {
+        metrics.recordFishing({ guildId, outcome, ngocDelta: res.ngocDelta, ttDelta: res.thienthuong, userId });
+    }
+    const t = OUTCOME_TEXT[outcome];
+    const rewards = [];
+    if (res.ngocDelta > 0) rewards.push(`+${fmt(res.ngocDelta)} ${renderEmote('ngoc')}`);
+    if (res.ngocDelta < 0) rewards.push(`**−${fmt(-res.ngocDelta)}** ${renderEmote('ngoc')}`);
+    if (res.thienthuong > 0) rewards.push(`+${fmt(res.thienthuong)} ${renderEmote('thienthuong')} Thiên Thưởng`);
+    const w = getWallet(guildId, userId);
+    await gifMsg.reply({
+        content: `${t.emoji} **${t.label}!** ${t.line}\n` +
+            `${rewards.length ? rewards.join(' · ') : 'Không nhận được gì.'} — số dư: ${fmt(w.ngoc + w.lockedNgoc)} ${renderEmote('ngoc')}`,
+        components: [buildFishingRow(userId, cast.remaining, cast.limit)]
+    });
+    return { ok: true, outcome };
+}
+
 function pruneDaily(today) {
     today = today || todayStr();
     let removed = 0;
@@ -92,5 +144,7 @@ module.exports = {
     tryUseCast,
     rollOutcome,
     settle,
+    buildFishingRow,
+    runFishingCast,
     pruneDaily
 };

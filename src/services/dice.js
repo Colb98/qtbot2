@@ -2,6 +2,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const economy = require('../config/economy');
 const { renderEmote, fmt, spendNgocForGame, addNgoc } = require('./currency');
 const rutque = require('./rutque');
+const { khodoButton } = require('./uiButtons');
 
 const FACE_UNICODE = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
 
@@ -126,6 +127,7 @@ function settleMultiBet({ guildId, userId, game, guesses, amountPer, viaButton, 
     }
 
     let eventLines = [];
+    let events = [];
     if (mods && mods.active && play.totalPayout > 0) {
         // Jackpot tier: mặt 3-match only (tổng is disabled by config — its
         // multiplier is player-chosen). Reverse eligibility is checked on the
@@ -146,6 +148,7 @@ function settleMultiBet({ guildId, userId, game, guesses, amountPer, viaButton, 
             play.totalPayout = res.payout;
         }
         eventLines = res.eventLines;
+        events = res.events || [];
     }
 
     spendNgocForGame(guildId, userId, totalCost);
@@ -161,7 +164,7 @@ function settleMultiBet({ guildId, userId, game, guesses, amountPer, viaButton, 
             metrics.recordMat({ guildId, amount: amountPer, won: r.won, mult: r.mult, payout: r.payout, face: r.face, matches: r.matches, viaButton, wasAllIn, userId });
         }
     }
-    return { roll, play, totalCost, eventLines };
+    return { roll, play, totalCost, eventLines, events };
 }
 
 function buildTongButtons(userId, amount, guess, walletNgoc) {
@@ -201,7 +204,8 @@ function buildTongButtons(userId, amount, guess, walletNgoc) {
             .setCustomId(`tong:auto:${userId}:${amount}:${guess}`)
             .setLabel('🔁 Auto')
             .setStyle(ButtonStyle.Primary)
-            .setDisabled(!canAfford)
+            .setDisabled(!canAfford),
+        khodoButton()
     ));
     return rows;
 }
@@ -238,7 +242,8 @@ function buildMatButtons(userId, amount, face, walletNgoc) {
             .setCustomId(`mat:auto:${userId}:${amount}:${face}`)
             .setLabel('🔁 Auto')
             .setStyle(ButtonStyle.Primary)
-            .setDisabled(!canAfford)
+            .setDisabled(!canAfford),
+        khodoButton()
     ));
     return rows;
 }
@@ -288,7 +293,8 @@ function buildTongButtonsMulti(userId, amountPer, guesses, walletNgoc) {
             .setCustomId(`tong:mauto:${userId}:${amountPer}:${list}`)
             .setLabel('🔁 Auto')
             .setStyle(ButtonStyle.Primary)
-            .setDisabled(!canAffordSame)
+            .setDisabled(!canAffordSame),
+        khodoButton()
     ));
     return rows;
 }
@@ -333,7 +339,8 @@ function buildMatButtonsMulti(userId, amountPer, guesses, walletNgoc) {
             .setCustomId(`mat:mauto:${userId}:${amountPer}:${list}`)
             .setLabel('🔁 Auto')
             .setStyle(ButtonStyle.Primary)
-            .setDisabled(!canAffordSame)
+            .setDisabled(!canAffordSame),
+        khodoButton()
     ));
     return rows;
 }
