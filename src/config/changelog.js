@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '2.13.0';
+const CURRENT_VERSION = '3.0.0';
 
 const CHANGELOG = {
+    '3.0.0': {
+        date: '2026-07-09',
+        title: 'Reset máy chủ — làm mới cuộc đua sang mùa mới',
+        changes: [
+            '🔄 **Reset máy chủ** — để cân bằng lại nền kinh tế và làm mới cuộc đua, **ngọc** được reset theo **bậc thang**: giữ 100% tới 500K, 70% tới 1 triệu, 50% tới 2 triệu, 20% phần còn lại — người chơi vừa/nhỏ gần như không đổi, chỉ thu hẹp khoảng cách với nhóm dư dả (**không xoá trắng**).',
+            '🌟 **Thiên Thưởng không mất** — TT hiện có được chuyển thành **"Thiên Thưởng (cũ)"** và quy đổi 1:1 sang TT mùa mới bằng cách **chơi game**: cứ **100.000** ngọc đã cược (thắng hay thua đều tính) đổi được **1** TT. Gõ `!doitt` để quy đổi, xem tiến độ trong `!khodo`.',
+            '🏆 **Danh hiệu · huy hiệu · thành tựu mùa cũ được giữ vĩnh viễn** trên profile — thành quả của bạn không mất đi.',
+            'Vật phẩm cao cấp mùa cũ vẫn phân giải/đổi được; sau reset, phân giải đồ mùa cũ trả về **TT cũ** (cần chơi để kích hoạt lại).'
+        ]
+    },
     '2.13.0': {
         date: '2026-07-09',
         title: 'Quẻ Bói — làm lại !rutque (lớp điểm phúc)',

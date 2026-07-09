@@ -3,7 +3,7 @@ const path = require('path');
 const { AttachmentBuilder } = require('discord.js');
 const log = require('../logger');
 const client = require('./client');
-const { data, saveData } = require('./state');
+const { data, saveData, flushSync } = require('./state');
 const { CLASS_NAMES, MANAGER_ID, EMOTE_GUILD_ID, EMOTE_FILES } = require('./constants');
 const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin, checkGameCooldown, replyEphemeral, replyChunked } = require('./utils');
 const { isMaintenance, setMaintenance, isBlockedByMaintenance } = require('./services/maintenance');
@@ -37,6 +37,7 @@ const exchange = require('./services/exchange');
 const bank = require('./services/bank');
 const fishing = require('./services/fishing');
 const rutque = require('./services/rutque');
+const reset = require('./services/reset');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
@@ -145,6 +146,7 @@ async function handleMessageCommand(msg) {
 • \`!ketngoc\` / \`!guingoc <n|all>\` / \`!rutngoc <n|all>\` — Két an toàn cho ngọc: gửi ngọc vào két để **khỏi lỡ tay tiêu** (không dùng được trong game) nhưng **vẫn tính** \`!topngoc\` và có **lãi nhẹ ${Math.round(economy.BANK.INTEREST_RATE * 10000) / 100}%/ngày** (trên mức thấp hơn giữa số dư đầu/cuối ngày).
 • \`!doi [vật phẩm] [1|2|3|all]\` — Đổi vật phẩm cao cấp (TT → linh thú/trang phục, linh thú → bậc cao hơn). Không gõ vật phẩm → menu chọn. Vật phẩm mùa cũ vẫn đổi được nhưng **không tính điểm** BXH.
 • \`!phangiai [linh thú] [n|all]\` — Phân giải linh thú → thiên thưởng. Linh thú giá trị ≥9 TT bị phạt: −10% TT hoặc trừ 20% giá trị bằng ngọc (chọn khi xác nhận).
+• \`!doitt\` — Sau reset máy chủ: quy đổi **Thiên Thưởng (cũ)** → TT mùa mới. Mỗi ${fmt(economy.RESET.WAGER_PER_TT)} ngọc đã cược đổi 1 TT (xem tiến độ trong \`!khodo\`).
 • \`!gacha [1-100|all]\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Pity lượt 20 (KT+) / 200 (TT).
 • \`!pity\` — Xem lượt còn lại đến pity.
 • \`!toptt\` / \`!topngoc\` — Bảng xếp hạng.
@@ -222,7 +224,9 @@ ${DISCLAIMER}`;
 • \`!season_setchannel [#channel|clear]\` — Cài kênh announce kết thúc mùa.
 • \`!season_setlength <số tuần>\` — Đổi độ dài mùa (mặc định 8 tuần).
 • \`!season_setend +<ngày>|<YYYY-MM-DD>\` — Đặt thời điểm kết thúc mùa hiện tại.
-• \`!season_end\` — Chốt mùa ngay (trao danh hiệu/huy hiệu, sang mùa mới). Dùng test / chữa cháy nếu cron lỡ.
+• \`!season_end\` — Chốt mùa ngay **KHÔNG reset ngọc** (chỉ trao danh hiệu/huy hiệu, sang mùa mới). Reset toàn bộ dùng \`!server_reset\`. *(Tự động chốt mùa đã TẮT — chỉ chốt thủ công.)*
+• \`!announcereset #channel [ghi chú]\` — Đăng thông báo reset máy chủ (reset ngọc + quy đổi Thiên Thưởng) vào kênh chỉ định.
+• \`!server_reset [confirm]\` — **RESET máy chủ**: chốt mùa (trao danh hiệu) → nén ngọc theo bậc thang → đóng băng TT thành "TT cũ". Không có \`confirm\` = xem trước; tự backup data.json trước khi chạy.
 
 **Guild War:**
 • \`!setup channel #channel\` — Set kênh đăng ký bang chiến.
@@ -1214,6 +1218,105 @@ ${DISCLAIMER}`;
         }
         const st = season.setEndsAt(endsAt);
         return msg.reply(`✅ Mùa hiện tại sẽ kết thúc <t:${Math.floor(st.endsAt / 1000)}:F> (<t:${Math.floor(st.endsAt / 1000)}:R>).`);
+    }
+
+    // Broadcast an upcoming server-reset notice (ngọc reset + Thiên Thưởng
+    // carry-over) into a chosen channel. Superadmin only. Optional trailing text
+    // is appended so the admin can attach the exact date / rates for the reset.
+    if (cmd === '!announcereset') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const channelId = (parts[1] || '').replace(/[^0-9]/g, '');
+        if (!channelId) return msg.reply('Cú pháp: `!announcereset #channel [ghi chú thêm]` (vd ngày reset, tỉ lệ quy đổi).');
+        const targetChannel = await msg.guild.channels.fetch(channelId).catch(() => null);
+        if (!targetChannel || targetChannel.type !== ChannelType.GuildText) return msg.reply('Kênh phải là text channel hợp lệ.');
+        const note = parts.slice(2).join(' ').trim();
+        const ngoc = renderEmote('ngoc');
+        const tt = renderEmote('thienthuong');
+        const lines = [
+            '# ⚠️ THÔNG BÁO: RESET MÁY CHỦ — CHUẨN BỊ SANG MÙA MỚI',
+            'Để làm mới cuộc đua và cân bằng lại nền kinh tế, server sẽ **reset** trong thời gian tới:',
+            '',
+            `• 💎 **Ngọc** sẽ được reset. Một phần ngọc hiện có được quy đổi sang mùa mới theo **bậc thang** (càng nhiều ngọc, mỗi ngọc quy đổi được càng ít) — thu hẹp khoảng cách, **không xoá trắng**.`,
+            `• ${tt} **Thiên Thưởng** mùa cũ **không mất**, nhưng cần **quy đổi** sang Thiên Thưởng mùa mới bằng cách chơi game (cược tích luỹ ${ngoc} ngọc để đổi).`,
+            '• 🏆 **Danh hiệu · huy hiệu · thành tựu** mùa cũ được **giữ vĩnh viễn** trên profile — thành quả của bạn không mất đi.',
+            '',
+            'Hãy tận dụng thời gian còn lại! Chi tiết cách quy đổi sẽ được công bố khi mùa mới bắt đầu.'
+        ];
+        if (note) lines.push('', `📌 ${note}`);
+        const sent = await targetChannel.send({
+            content: lines.join('\n'),
+            allowedMentions: { parse: ['everyone', 'roles', 'users'] }
+        }).catch(e => { log.error('announcereset send failed', e); return null; });
+        if (!sent) return msg.reply('❌ Không gửi được thông báo (kiểm tra quyền bot trong kênh).');
+        return msg.reply(`✅ Đã đăng thông báo reset vào <#${channelId}>.`);
+    }
+
+    // Convert frozen Thiên Thưởng (cũ) → live Thiên Thưởng, gated by wager
+    // accrued in resetWager. Converts as many as the accumulator allows.
+    if (cmd === '!doitt') {
+        const w = getWallet(guildId, msg.author.id);
+        const legacy = w.items.tt_legacy || 0;
+        const per = economy.RESET.WAGER_PER_TT;
+        if (legacy <= 0) return msg.reply(`Bạn không có ${renderEmote('thienthuong')} Thiên Thưởng cũ nào cần quy đổi.`);
+        const n = Math.min(Math.floor((w.resetWager || 0) / per), legacy);
+        if (n <= 0) {
+            const need = per - ((w.resetWager || 0) % per);
+            return msg.reply(`Chưa đủ cược để quy đổi. Mỗi **${fmt(per)}** ngọc cược (thắng hay thua đều tính) đổi được **1** Thiên Thưởng. Cần cược thêm **${fmt(need)}** ngọc. Bạn còn **${fmt(legacy)}** ${renderEmote('thienthuong')} TT cũ.`);
+        }
+        w.resetWager -= n * per;
+        w.items.tt_legacy -= n;
+        w.items.thienthuong += n;
+        saveData();
+        return msg.reply(`✅ Quy đổi **${fmt(n)}** ${renderEmote('thienthuong')} Thiên Thưởng cũ → Thiên Thưởng mùa mới. Còn **${fmt(w.items.tt_legacy)}** TT cũ · cược tích luỹ còn **${fmt(w.resetWager)}** ngọc.`);
+    }
+
+    // Destructive: compress all ngọc on the ladder + freeze TT to tt_legacy.
+    // Requires `confirm`; snapshots data.json to a .bak first. Superadmin only.
+    if (cmd === '!server_reset') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        if ((parts[1] || '').toLowerCase() !== 'confirm') {
+            if (reset.hasReset(guildId)) return msg.reply('⚠️ Server này đã từng reset. Gõ `!server_reset confirm` để chạy lại (lần nữa) — cân nhắc kỹ.');
+            const p = reset.previewReset(guildId);
+            const curId = season.getCurrentSeasonId();
+            const nextExists = !!seasonCfg.getSeason(curId + 1);
+            return msg.reply([
+                '⚠️ **RESET MÁY CHỦ** — thao tác KHÔNG hoàn tác (trừ khi khôi phục backup).',
+                nextExists
+                    ? `• 🏆 Chốt **Mùa ${curId}** → **Mùa ${curId + 1}**: trao danh hiệu/huy hiệu BXH (Thiên Thưởng + Ngọc) trên số dư hiện tại.`
+                    : `• 🏆 Chốt **Mùa ${curId}** (chưa có cấu hình Mùa ${curId + 1} → giữ nguyên mùa, vẫn trao danh hiệu).`,
+                `• 💎 Ngọc: **${fmt(p.ngocBefore)}** → **${fmt(p.ngocAfter)}** (thu về ${fmt(p.ngocBefore - p.ngocAfter)}) trên **${fmt(p.wallets)}** ví.`,
+                `• 🌟 Đóng băng **${fmt(p.ttMoved)}** Thiên Thưởng → TT cũ (đổi lại bằng \`!doitt\`).`,
+                'Gõ `!server_reset confirm` để thực hiện.'
+            ].join('\n'));
+        }
+        let backup;
+        try {
+            backup = reset.backupDataFile();
+        } catch (e) {
+            log.error('server_reset: backup failed', e);
+            return msg.reply('❌ Không tạo được backup — đã HUỶ reset.');
+        }
+        // 1) Roll the season FIRST so leaderboard titles/badges are granted on
+        //    the real (pre-reset) Thiên Thưởng balances; 2) then compress wallets.
+        let rolloverLine;
+        try {
+            const roll = await season.runRollover(client, { force: true });
+            rolloverLine = roll.rolled
+                ? `🏆 Đã chốt **Mùa ${roll.endingId}** → **Mùa ${roll.newId}** (trao danh hiệu/huy hiệu${season.getState().announceChannel[guildId] ? ' · đã đăng thông báo' : ''}).`
+                : `⚠️ Không chốt được mùa (lý do: ${roll.reason}) — vẫn tiếp tục reset ngọc.`;
+        } catch (e) {
+            log.error('server_reset: rollover failed', e);
+            rolloverLine = '⚠️ Lỗi khi chốt mùa — vẫn tiếp tục reset ngọc.';
+        }
+        const res = reset.applyServerReset(guildId, { force: true });
+        if (!res.ok) return msg.reply(`${rolloverLine}\nKhông reset ngọc được (lý do: ${res.reason}).`);
+        return msg.reply([
+            rolloverLine,
+            `✅ Đã reset **${fmt(res.wallets)}** ví.`,
+            `💎 Ngọc: **${fmt(res.ngocBefore)}** → **${fmt(res.ngocAfter)}** (thu về ${fmt(res.ngocBefore - res.ngocAfter)}).`,
+            `🌟 Đóng băng **${fmt(res.ttMoved)}** Thiên Thưởng (đổi lại qua \`!doitt\`).`,
+            `🗂️ Backup: \`${backup.split('/').pop()}\``
+        ].join('\n'));
     }
 
     if (cmd === '!coinflip') {

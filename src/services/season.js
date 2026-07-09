@@ -340,10 +340,13 @@ async function runRollover(client, { force = false } = {}) {
     return { rolled: true, endingId, newId: s.current, announcements };
 }
 
-async function maybeRollover(client) {
-    const s = ensureState();
-    if (Date.now() >= s.endsAt) return runRollover(client, { force: false });
-    return { rolled: false, reason: 'not-due' };
+// Automatic rollover is DISABLED — seasons only advance manually, folded into
+// !server_reset (rollover + wealth compression in the correct order). The
+// countdown (endsAt / !season / !nextseason) still displays as before, but
+// nothing fires when it elapses. To roll a season, an admin runs !server_reset
+// (or !season_end for a rollover without an economy reset).
+async function maybeRollover(/* client */) {
+    return { rolled: false, reason: 'auto-disabled' };
 }
 
 async function announceRollover(client, endingId, announcements) {

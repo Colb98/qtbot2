@@ -387,6 +387,23 @@ const DEFAULTS = {
         CONSOLATION_SHARE: 125,   // per ticket → consolation reserve (pool gets the rest)
         PRIZE_3_OF_4: 1000,
         PRIZE_2_OF_4: 100
+    },
+
+    // ── Server reset (!server_reset) — one-time wealth compression at a season
+    // boundary. See season2_reset_spec.md. LADDER is a bracketed marginal
+    // carry-over curve applied to each wallet's TOTAL ngọc (ví + khoá + két):
+    // each bracket carries `rate` of the portion of ngọc that falls in it. The
+    // top bracket uses a large finite cap (not Infinity) so the override walker
+    // keeps every leaf admin-editable. WAGER_PER_TT = ngọc a player must wager
+    // (win or lose) to convert 1 old Thiên Thưởng into a new one (!doitt).
+    RESET: {
+        LADDER: [
+            { upTo: 500000,        rate: 1.0 },
+            { upTo: 1000000,       rate: 0.7 },
+            { upTo: 2000000,       rate: 0.5 },
+            { upTo: 1000000000000, rate: 0.2 }
+        ],
+        WAGER_PER_TT: 100000
     }
 };
 

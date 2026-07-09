@@ -1,5 +1,5 @@
 const log = require('../../logger');
-const { scheduleWeeklyJobs, scheduleDailyPrune, scheduleSeasonRollover, scheduleDailyBankInterest } = require('../services/scheduler');
+const { scheduleWeeklyJobs, scheduleDailyPrune, scheduleDailyBankInterest } = require('../services/scheduler');
 const { data } = require('../state');
 const { retroactiveGrantAll } = require('../services/bangChienReward');
 const { scheduleWeeklyPayout } = require('../services/wordchainEng');
@@ -15,7 +15,10 @@ module.exports = {
         log.info(`Logged in as ${client.user.tag}`);
         scheduleWeeklyJobs();
         scheduleDailyPrune();
-        scheduleSeasonRollover(client);
+        // Auto season rollover is intentionally OFF — seasons advance manually
+        // via !server_reset (see season.js maybeRollover). The countdown still
+        // displays; it just never triggers a rollover on its own.
+        // scheduleSeasonRollover(client);
         scheduleDailyBankInterest();
         scheduleWeeklyPayout();
         scheduleVtvPayout();

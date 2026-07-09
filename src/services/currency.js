@@ -8,7 +8,10 @@ const ANIMATED_EMOTES = new Set(['shake_tt', 'slotanim']);
 // !upload_ingame_emotes to register them as chat emotes. The profile card reads
 // the PNGs directly, so showcase icons work even before the upload.
 const SEASON2_ITEM_KEYS = ['s2_pet1', 's2_pet2', 's2_thanthu', 's2_thanthuplus', 's2_thantrang'];
-const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'cao5', 'cao9', 'kythuong', 'thienthuong', 'phuonghoang1', 'phuonghoang2', 'thantrang', ...SEASON2_ITEM_KEYS];
+// `tt_legacy` = pre-reset Thiên Thưởng, frozen at !server_reset and unlocked
+// into live `thienthuong` by wagering (!doitt). Not season-scored (isScoredKey
+// only counts `thienthuong` + current premium keys), so it never touches BXH.
+const ITEM_KEYS = ['nhuom', 'dieu', 'cao', 'cao5', 'cao9', 'kythuong', 'thienthuong', 'tt_legacy', 'phuonghoang1', 'phuonghoang2', 'thantrang', ...SEASON2_ITEM_KEYS];
 const ITEM_LABELS = {
     nhuom: 'Nhuộm',
     dieu: 'Diều',
@@ -17,6 +20,7 @@ const ITEM_LABELS = {
     cao9: 'Cáo 9 đuôi',
     kythuong: 'Kỳ Thưởng',
     thienthuong: 'Thiên Thưởng',
+    tt_legacy: 'Thiên Thưởng (cũ)',
     phuonghoang1: 'Phượng Băng',
     phuonghoang2: 'Phượng Hoả',
     thantrang: 'Thần Trang',
@@ -72,6 +76,9 @@ function getWallet(guildId, userId) {
     if (typeof w.bank.snapshot !== 'number') w.bank.snapshot = 0;
     if (typeof w.slotPity !== 'number') w.slotPity = 0;
     if (typeof w.slotStreakMaxBet !== 'number') w.slotStreakMaxBet = 0;
+    // Ngọc wagered (win or lose) since the last reset — the fuel for converting
+    // frozen tt_legacy back to live thienthuong (!doitt). See reset.js.
+    if (typeof w.resetWager !== 'number') w.resetWager = 0;
     return w;
 }
 
@@ -112,12 +119,15 @@ function addLockedItem(guildId, userId, key, amount) {
     return w.lockedItems[key];
 }
 
-// Deducts ngọc for games: locked first, then non-locked. Saves data.
+// Deducts ngọc for games: locked first, then non-locked. Saves data. Also
+// accrues the stake into resetWager (the single choke point for all casino
+// stakes: coinflip / slot / tổng / mặt), which powers post-reset !doitt.
 function spendNgocForGame(guildId, userId, amount) {
     const w = getWallet(guildId, userId);
     const lockedUsed = Math.min(amount, w.lockedNgoc);
     w.lockedNgoc -= lockedUsed;
     w.ngoc -= (amount - lockedUsed);
+    w.resetWager = (w.resetWager || 0) + amount;
     saveData();
 }
 
@@ -222,13 +232,24 @@ function buildKhodoView(guildId, userId, displayName, showAll) {
     };
 
     const premiumKeys = seasonCfg.allPremiumKeys();
-    const commonKeys = ITEM_KEYS.filter(k => k !== 'thienthuong' && !premiumKeys.has(k));
+    const commonKeys = ITEM_KEYS.filter(k => k !== 'thienthuong' && k !== 'tt_legacy' && !premiumKeys.has(k));
 
     const bankTotal = bankedTotal(w);
+    // Frozen (pre-reset) Thiên Thưởng: show the balance + how much more the
+    // player must wager to convert the next one (!doitt).
+    const legacyTT = (w.items.tt_legacy || 0) + (w.lockedItems.tt_legacy || 0);
+    const legacyLines = [];
+    if (legacyTT > 0) {
+        const per = economy.RESET.WAGER_PER_TT;
+        const ready = Math.min(Math.floor((w.resetWager || 0) / per), legacyTT);
+        const need = per - ((w.resetWager || 0) % per);
+        legacyLines.push(`${renderEmote('thienthuong')} TT cũ: **${fmt(legacyTT)}** (đổi được **${fmt(ready)}** · cược thêm ${fmt(need)} ngọc/TT — \`!doitt\`)`);
+    }
     const fields = [{
         name: 'Tiền tệ',
         value: [
             itemLine('thienthuong'),
+            ...legacyLines,
             `${renderEmote('ngoc')} Ngọc: **${fmt(w.ngoc + w.lockedNgoc)}**`,
             ...(bankTotal > 0 ? [`🏦 Ngọc (két): **${fmt(bankTotal)}**`] : []),
             `${renderEmote('nganphieu')} Ngân phiếu: **${fmt(w.nganphieu)}**`

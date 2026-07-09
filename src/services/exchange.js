@@ -25,7 +25,7 @@ const {
     MessageFlags
 } = require('discord.js');
 const log = require('../../logger');
-const { saveData } = require('../state');
+const { data, saveData } = require('../state');
 const { getWallet, ITEM_LABELS, fmt, renderEmote } = require('./currency');
 const economy = require('../config/economy');
 const cfg = require('../config/season');
@@ -240,22 +240,36 @@ function performDismantle(guildId, userId, key, n, mode) {
         w.ngoc -= nlNgoc;
         w.lockedNgoc -= q.ngocCost - nlNgoc;
     }
-    w.items.thienthuong += nonLockedTT;
-    w.lockedItems.thienthuong += lockedTT;
+    // After a server reset, dismantling a FROZEN (past-season) item reactivates
+    // old wealth — route it into the wager-gated tt_legacy instead of live TT so
+    // it can't skip the !doitt gate (see season2_reset_spec.md, Risk #2). Current
+    // season items dismantle to live TT as normal.
+    const legacyRoute = !q.entry.current && !!(data.reset && data.reset[guildId]);
+    if (legacyRoute) {
+        w.items.tt_legacy += nonLockedTT + lockedTT; // single frozen pool, no lock split
+        lockedTT = 0;
+    } else {
+        w.items.thienthuong += nonLockedTT;
+        w.lockedItems.thienthuong += lockedTT;
+    }
     saveData();
     return {
         ok: true, entry: q.entry, n: q.n, mode, penalized: q.penalized,
-        received, ttPenalty: q.ttPenalty, ngocCost: q.ngocCost, lockedTT
+        received, ttPenalty: q.ttPenalty, ngocCost: q.ngocCost, lockedTT, legacy: legacyRoute
     };
 }
 
 function dismantleResultText(guildId, userId, res) {
     const { entry, n } = res;
     const w = getWallet(guildId, userId);
-    const lockedNote = res.lockedTT > 0 ? ` (có ${fmt(res.lockedTT)} thiên thưởng khoá)` : '';
     let penaltyNote = '';
     if (res.penalized && res.mode === 'tt') penaltyNote = ` *(đã trừ phạt ${fmt(res.ttPenalty)} thiên thưởng)*`;
     if (res.penalized && res.mode === 'ngoc') penaltyNote = ` *(đã trừ phí ${fmt(res.ngocCost)} ${renderEmote('ngoc')})*`;
+    if (res.legacy) {
+        const bal = (w.items.tt_legacy || 0) + (w.lockedItems.tt_legacy || 0);
+        return `Đã phân giải ${fmt(n)} ${renderEmote(entry.key)} → **${fmt(res.received)}** ${renderEmote('thienthuong')} **Thiên Thưởng (cũ)**${penaltyNote}. Đổi sang TT mùa mới bằng cách chơi game (\`!doitt\`). Số dư TT cũ: ${fmt(bal)}.`;
+    }
+    const lockedNote = res.lockedTT > 0 ? ` (có ${fmt(res.lockedTT)} thiên thưởng khoá)` : '';
     return `Đã phân giải ${fmt(n)} ${renderEmote(entry.key)} → **${fmt(res.received)}** ${renderEmote('thienthuong')}${lockedNote}.${penaltyNote} Số dư: ${fmt(w.items.thienthuong + w.lockedItems.thienthuong)} thiên thưởng.`;
 }
 
