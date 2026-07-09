@@ -23,6 +23,35 @@ function rollDice() {
     ];
 }
 
+// Does `roll` win for any of `guesses` in the given game?
+function rollWins(game, roll, guesses) {
+    if (game === 'tong') {
+        const sum = roll[0] + roll[1] + roll[2];
+        return guesses.includes(sum);
+    }
+    return guesses.some(f => roll.filter(d => d === f).length >= 1);
+}
+
+// Roll the dice with an optional force-lose/force-win bias (see TONG_FORCE_LOSE
+// / MAT_FORCE_LOSE). We keep the roll honest — instead of faking the outcome we
+// re-roll until it matches the forced direction, so the displayed dice always
+// agree with the result. A capped loop falls back to a fair roll if the target
+// direction is unreachable (e.g. force-lose while covering every cửa).
+function rollForced(game, guesses, bias) {
+    const roll = rollDice();
+    if (!bias) return roll;
+    const won = rollWins(game, roll, guesses);
+    let target;
+    if (bias > 0 && won && Math.random() < Math.min(1, bias)) target = false;
+    else if (bias < 0 && !won && Math.random() < Math.min(1, -bias)) target = true;
+    else return roll;
+    for (let i = 0; i < 500; i++) {
+        const candidate = rollDice();
+        if (rollWins(game, candidate, guesses) === target) return candidate;
+    }
+    return roll;
+}
+
 function renderFace(face) {
     const emote = renderEmote(`dice${face}`);
     if (emote && !emote.startsWith(':')) return emote;
@@ -75,7 +104,8 @@ function settleMultiBet({ guildId, userId, game, guesses, amountPer, viaButton, 
     const totalCost = amountPer * guesses.length;
 
     // Odds are fixed — the quẻ (rút quẻ) never rerolls or boosts a dice bet.
-    const roll = rollDice();
+    const bias = game === 'tong' ? economy.TONG_FORCE_LOSE : economy.MAT_FORCE_LOSE;
+    const roll = rollForced(game, guesses, bias);
     const play = game === 'tong'
         ? playTongMulti(roll, guesses, amountPer)
         : playMatMulti(roll, guesses, amountPer);
@@ -364,6 +394,8 @@ function formatMatResultMulti({ displayName, roll, results, amountPer, totalCost
 
 module.exports = {
     rollDice,
+    rollForced,
+    rollWins,
     playTong,
     playMat,
     playTongMulti,

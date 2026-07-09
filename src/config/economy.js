@@ -60,8 +60,18 @@ const DEFAULTS = {
     COINFLIP_WIN_RATE: 0.499,
     SLOT_MAX_BET: 5000,
     SLOT_PITY_CAP_MULT: 2,
+    // Global weight multiplier applied to every losing slot outcome (mult ≤ 1x:
+    // Hoàn Vốn / Nhỏ / Thua). 1 = normal config, 1.5 = losing weights ×1.5
+    // (rarer wins), 0 = losing outcomes removed entirely (every spin wins).
+    SLOT_LOSE_RATE_MULT: 1,
     TONG_MAX_BET: 10000,
     MAT_MAX_BET: 50000,
+    // Force-lose bias for the dice games (tổng / mặt). 0 = pure random (fair
+    // roll). Positive = on a winning roll, this is the probability it is flipped
+    // to a loss (1 = always lose). Negative = on a losing roll, |value| is the
+    // probability it is flipped to a win (-1 = always win).
+    TONG_FORCE_LOSE: 0,
+    MAT_FORCE_LOSE: 0,
 
     // Auto-replay for the casino games (slot / coinflip / tong / mat): the
     // Auto button repeats the last bet once per INTERVAL_MS (next round fires

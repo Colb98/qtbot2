@@ -89,6 +89,14 @@ function pickFromPool(pool) {
     return pool[pool.length - 1];
 }
 
+// Scale the weight of every losing outcome (mult ≤ 1x) by SLOT_LOSE_RATE_MULT.
+// 1 = unchanged, >1 = losses more likely, 0 = losing outcomes dropped entirely.
+function loseScaledPool(pool) {
+    const m = economy.SLOT_LOSE_RATE_MULT;
+    if (m === 1) return pool;
+    return pool.map(p => (p.mult <= 1 ? { ...p, weight: p.weight * m } : p));
+}
+
 // `adjustedPool` (optional) is the fortune-scaled POOL (rút quẻ). The pity
 // branch ignores it on purpose: the pity pool is already all-wins, so a win
 // rate multiplier is meaningless there and would only distort the payout mix.
@@ -99,7 +107,7 @@ function spin(pityCount = 0, threshold = PITY_MIN, adjustedPool = null) {
         outcome = pickFromPool(POOL.filter(p => p.mult >= 3));
         pityTriggered = true;
     } else {
-        outcome = pickFromPool(adjustedPool || POOL);
+        outcome = pickFromPool(loseScaledPool(adjustedPool || POOL));
     }
     const result = buildReels(outcome);
     return { result, mult: outcome.mult, name: outcome.name, pityTriggered };
