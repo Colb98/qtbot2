@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '2.12.0';
+const CURRENT_VERSION = '2.13.0';
 
 const CHANGELOG = {
+    '2.13.0': {
+        date: '2026-07-09',
+        title: 'Quẻ Bói — làm lại !rutque (lớp điểm phúc)',
+        changes: [
+            '🎴 **Rút quẻ mới `!rutque <bậc>`** — quẻ giờ **KHÔNG còn đổi tỉ lệ/thưởng của game**. Thay vào đó là lớp **"điểm phúc"** chấm song song: chỉ ván có **cược ≥ ngưỡng bậc** mới tính vào quẻ, kết toán bằng ngọc khi quẻ kết thúc. Thưởng/phạt là **số cố định theo bậc** (không theo % cược).',
+            '**5 bậc** Phàm · Linh · Huyền · Địa · Thiên (×1 → ×250): bậc càng cao, ngưỡng cược & thưởng/phạt càng lớn. Miễn phí **10 lượt rút/ngày** (Thiên tối đa 5/ngày), mỗi lúc chỉ giữ 1 quẻ.',
+            '**6 quẻ:** 🟢 Chuyển (thắng cộng điểm, thua −1, có lá `!xoadau`) · 🟢 Phúc (thua 2 ván liền mất nửa điểm, `!bank` chốt) · 🟢 Liên (thắng nối thắng ×2, thua mất sạch) · 🔴 Kiệt (giữ điểm, thua nhiều mất pool) · 🔴 Nghịch (thua tích stack phạt, thắng 3 liền hoặc `!goque` để thoát) · 🔴 Kiếp (thua tích stack phạt nặng, thắng 4 liền/liều **lật stack thành điểm** — nghịch thiên cải mệnh).',
+            'Lệnh đi kèm: `!que` (xem quẻ) · `!bank` (chốt Phúc/Liên) · `!xoadau` (Chuyển) · `!goque` (Nghịch) · `!boiinfo` (luật). Quẻ tự kết toán sau 7 ngày.'
+        ]
+    },
     '2.12.0': {
         date: '2026-07-08',
         title: 'Tổng kết Auto · Câu tiếp · nút Kho đồ',

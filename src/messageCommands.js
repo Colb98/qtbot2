@@ -41,7 +41,8 @@ const rutque = require('./services/rutque');
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
     '!gacha', '!wordchain', '!noitu', '!vuatiengviet', '!flashmath', '!boss',
-    '!cauca', '!fishing', '!rutque', '!fortune'
+    '!cauca', '!fishing', '!rutque', '!fortune',
+    '!que', '!bank', '!xoadau', '!goque'
 ]);
 
 const DISCLAIMER = `⚠️ **Lưu ý về tiền tệ & vật phẩm trong bot**
@@ -167,7 +168,7 @@ async function handleMessageCommand(msg) {
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
 • \`!cauca\` (\`!fishing\`) — Câu cá **miễn phí** ${economy.FISHING.DAILY_LIMIT} lần/ngày, xem GIF chờ kết quả: cá nhỏ +${fmt(economy.FISHING.OUTCOMES.small.ngoc)} · cá ngừ +${fmt(economy.FISHING.OUTCOMES.tuna.ngoc)} · rương báu +1 ${renderEmote('thienthuong')} Thiên Thưởng… nhưng coi chừng cá trê/cá nóc **${fmt(economy.FISHING.OUTCOMES.catfish.ngoc)} ngọc** (số dư có thể âm!). Bấm **🎣 Câu tiếp** để câu tiếp không cần gõ lại.
 • **Nút 📦 Kho đồ** ở mọi bàn game — ai bấm cũng xem được **kho đồ của chính mình** (chỉ mình thấy). Sau khi **Auto** dừng, bấm **📊 Tổng kết** để xem ảnh thống kê thắng/thua cả phiên.
-• \`!rutque\` (\`!fortune\`) — Rút quẻ vận may **miễn phí 1 lần/ngày**: quẻ Cát tăng tỉ lệ thắng, quẻ Hung giảm — ứng vào coinflip/slot/tổng/mặt đến 0:00. \`!rutque lai\` đổi quẻ: giá = ${Math.round(economy.RUTQUE.REDRAW_WEALTH_PCT * 100)}% tổng ngọc đang có (tính cả két, tối thiểu ${fmt(economy.RUTQUE.REDRAW_BASE_COST)}), mỗi lần đổi tiếp giá ×${economy.RUTQUE.REDRAW_COST_MULT}.
+• \`!rutque <bậc>\` (\`!fortune\`) — Rút quẻ bói **miễn phí** (${economy.QUE_BOI.DAILY_LIMIT} lượt/ngày, Thiên ${economy.QUE_BOI.THIEN_DAILY_LIMIT}/ngày). Quẻ **KHÔNG đổi tỉ lệ/thưởng game** — nó là lớp "điểm phúc" chấm song song: chỉ ván **cược ≥ ngưỡng bậc** mới tính, quẻ Cát cho điểm → ngọc, quẻ Hung phạt/thử thách. Bậc càng cao (Phàm→Thiên) thưởng & phạt càng lớn. Xem \`!que\`, chốt \`!bank\`, xoá dấu \`!xoadau\`, gỡ \`!goque\`, luật \`!boiinfo\`.
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
@@ -491,45 +492,82 @@ ${DISCLAIMER}`;
         return;
     }
 
-    // ── Rút quẻ: daily fortune. One free draw/day sets a luck state that
-    // coinflip/slot/tổng/mặt read; `!rutque lai` re-rolls at an escalating
-    // price (a re-roll, NOT a guaranteed escape from a bad quẻ).
+    // ── Quẻ Bói: !rutque <bậc> draws a fortune (điểm phúc scoring layer that
+    // NEVER touches game odds). Companions: !que !bank !xoadau !goque !boiinfo.
+    // See services/rutque.js.
     if (cmd === '!rutque' || cmd === '!fortune') {
-        const cd = checkGameCooldown(msg.author.id);
-        if (cd.onCooldown) {
-            const secLeft = Math.ceil(cd.msLeft / 1000);
-            return replyEphemeral(msg, `⏳ Vui lòng chờ ${secLeft}s trước khi chơi tiếp.`);
-        }
         const sub = (parts[1] || '').toLowerCase();
 
-        // Superadmin test helper: force a tier for today.
+        if (sub === 'help' || sub === 'info') return msg.reply(rutque.formatInfo());
+
+        // Superadmin test helper: force a quẻ type + tier.
         if (sub === 'set') {
             if (!isSuperAdmin(msg.author.id)) return;
-            const res = rutque.setTier(guildId, msg.author.id, (parts[2] || '').toLowerCase());
-            if (res.error) return msg.reply(`Quẻ không hợp lệ. Dùng: ${Object.keys(rutque.TIER_META).join(', ')}`);
-            return msg.reply(rutque.formatCard({ displayName: member.displayName, guildId, userId: msg.author.id, entry: res.entry }));
+            const res = rutque.setQue(guildId, msg.author.id, parts[2], parts[3]);
+            if (res.error) return msg.reply(`Cú pháp: \`!rutque set <${rutque.QUE_TYPES.join('|')}> <bậc 1-5>\``);
+            return msg.reply(rutque.formatDrawResult(res.que, member.displayName));
         }
 
-        if (sub === 'lai' || sub === 'redraw') {
-            const entry = rutque.getEntry(guildId, msg.author.id);
-            if (!entry) return msg.reply('Hôm nay bạn chưa rút quẻ — gõ `!rutque` trước đã.');
-            const price = rutque.getRedrawPrice(guildId, msg.author.id);
-            const w = getWallet(guildId, msg.author.id);
-            if (w.ngoc + w.lockedNgoc < price) {
-                return msg.reply(`Đổi quẻ lần này tốn ${fmt(price)} ${renderEmote('ngoc')}, bạn chỉ có ${fmt(w.ngoc + w.lockedNgoc)}.`);
-            }
-            spendNgocForGame(guildId, msg.author.id, price);
-            const res = rutque.redraw(guildId, msg.author.id);
-            metrics.recordRutque({ guildId, action: 'redraw', tier: res.tier, cost: price, userId: msg.author.id });
-            return msg.reply(rutque.formatCard({ displayName: member.displayName, guildId, userId: msg.author.id, entry: res.entry, redrawPaid: price }));
+        if (!sub) {
+            const av = rutque.drawAvailability(guildId, msg.author.id);
+            if (av.active) return msg.reply(`Bạn đang có quẻ **${rutque.QUE_META[av.active.type].name}** — mỗi lúc chỉ giữ 1 quẻ. Xem \`!que\`.`);
+            const menu = [
+                '🎴 **Rút quẻ bói** — chọn bậc: `!rutque <bậc>`',
+                rutque.TIER_NAMES.map((n, i) => `\`${rutque.TIER_KEYS[i]}\` ${n} ×${economy.QUE_BOI.TIER_MULT[i]}`).join(' · '),
+                `Còn ${av.totalLeft}/${economy.QUE_BOI.DAILY_LIMIT} lượt hôm nay (Thiên: ${av.thienLeft}/${economy.QUE_BOI.THIEN_DAILY_LIMIT}). Luật: \`!boiinfo\`.`
+            ].join('\n');
+            return msg.reply(menu);
         }
 
-        const res = rutque.draw(guildId, msg.author.id);
-        if (res.already) {
-            return msg.reply(rutque.formatCard({ displayName: member.displayName, guildId, userId: msg.author.id, entry: res.entry, isStatus: true }));
-        }
-        metrics.recordRutque({ guildId, action: 'draw', tier: res.tier, userId: msg.author.id });
-        return msg.reply(rutque.formatCard({ displayName: member.displayName, guildId, userId: msg.author.id, entry: res.entry }));
+        const res = rutque.draw(guildId, msg.author.id, sub);
+        if (res.error === 'active') return msg.reply('Bạn đang có 1 quẻ hoạt động — mỗi lúc chỉ giữ 1 quẻ. Xem `!que`.');
+        if (res.error === 'bad_tier') return msg.reply(`Bậc không hợp lệ. Dùng: ${rutque.TIER_KEYS.join(', ')} (hoặc 1-5).`);
+        if (res.error === 'daily_limit') return msg.reply(`Bạn đã hết ${economy.QUE_BOI.DAILY_LIMIT} lượt rút quẻ hôm nay. Quay lại sau 0:00.`);
+        if (res.error === 'thien_limit') return msg.reply(`Bậc Thiên chỉ rút được ${economy.QUE_BOI.THIEN_DAILY_LIMIT} lần/ngày. Đã hết hôm nay.`);
+        return msg.reply(`🎴 **${member.displayName}** rút được quẻ:\n${rutque.formatDrawResult(res.que, member.displayName)}`);
+    }
+
+    // ── !que: current quẻ status (or draw availability if none).
+    if (cmd === '!que') {
+        return msg.reply(rutque.formatStatus(guildId, msg.author.id, member.displayName));
+    }
+
+    // ── !boiinfo: rules summary + tier table.
+    if (cmd === '!boiinfo') {
+        return msg.reply(rutque.formatInfo());
+    }
+
+    // ── !bank: settle Trung Cát / Đại Cát now.
+    if (cmd === '!bank') {
+        const res = rutque.bank(guildId, msg.author.id);
+        if (res.autoSettled) return msg.reply(res.lines.join('\n'));
+        if (res.error === 'no_que') return msg.reply('Bạn không có quẻ nào đang hoạt động.');
+        if (res.error === 'wrong_que') return msg.reply('Chỉ quẻ **Phúc** (Trung Cát) hoặc **Liên** (Đại Cát) mới `!bank` để chốt điểm được.');
+        return msg.reply(res.lines.join('\n'));
+    }
+
+    // ── !xoadau: Tiểu Cát — erase the most recent loss from the quẻ.
+    if (cmd === '!xoadau') {
+        const res = rutque.xoadau(guildId, msg.author.id);
+        if (res.autoSettled) return msg.reply(res.lines.join('\n'));
+        if (res.error === 'no_que') return msg.reply('Bạn không có quẻ nào đang hoạt động.');
+        if (res.error === 'wrong_que') return msg.reply('Chỉ quẻ **Chuyển** (Tiểu Cát) mới dùng được `!xoadau`.');
+        if (res.error === 'no_tokens') return msg.reply('Bạn đã hết lá xoá dấu.');
+        if (res.error === 'no_round') return msg.reply('Chưa có ván nào để xoá.');
+        if (res.error === 'not_a_loss') return msg.reply('`!xoadau` chỉ dùng được ngay sau một ván **thua** (và trước ván tính điểm kế tiếp).');
+        return msg.reply(`🩹 Đã xoá dấu ván thua gần nhất — điểm hoàn lại, ván không tính vào quẻ. Còn **${res.tokens}** lá · **${res.points}** điểm · còn **${res.rounds_left}** ván. (Tiền thua trong game **không** được hoàn.)`);
+    }
+
+    // ── !goque: Trung Hung — pay fee, end the quẻ.
+    if (cmd === '!goque') {
+        const confirmed = ['xacnhan', 'confirm', 'yes', 'y'].includes((parts[1] || '').toLowerCase());
+        const res = rutque.goque(guildId, msg.author.id, confirmed);
+        if (res.autoSettled) return msg.reply(res.lines.join('\n'));
+        if (res.error === 'no_que') return msg.reply('Bạn không có quẻ nào đang hoạt động.');
+        if (res.error === 'wrong_que') return msg.reply('Chỉ quẻ **Nghịch** (Trung Hung) mới `!goque` được. Quẻ **Kiếp** (Đại Hung) không gỡ được.');
+        if (res.error === 'insufficient') return msg.reply(`Phí gỡ quẻ là ${fmt(res.fee)} ${renderEmote('ngoc')}, bạn chỉ có ${fmt(res.available)}.`);
+        if (res.needConfirm) return msg.reply(`⚠️ Phí gỡ quẻ **${fmt(res.fee)}** ${renderEmote('ngoc')} là hơn 10% số ngọc của bạn. Gõ \`!goque xacnhan\` để chấp nhận.`);
+        return msg.reply(res.lines.join('\n'));
     }
 
     // ── Unified exchange: !doi [item] [1|2|3|all] ───────────────────────────

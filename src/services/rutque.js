@@ -1,336 +1,585 @@
 const { data, saveData } = require('../state');
 const economy = require('../config/economy');
-const { todayStr, fmt, renderEmote, getWallet, bankedTotal } = require('./currency');
+const { todayStr, fmt, renderEmote, getWallet, addNgoc, spendNgocForGame } = require('./currency');
 const metrics = require('./metrics');
 
-// Rút quẻ (!rutque / !fortune) — one fortune draw per user per GMT+7 day.
-// The draw sets a luck state that the casino games (coinflip / slot / tổng /
-// mặt) read: rateMult shifts win probability, jackpotMult boosts jackpot-tier
-// payouts, and two rare tiers carry a special mechanic (Đại Hung "reverse",
-// Đại Cát "man decay"). The fortune itself never pays anything; no draw =
-// neutral day. State lives in data.rutque[guildId][userId] =
-// { date, tier, redraws, man: { pts, decayed } } and is swept by pruneDaily.
-// All numbers live in economy.RUTQUE (live-tunable via the admin panel).
+// ── Quẻ Bói ("rút quẻ") — fortune-draw meta-layer over the casino games ──────
+//
+// A parallel scoring layer ("điểm phúc") on top of coinflip / mặt / tổng /
+// slot. Core invariant: the quẻ NEVER modifies any game's odds or payouts —
+// games run 100% unchanged. After each game round settles, the game calls
+// `onGameResult(...)`; the quẻ scores that round (only if the bet ≥ the tier's
+// per-game minimum) and settles in ngọc at the quẻ's natural end (or on break /
+// bank). All rewards/penalties are FLAT per tier (anti-whale), scaled by the
+// tier multiplier. Quẻ lifetime is counted in QUALIFYING ROUNDS, with a 7-day
+// auto-settle safety valve.
+//
+// State: data.queboi[guildId][userId] = { que, draws }
+//   que   = null | { type, tier, rounds_left, points, stacks, win_streak,
+//                    consec_losses, tokens, wins, losses, last_round, created_at }
+//   draws = { date, total, thien }
+//
+// All numbers live in economy.QUE_BOI (live-tunable via the admin panel).
+// Processing is synchronous end-to-end, so the single-threaded event loop
+// guarantees two near-simultaneous bets settle sequentially against quẻ state
+// (the per-user lock the spec asks for).
 
-// Labels / flavor are display strings, deliberately NOT in economy config
-// (the admin override panel only patches numeric leaves).
-const TIER_META = {
-    tieu_cat: {
-        label: 'Tiểu Cát', emoji: '🌤️', special: null,
-        flavor: 'Gió nhẹ mây lành, thuận buồm xuôi gió.'
-    },
-    trung_cat: {
-        label: 'Trung Cát', emoji: '🌞', special: null,
-        flavor: 'Cát tinh chiếu mệnh, làm gì cũng hên.'
-    },
-    dai_cat: {
-        label: 'Đại Cát', emoji: '🌕', special: 'man_decay',
-        flavor: 'Trời quang mây tạnh, vạn sự hanh thông!'
-        // Mãn Chiêu Tổn is intentionally NOT announced at draw time — the
-        // status view's fuzzy meter is the only warning the player gets.
-    },
-    tieu_hung: {
-        label: 'Tiểu Hung', emoji: '🌥️', special: null,
-        flavor: 'Trời hơi âm u, ra ngõ nhớ nhìn chân.'
-    },
-    trung_hung: {
-        label: 'Trung Hung', emoji: '🌧️', special: null,
-        flavor: 'Mưa dầm gió bấc, đi đứng khó khăn…',
-        // The x1.5 jackpot boost is hidden — hint only, it reveals itself
-        // through the 🌟 event line when it actually fires.
-        hint: '🌩️ *Nhưng nghe đồn: giữa cơn mưa dầm, có kẻ nhặt được vàng — trúng lớn ngày này… lớn hơn thường lệ.*'
-    },
-    dai_hung: {
-        label: 'Đại Hung', emoji: '🌑', special: 'reverse',
-        flavor: 'Mây đen giăng lối, sao dữ chiếu mệnh…',
-        // Fuzzy hint at the reverse mechanic — no numbers.
-        hint: '🌌 *Người xưa có câu: cùng tắc biến, biến tắc thông. Vận rủi tận cùng… biết đâu là lúc **nghịch thiên cải mệnh**.*'
-    }
+const QUE_TYPES = ['TIEU_CAT', 'TRUNG_CAT', 'DAI_CAT', 'TIEU_HUNG', 'TRUNG_HUNG', 'DAI_HUNG'];
+
+// Display meta (Vietnamese). Kept out of economy config (numeric leaves only).
+const QUE_META = {
+    TIEU_CAT:   { name: 'Chuyển', emoji: '🟢', kind: 'cat', flavor: 'Gió lành thổi tới, mỗi bước một chuyển.' },
+    TRUNG_CAT:  { name: 'Phúc',   emoji: '🟢', kind: 'cat', flavor: 'Phúc tinh chiếu mệnh — biết đủ là hơn.' },
+    DAI_CAT:    { name: 'Liên',   emoji: '🟢', kind: 'cat', flavor: 'Liên hoàn cát khánh — thắng nối thắng.' },
+    TIEU_HUNG:  { name: 'Kiệt',   emoji: '🔴', kind: 'hung', flavor: 'Sức tàn lực kiệt — giữ mình cho vững.' },
+    TRUNG_HUNG: { name: 'Nghịch', emoji: '🔴', kind: 'hung', flavor: 'Nghịch cảnh vây quanh — thắng liền mới thoát.' },
+    DAI_HUNG:   { name: 'Kiếp',   emoji: '🔴', kind: 'hung', flavor: 'Kiếp nạn giáng đầu — hoạ trung hữu phúc.' }
 };
 
-const NEUTRAL_MODS = Object.freeze({
-    active: false, tier: null, rateMult: 1, jackpotMult: 1, special: null, decayed: false
-});
+// Tier: stored 1..5. Accept both diacritic and ascii keys.
+const TIER_KEYS = ['pham', 'linh', 'huyen', 'dia', 'thien'];
+const TIER_NAMES = ['Phàm', 'Linh', 'Huyền', 'Địa', 'Thiên'];
+const TIER_ALIASES = {
+    pham: 1, 'phàm': 1, '1': 1,
+    linh: 2, '2': 2,
+    huyen: 3, 'huyền': 3, '3': 3,
+    dia: 4, 'địa': 4, 'đia': 4, '4': 4,
+    thien: 5, 'thiên': 5, '5': 5
+};
 
-// ── State accessors ─────────────────────────────────────────────────────────
+const GAMES = ['coinflip', 'mat', 'tong', 'slot'];
 
-// Today's entry, or null if the user hasn't drawn (yet) today.
-function getEntry(guildId, userId) {
-    const g = data.rutque && data.rutque[guildId];
-    const e = g && g[userId];
-    if (!e || e.date !== todayStr()) return null;
-    if (!e.man) e.man = { pts: 0, decayed: false };
-    return e;
+// ── Small helpers ────────────────────────────────────────────────────────────
+
+const Q = () => economy.QUE_BOI;
+function tierMult(tier) { return Q().TIER_MULT[tier - 1] || 1; }
+function tierName(tier) { return TIER_NAMES[tier - 1] || `Bậc ${tier}`; }
+function minBetFor(tier, game) {
+    const g = Q().MIN_BET[game];
+    return g ? (g[tier - 1] || 0) : 0;
 }
+function pointsPerWin(game) { return Q().POINTS_PER_WIN[game] || 1; }
+function ngocEmote() { return renderEmote('ngoc'); }
+function ngocValue(points, tier) { return Math.min(points, Q().POINT_CAP) * Q().POINT_VALUE * tierMult(tier); }
 
-function rollTier() {
-    const tiers = economy.RUTQUE.TIERS || {};
-    const keys = Object.keys(TIER_META).filter(k => tiers[k]);
-    const total = keys.reduce((s, k) => s + (tiers[k].WEIGHT || 0), 0);
-    let r = Math.random() * total;
-    for (const k of keys) {
-        r -= (tiers[k].WEIGHT || 0);
-        if (r < 0) return k;
+function getState(guildId, userId) {
+    data.queboi = data.queboi || {};
+    data.queboi[guildId] = data.queboi[guildId] || {};
+    if (!data.queboi[guildId][userId]) {
+        data.queboi[guildId][userId] = { que: null, draws: { date: todayStr(), total: 0, thien: 0 } };
     }
-    return keys[keys.length - 1];
-}
-
-function draw(guildId, userId) {
-    const existing = getEntry(guildId, userId);
-    if (existing) return { already: true, entry: existing };
-    data.rutque = data.rutque || {};
-    data.rutque[guildId] = data.rutque[guildId] || {};
-    const entry = { date: todayStr(), tier: rollTier(), redraws: 0, man: { pts: 0, decayed: false } };
-    data.rutque[guildId][userId] = entry;
-    saveData();
-    return { ok: true, tier: entry.tier, entry };
-}
-
-// Pure re-roll — can land on the same or a worse tier. The caller checks
-// funds and spends BEFORE calling. Escalating price via redraws counter.
-// entry.man is deliberately NOT reset: Mãn Chiêu Tổn points/decay are
-// per-DAY, so re-rolling back into Đại Cát never refreshes a spent buff.
-function redraw(guildId, userId) {
-    const entry = getEntry(guildId, userId);
-    if (!entry) return { error: 'not_drawn' };
-    entry.tier = rollTier();
-    entry.redraws = (entry.redraws || 0) + 1;
-    saveData();
-    return { ok: true, tier: entry.tier, entry };
-}
-
-// max(base, 1% of total ngọc) × 2^(redraws today) — wealth-scaled so whales
-// can't fish for Đại Cát with pocket change. Total INCLUDES the bank két
-// (like !topngoc), so parking ngọc there before a redraw doesn't dodge it.
-function getRedrawPrice(guildId, userId) {
-    const R = economy.RUTQUE;
-    const entry = getEntry(guildId, userId);
-    const n = entry ? (entry.redraws || 0) : 0;
-    const w = getWallet(guildId, userId);
-    const totalNgoc = w.ngoc + (w.lockedNgoc || 0) + bankedTotal(w);
-    const base = Math.max(R.REDRAW_BASE_COST, Math.floor(totalNgoc * R.REDRAW_WEALTH_PCT));
-    return Math.round(base * Math.pow(R.REDRAW_COST_MULT, n));
-}
-
-// Superadmin test helper — force a tier for today (resets decay state).
-function setTier(guildId, userId, tier) {
-    if (!TIER_META[tier]) return { error: 'bad_tier' };
-    data.rutque = data.rutque || {};
-    data.rutque[guildId] = data.rutque[guildId] || {};
-    const prev = getEntry(guildId, userId);
-    const entry = { date: todayStr(), tier, redraws: prev ? (prev.redraws || 0) : 0, man: { pts: 0, decayed: false } };
-    data.rutque[guildId][userId] = entry;
-    saveData();
-    return { ok: true, entry };
-}
-
-// ── Game-facing reads ────────────────────────────────────────────────────────
-
-// The one call games make at roll time. Neutral when not drawn today.
-// A decayed Đại Cát becomes a hidden mild debuff (DECAY_RATE_MULT) — never
-// announced, never shown. jackpotMult stays at the tier value even when
-// decayed: the per-jackpot luck roll (manJackpotLuck) decides how often the
-// boost actually lands, so the player keeps seeing occasional x1.35 hits.
-function getModifiers(guildId, userId) {
-    const entry = getEntry(guildId, userId);
-    if (!entry) return NEUTRAL_MODS;
-    const R = economy.RUTQUE;
-    const t = (R.TIERS || {})[entry.tier];
-    if (!t) return NEUTRAL_MODS;
-    if (entry.tier === 'dai_cat' && entry.man.decayed) {
-        return { active: true, tier: entry.tier, rateMult: R.DECAY_RATE_MULT, jackpotMult: t.JACKPOT_MULT || 1, special: 'man_decay', decayed: true };
+    const st = data.queboi[guildId][userId];
+    if (!st.draws || st.draws.date !== todayStr()) {
+        st.draws = { date: todayStr(), total: 0, thien: 0 };
     }
+    return st;
+}
+
+// Active quẻ (does not auto-settle — caller runs checkAutoSettle first).
+function getActive(guildId, userId) {
+    const st = getState(guildId, userId);
+    return st.que || null;
+}
+
+function snapshot(q) {
     return {
-        active: true,
-        tier: entry.tier,
-        rateMult: t.RATE_MULT || 1,
-        jackpotMult: t.JACKPOT_MULT || 1,
-        special: TIER_META[entry.tier].special,
-        decayed: false
+        rounds_left: q.rounds_left, points: q.points, stacks: q.stacks,
+        win_streak: q.win_streak, consec_losses: q.consec_losses,
+        tokens: q.tokens, wins: q.wins, losses: q.losses
     };
 }
 
-// P(a Đại Cát jackpot still gets the full boost). 1 below MAN_THRESHOLD,
-// fading linearly to MAN_JACKPOT_LUCKY_MIN at MAN_JACKPOT_FADE_END, pinned
-// at the minimum once decay has fired. Non-Đại-Cát entries always return 1.
-// The gradual fade (instead of a hard cutoff) is what denies the player a
-// "jackpots stopped boosting — luck is dead, stop now" indicator.
-function manJackpotLuck(entry) {
-    if (!entry || entry.tier !== 'dai_cat') return 1;
-    const R = economy.RUTQUE;
-    const min = R.MAN_JACKPOT_LUCKY_MIN;
-    if (entry.man.decayed) return min;
-    const pts = entry.man.pts || 0;
-    if (pts <= R.MAN_THRESHOLD) return 1;
-    if (pts >= R.MAN_JACKPOT_FADE_END) return min;
-    const t = (pts - R.MAN_THRESHOLD) / (R.MAN_JACKPOT_FADE_END - R.MAN_THRESHOLD);
-    return 1 - t * (1 - min);
+// ── Drawing ──────────────────────────────────────────────────────────────────
+
+function rollQueType() {
+    const w = Q().DRAW_WEIGHTS;
+    const keys = QUE_TYPES.filter(k => (w[k] || 0) > 0);
+    const total = keys.reduce((s, k) => s + w[k], 0);
+    let r = Math.random() * total;
+    for (const k of keys) { r -= w[k]; if (r < 0) return k; }
+    return keys[keys.length - 1];
 }
 
-function pointsForNet(net) {
-    const R = economy.RUTQUE;
-    if (net > R.MAN_BIG_NET) return R.MAN_BIG_PTS;
-    if (net > R.MAN_MID_NET) return R.MAN_MID_PTS;
-    if (net > R.MAN_SMALL_NET) return R.MAN_SMALL_PTS;
-    if (net > 0) return R.MAN_TINY_PTS;
-    return 0;
+function drawAvailability(guildId, userId) {
+    const st = getState(guildId, userId);
+    const total = st.draws.total || 0;
+    const thien = st.draws.thien || 0;
+    return {
+        total, thien,
+        totalLeft: Math.max(0, Q().DAILY_LIMIT - total),
+        thienLeft: Math.max(0, Q().THIEN_DAILY_LIMIT - thien),
+        active: st.que || null
+    };
 }
 
-// The one call games make per win event, AFTER computing their base payout:
-// applies the jackpot boost (on the jackpot-tier portion), then the Đại Hung
-// reverse roll on the boosted payout, then scores Đại Cát decay points on the
-// final net. Returns the adjusted payout plus ready-to-append display lines.
-// `stake` gates reverse eligibility (payout must be a genuine double-up, see
-// REVERSE_MIN_PAYOUT_RATIO) and feeds the decay net; no-op when not drawn.
-function applyWinPayout(guildId, userId, { payout, stake = 0, jackpotPortion = 0, game } = {}) {
-    const mods = getModifiers(guildId, userId);
-    if (!mods.active || !(payout > 0)) return { payout, events: [], eventLines: [] };
-    const R = economy.RUTQUE;
-    const events = [];
-    const entry = getEntry(guildId, userId);
+// Draw a random quẻ at the chosen tier. tierArg: key/alias/number.
+function draw(guildId, userId, tierArg) {
+    const st = getState(guildId, userId);
+    if (st.que) return { error: 'active' };
+    const tier = TIER_ALIASES[String(tierArg || '').toLowerCase()];
+    if (!tier) return { error: 'bad_tier' };
+    if ((st.draws.total || 0) >= Q().DAILY_LIMIT) return { error: 'daily_limit' };
+    if (tier === 5 && (st.draws.thien || 0) >= Q().THIEN_DAILY_LIMIT) return { error: 'thien_limit' };
 
-    // manJackpotLuck is 1 outside Đại Cát, so the roll only ever bites there.
-    if (jackpotPortion > 0 && mods.jackpotMult > 1 && Math.random() < manJackpotLuck(entry)) {
-        const extra = Math.round(jackpotPortion * (mods.jackpotMult - 1));
-        if (extra > 0) {
-            payout += extra;
-            events.push({ type: 'jackpot', extra, jackpotMult: mods.jackpotMult, tier: mods.tier });
-            metrics.recordRutqueEffect({ guildId, type: 'jackpot', amount: extra, userId });
-        }
+    const type = rollQueType();
+    st.que = newQue(type, tier);
+    st.draws.total = (st.draws.total || 0) + 1;
+    if (tier === 5) st.draws.thien = (st.draws.thien || 0) + 1;
+    saveData();
+    metrics.recordRutque({ guildId, action: 'draw', tier: type, userId });
+    return { ok: true, que: st.que };
+}
+
+function newQue(type, tier) {
+    return {
+        type, tier,
+        rounds_left: Q().LIFETIME[type],
+        points: 0,
+        stacks: 0,
+        win_streak: 0,
+        consec_losses: 0,
+        tokens: type === 'TIEU_CAT' ? Q().TIEU_CAT_TOKENS : 0,
+        wins: 0,
+        losses: 0,
+        last_round: null,
+        created_at: Date.now()
+    };
+}
+
+// Superadmin test helper — force a quẻ type + tier (no draw-count charge).
+function setQue(guildId, userId, typeArg, tierArg) {
+    const type = String(typeArg || '').toUpperCase();
+    if (!QUE_TYPES.includes(type)) return { error: 'bad_type' };
+    const tier = TIER_ALIASES[String(tierArg || '').toLowerCase()] || 1;
+    const st = getState(guildId, userId);
+    st.que = newQue(type, tier);
+    saveData();
+    return { ok: true, que: st.que };
+}
+
+// ── Round processing ─────────────────────────────────────────────────────────
+
+// The one call each game makes AFTER settling a round's wallet/payout. Returns
+// { lines } — inline guide + any settlement/auto-settle lines to append to the
+// game's result message. `won` is net-profit (payout > bet).
+function onGameResult({ guildId, userId, game, bet, won }) {
+    const st = getState(guildId, userId);
+    const lines = [];
+    const auto = checkAutoSettle(guildId, userId);
+    if (auto) lines.push(...auto.lines);
+
+    const q = st.que;
+    if (!q) return { lines };
+
+    const minBet = minBetFor(q.tier, game);
+    if (bet < minBet) {
+        lines.push(`⚪ Ván này không tính vào quẻ (cược dưới ngưỡng bậc ${tierName(q.tier)}: cần ≥ ${fmt(minBet)}).`);
+        return { lines };
     }
 
-    if (mods.special === 'reverse'
-        && payout >= (R.REVERSE_MIN_PAYOUT_RATIO || 2) * stake
-        && Math.random() < (R.REVERSE_PROC || 0)) {
-        const bonus = Math.round(payout * ((R.REVERSE_MULT || 1) - 1));
-        if (bonus > 0) {
-            payout += bonus;
-            events.push({ type: 'reverse', bonus });
-            metrics.recordRutqueEffect({ guildId, type: 'reverse', amount: bonus, userId });
-        }
-    }
+    // Qualifying round.
+    const before = snapshot(q);
+    q.rounds_left -= 1;
+    if (won) q.wins += 1; else q.losses += 1;
+    const { line, settleReason } = applyRound(q, game, won, bet);
+    q.last_round = { game, bet, won, before };
+    if (line) lines.push(line);
 
-    if (mods.special === 'man_decay' && !mods.decayed) {
-        const pts = pointsForNet(payout - stake);
-        if (entry && pts > 0) {
-            entry.man.pts += pts;
-            if (entry.man.pts > R.MAN_THRESHOLD) {
-                const hazard = Math.min(1, (entry.man.pts - R.MAN_THRESHOLD) * (R.MAN_STEP_PER_POINT || 0));
-                if (Math.random() < hazard) {
-                    // Silent by design — no event line, no card change. The
-                    // only signal is jackpot boosts thinning out, which the
-                    // fade already made ambiguous.
-                    entry.man.decayed = true;
-                    metrics.recordRutqueEffect({ guildId, type: 'decay', userId });
+    if (settleReason) {
+        st.__ref = { guildId, userId };
+        const res = settle(st, settleReason);
+        lines.push(...res.lines);
+    } else {
+        saveData();
+    }
+    return { lines };
+}
+
+// Mutates q for one qualifying round. Returns { line, settleReason }.
+// Order (spec §9): win → streak++ → apply points/double → break checks → clamp.
+// loss → streak reset → loss effect.
+function applyRound(q, game, won, bet) {
+    const cap = Q().POINT_CAP;
+    const ppw = pointsPerWin(game);
+    const mult = tierMult(q.tier);
+    const t = tierName(q.tier);
+    const meta = QUE_META[q.type];
+    let settleReason = null;
+    let line = '';
+
+    switch (q.type) {
+        case 'TIEU_CAT': {
+            if (won) {
+                q.points = Math.min(cap, q.points + ppw);
+                line = `${meta.emoji} Quẻ Chuyển [${t}]: ${q.points} điểm phúc | còn ${q.rounds_left} ván | ${q.tokens} lá xoá dấu`;
+            } else {
+                q.points = Math.max(0, q.points - 1);
+                line = `${meta.emoji} Quẻ Chuyển [${t}]: ${q.points} điểm (−1) | còn ${q.rounds_left} ván | ${q.tokens > 0 ? `Gõ \`!xoadau\` để ván này không tính (${q.tokens} lá còn lại)` : 'hết lá xoá dấu'}`;
+            }
+            if (q.rounds_left <= 0) settleReason = 'natural';
+            break;
+        }
+        case 'TRUNG_CAT': {
+            if (won) {
+                q.points = Math.min(cap, q.points + ppw);
+                q.consec_losses = 0;
+                line = `${meta.emoji} Quẻ Phúc [${t}]: ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | còn ${q.rounds_left} ván | \`!bank\` để chốt`;
+            } else {
+                q.consec_losses += 1;
+                if (q.consec_losses >= 2) {
+                    q.points = Math.floor(q.points / 2);
+                    q.consec_losses = 0;
+                    line = `${meta.emoji} Quẻ Phúc [${t}]: 📉 Mất nửa điểm, còn ${q.points} | còn ${q.rounds_left} ván`;
+                } else {
+                    line = `${meta.emoji} Quẻ Phúc [${t}]: ${q.points} điểm | ⚠️ Thua thêm 1 ván nữa sẽ mất nửa điểm! | \`!bank\` để chốt ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} ngay`;
                 }
             }
-            saveData();
+            if (q.rounds_left <= 0) settleReason = 'natural';
+            break;
+        }
+        case 'DAI_CAT': {
+            if (won) {
+                q.win_streak += 1;
+                q.points = q.points <= 0 ? ppw : q.points * 2;
+                q.points = Math.min(cap, q.points);
+                const next = Math.min(cap, q.points * 2);
+                line = `${meta.emoji} Quẻ Liên [${t}]: chuỗi ${q.win_streak} | meter ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | Thắng tiếp → ${next} điểm, thua → MẤT SẠCH | \`!bank\` để chốt`;
+            } else {
+                q.points = 0;
+                q.win_streak = 0;
+                line = `${meta.emoji} Quẻ Liên [${t}]: 💥 Đứt chuỗi, meter về 0 | còn ${q.rounds_left} ván để gây dựng lại`;
+            }
+            if (q.rounds_left <= 0) settleReason = 'natural';
+            break;
+        }
+        case 'TIEU_HUNG': {
+            if (won) {
+                q.points = Math.min(cap, q.points + ppw);
+                line = `🔴 Quẻ Kiệt [${t}]: đang tạm giữ ${q.points} điểm | đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} cho phép | còn ${q.rounds_left} ván`;
+            } else {
+                q.stacks += 1;
+                if (q.stacks > Q().TIEU_HUNG_MAX_LOSSES) {
+                    line = `🔴 Quẻ Kiệt [${t}]: 🗳️ Mất toàn bộ ${q.points} điểm tạm giữ. Quẻ còn ${q.rounds_left} ván (không còn gì để mất).`;
+                } else {
+                    line = `🔴 Quẻ Kiệt [${t}]: đang tạm giữ ${q.points} điểm | đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} cho phép | còn ${q.rounds_left} ván`;
+                }
+            }
+            if (q.rounds_left <= 0) settleReason = 'natural';
+            break;
+        }
+        case 'TRUNG_HUNG': {
+            if (won) {
+                q.win_streak += 1;
+                if (q.win_streak >= Q().NGHICH_BREAK_STREAK) {
+                    settleReason = 'nghich_break';
+                    line = `🔴 Quẻ Nghịch [${t}]: ✨ Thắng ${q.win_streak} ván liền — PHÁ QUẺ! Xoá sạch stack, không phạt.`;
+                } else {
+                    line = `🔴 Quẻ Nghịch [${t}]: chuỗi thắng ${q.win_streak}/${Q().NGHICH_BREAK_STREAK} để phá quẻ | ${q.stacks} stack | còn ${q.rounds_left} ván`;
+                }
+            } else {
+                q.win_streak = 0;
+                q.stacks += 1;
+                const penalty = Q().NGHICH_PENALTY_PER_STACK * q.stacks * mult;
+                const fee = Q().NGHICH_REMOVE_FEE * mult;
+                line = `🔴 Quẻ Nghịch [${t}]: ${q.stacks} stack đen (phạt dự kiến ${fmt(penalty)} ${ngocEmote()}) | còn ${q.rounds_left} ván | Hoá giải: thắng ${Q().NGHICH_BREAK_STREAK} ván liền, hoặc \`!goque\` (${fmt(fee)} ngọc)`;
+            }
+            if (!settleReason && q.rounds_left <= 0) settleReason = 'natural';
+            break;
+        }
+        case 'DAI_HUNG': {
+            if (won) {
+                q.win_streak += 1;
+                const lieu = Q().LIEU[q.tier - 1];
+                const lieuHit = lieu != null && bet >= lieu;
+                if (q.win_streak >= Q().KIEP_BREAK_STREAK || lieuHit) {
+                    settleReason = 'kiep_break';
+                    const via = (q.win_streak >= Q().KIEP_BREAK_STREAK) ? `thắng ${q.win_streak} ván liền` : `liều thắng ván cược ≥ ${fmt(lieu)}`;
+                    line = `🔴 Quẻ Kiếp [${t}]: ⚡ NGHỊCH THIÊN CẢI MỆNH! ${via} — phá quẻ, lật ${Math.min(q.stacks, cap)} stack thành điểm phúc!`;
+                } else {
+                    const lieu2 = Q().LIEU[q.tier - 1];
+                    const lieuHint = lieu2 != null ? `, hoặc thắng 1 ván cược ≥ ${fmt(lieu2)}` : '';
+                    line = `🔴 Quẻ Kiếp [${t}]: chuỗi ${q.win_streak}/${Q().KIEP_BREAK_STREAK} | ${q.stacks} stack chờ lật | còn ${q.rounds_left} ván | Phá: thắng ${Q().KIEP_BREAK_STREAK} ván liền${lieuHint}`;
+                }
+            } else {
+                q.win_streak = 0;
+                q.stacks += 1;
+                const penalty = Q().KIEP_PENALTY_PER_STACK * q.stacks * mult;
+                const flip = ngocValue(Math.min(q.stacks, cap), q.tier);
+                const lieu = Q().LIEU[q.tier - 1];
+                const lieuHint = lieu != null ? `, hoặc thắng 1 ván cược ≥ ${fmt(lieu)}` : '';
+                line = `🔴 Quẻ Kiếp [${t}]: ${q.stacks} stack (phạt ${fmt(penalty)} / lật thành ${fmt(flip)} ngọc nếu phá quẻ) | còn ${q.rounds_left} ván | Phá: thắng ${Q().KIEP_BREAK_STREAK} ván liền${lieuHint}`;
+            }
+            if (!settleReason && q.rounds_left <= 0) settleReason = 'natural';
+            break;
+        }
+    }
+    return { line, settleReason };
+}
+
+// ── Settlement ───────────────────────────────────────────────────────────────
+
+// Settle & clear the active quẻ. reason: natural | bank | nghich_break |
+// nghich_goque | kiep_break | auto_settle. Returns { lines, paid, penalty }.
+function settle(st, reason) {
+    const q = st.que;
+    // Callers thread the owning guild/user through st.__ref (the quẻ object
+    // itself doesn't store them — state is keyed by guildId→userId).
+    const ref = st.__ref || {};
+    const gId = ref.guildId;
+    const uId = ref.userId;
+
+    const meta = QUE_META[q.type];
+    const t = tierName(q.tier);
+    const cap = Q().POINT_CAP;
+    let paid = 0, penalty = 0;
+    let outcomeLine = '';
+
+    switch (q.type) {
+        case 'TIEU_CAT':
+        case 'TRUNG_CAT':
+        case 'DAI_CAT': {
+            paid = ngocValue(q.points, q.tier);
+            outcomeLine = paid > 0
+                ? `Nhận **${fmt(paid)}** ${ngocEmote()} (${Math.min(q.points, cap)} điểm × ${Q().POINT_VALUE} × ${tierMult(q.tier)}).`
+                : `Không có điểm phúc để nhận.`;
+            break;
+        }
+        case 'TIEU_HUNG': {
+            if (q.stacks <= Q().TIEU_HUNG_MAX_LOSSES) {
+                paid = ngocValue(q.points, q.tier);
+                outcomeLine = paid > 0 ? `Giữ được pool: nhận **${fmt(paid)}** ${ngocEmote()}.` : `Không có điểm để nhận.`;
+            } else {
+                paid = 0;
+                outcomeLine = `Thua ${q.stacks} ván (> ${Q().TIEU_HUNG_MAX_LOSSES}) — pool tạm giữ bị mất trắng. Không phạt tiền.`;
+            }
+            break;
+        }
+        case 'TRUNG_HUNG': {
+            if (reason === 'nghich_break' || reason === 'nghich_goque') {
+                penalty = 0;
+                outcomeLine = reason === 'nghich_goque'
+                    ? `Đã gỡ quẻ (phí đã trừ), stack xoá sạch — không phạt.`
+                    : `Phá quẻ bằng thực lực — stack xoá sạch, không phạt.`;
+            } else {
+                penalty = Q().NGHICH_PENALTY_PER_STACK * q.stacks * tierMult(q.tier);
+            }
+            break;
+        }
+        case 'DAI_HUNG': {
+            if (reason === 'kiep_break') {
+                paid = ngocValue(q.stacks, q.tier); // stacks → điểm 1:1 (clamped)
+                outcomeLine = `Hoạ trung hữu phúc — lật ${Math.min(q.stacks, cap)} stack thành **${fmt(paid)}** ${ngocEmote()}!`;
+            } else {
+                penalty = Q().KIEP_PENALTY_PER_STACK * q.stacks * tierMult(q.tier);
+            }
+            break;
         }
     }
 
-    return { payout, events, eventLines: formatEvents(events) };
-}
-
-// ── Probability helpers shared by the games ─────────────────────────────────
-
-// Exact-normalized weight scaling for weighted pools (slot): winner weights
-// scale by rateMult, all other weights by s = (T − rW)/(T − W), so P(win)
-// becomes exactly rateMult × base while the mix INSIDE winners (jackpot share)
-// and inside losers is preserved. Naive winner-only scaling under-delivers
-// (r=1.3 on the slot pool → effective ~1.25). No-op when the target is
-// unreachable (rW ≥ T).
-function scaleWinWeights(entries, isWin, rateMult) {
-    if (!rateMult || rateMult === 1) return entries;
-    const T = entries.reduce((s, e) => s + (e.weight || 0), 0);
-    const W = entries.reduce((s, e) => s + (isWin(e) ? (e.weight || 0) : 0), 0);
-    if (W <= 0 || W >= T || rateMult * W >= T) return entries;
-    const s = (T - rateMult * W) / (T - W);
-    return entries.map(e => ({ ...e, weight: (e.weight || 0) * (isWin(e) ? rateMult : s) }));
-}
-
-// Hidden single-reroll probability for the dice games, where the outcome is a
-// deterministic function of one honest roll. Rerolling a loss (boost) or a win
-// (nerf) with the exact q below yields P' = rateMult × P0. A fixed q = |r−1|
-// would self-attenuate at high P0 (Đại Hung mặt would land at 0.83 instead of
-// 0.70 — enough to flip the tier +EV with reverse). q clamps to 1 when the
-// target is out of reach of a single reroll.
-function rerollPlan(P0, rateMult) {
-    if (!(P0 > 0) || P0 >= 1 || !rateMult || rateMult === 1) return { direction: null, q: 0 };
-    if (rateMult > 1) return { direction: 'boost', q: Math.min(1, (rateMult - 1) / (1 - P0)) };
-    return { direction: 'nerf', q: Math.min(1, (1 - rateMult) / (1 - P0)) };
-}
-
-// ── Display ──────────────────────────────────────────────────────────────────
-
-function formatEvents(events) {
-    const R = economy.RUTQUE;
-    const ngoc = renderEmote('ngoc');
-    return events.map(ev => {
-        if (ev.type === 'reverse') {
-            return `⚡ **NGHỊCH THIÊN CẢI MỆNH!** Vận rủi đảo chiều — ×${R.REVERSE_MULT}! (+${fmt(ev.bonus)} ${ngoc})`;
-        }
-        if (ev.type === 'jackpot') {
-            return `🌟 Quẻ ${TIER_META[ev.tier].label} ứng nghiệm — jackpot ×${ev.jackpotMult}! (+${fmt(ev.extra)} ${ngoc})`;
-        }
-        return '';
-    }).filter(Boolean);
-}
-
-// Fuzzy Đại Cát meter — bands only, never numbers: the decay proc is a hidden
-// dice roll, so an exact percentage would read as the bot cheating. Past the
-// threshold and after decay it reads IDENTICALLY ("đang mờ dần") so the
-// player can never pinpoint when the luck actually died.
-function fuzzyMeter(entry) {
-    const R = economy.RUTQUE;
-    const ratio = ((entry.man && entry.man.pts) || 0) / (R.MAN_THRESHOLD || 1);
-    if ((entry.man && entry.man.decayed) || ratio > 0.75) return '✨ Vận khí: đang mờ dần.';
-    if (ratio > 0.5) return '✨✨ Vận khí: lay động.';
-    if (ratio > 0.25) return '✨✨✨ Vận khí: dồi dào.';
-    return '✨✨✨✨ Vận khí: sung mãn.';
-}
-
-// Note: no decayed special-case — a spent Đại Cát still shows the full buff
-// line. That deception is intentional (see manJackpotLuck).
-function effectLine(entry) {
-    const t = (economy.RUTQUE.TIERS || {})[entry.tier] || {};
-    const pctShift = Math.round(((t.RATE_MULT || 1) - 1) * 100);
-    if (entry.tier === 'dai_cat') {
-        return `🌟 Tỉ lệ thắng +${pctShift}% · Jackpot ×${t.JACKPOT_MULT} hôm nay!`;
+    // Apply wallet effects (edge case §10.1: never negative — forgive remainder).
+    let deducted = 0;
+    if (paid > 0) addNgoc(gId, uId, paid);
+    if (penalty > 0) {
+        const w = getWallet(gId, uId);
+        const avail = w.ngoc + (w.lockedNgoc || 0);
+        deducted = Math.min(penalty, avail);
+        if (deducted > 0) spendNgocForGame(gId, uId, deducted);
+        outcomeLine = deducted < penalty
+            ? `Phạt ${fmt(penalty)} ${ngocEmote()} — chỉ còn ${fmt(deducted)}, trừ hết & tha phần còn lại.`
+            : `Bị phạt **${fmt(deducted)}** ${ngocEmote()} (${q.stacks} stack).`;
     }
-    if (pctShift >= 0) return `✨ Tỉ lệ thắng +${pctShift}% hôm nay.`;
-    return `🕯️ Tỉ lệ thắng −${Math.abs(pctShift)}% hôm nay.`;
+
+    metrics.recordQueSettlement({ guildId: gId, userId: uId, paid, penalty: deducted });
+
+    const rounds = Q().LIFETIME[q.type] - q.rounds_left;
+    const header = `${meta.emoji} **Kết toán quẻ ${meta.name} [${t}]** — ${reasonLabel(reason)}`;
+    const stat = `Đã chơi ${rounds} ván · thắng ${q.wins}/${q.wins + q.losses}${q.stacks ? ` · ${q.stacks} stack` : ''}${q.points ? ` · ${Math.min(q.points, cap)} điểm` : ''}`;
+    const lines = [header, stat, outcomeLine, `*${meta.flavor}*`];
+
+    st.que = null;
+    delete st.__ref;
+    saveData();
+    return { lines, paid, penalty: deducted };
 }
 
-// The tier card shown on draw / status / redraw. guildId/userId are needed
-// for the wealth-scaled next-redraw price in the footer.
-function formatCard({ displayName, guildId, userId, entry, isStatus = false, redrawPaid = 0 }) {
-    const meta = TIER_META[entry.tier];
-    const lines = [];
-    lines.push(isStatus
-        ? `🎴 Quẻ hôm nay của **${displayName}**`
-        : `🎴 **${displayName}** rút quẻ hôm nay…`);
-    lines.push(`# ${meta.emoji} ${meta.label.toUpperCase()}`);
-    lines.push(`*${meta.flavor}*`);
-    lines.push(effectLine(entry));
-    if (meta.hint) lines.push(meta.hint);
-    if (entry.tier === 'dai_cat' && isStatus) {
-        lines.push(fuzzyMeter(entry));
+function reasonLabel(reason) {
+    switch (reason) {
+        case 'bank': return 'chốt sớm';
+        case 'nghich_break': return 'phá quẻ';
+        case 'nghich_goque': return 'gỡ quẻ';
+        case 'kiep_break': return 'nghịch thiên';
+        case 'auto_settle': return 'tự kết toán sau 7 ngày';
+        default: return 'hết hạn';
     }
-    const footer = [];
-    if (redrawPaid > 0) footer.push(`Đã đổi quẻ (−${fmt(redrawPaid)} ngọc) — quẻ mới thay quẻ cũ hoàn toàn.`);
-    footer.push(`Ứng với coinflip · slot · tổng · mặt, hết hiệu lực lúc 0:00. \`!rutque lai\` đổi quẻ (${fmt(getRedrawPrice(guildId, userId))} ngọc).`);
-    lines.push(`-# ${footer.join(' ')}`);
+}
+
+// 7-day safety valve. Settles an expired quẻ; returns { lines } or null.
+function checkAutoSettle(guildId, userId) {
+    const st = getState(guildId, userId);
+    const q = st.que;
+    if (!q) return null;
+    const ageMs = Date.now() - (q.created_at || Date.now());
+    if (ageMs < Q().AUTO_SETTLE_DAYS * 86400000) return null;
+    st.__ref = { guildId, userId };
+    const res = settle(st, 'auto_settle');
+    return { lines: ['⏳ Quẻ cũ đã quá 7 ngày và được tự kết toán:', ...res.lines] };
+}
+
+// ── Player commands ──────────────────────────────────────────────────────────
+
+// !bank — settle Trung Cát / Đại Cát now.
+function bank(guildId, userId) {
+    const auto = checkAutoSettle(guildId, userId);
+    if (auto) return { autoSettled: true, lines: auto.lines };
+    const st = getState(guildId, userId);
+    const q = st.que;
+    if (!q) return { error: 'no_que' };
+    if (q.type !== 'TRUNG_CAT' && q.type !== 'DAI_CAT') return { error: 'wrong_que' };
+    st.__ref = { guildId, userId };
+    const res = settle(st, 'bank');
+    return { ok: true, lines: res.lines };
+}
+
+// !xoadau — Tiểu Cát: erase the most recent LOSS from the quẻ (not the money).
+function xoadau(guildId, userId) {
+    const auto = checkAutoSettle(guildId, userId);
+    if (auto) return { autoSettled: true, lines: auto.lines };
+    const st = getState(guildId, userId);
+    const q = st.que;
+    if (!q) return { error: 'no_que' };
+    if (q.type !== 'TIEU_CAT') return { error: 'wrong_que' };
+    if ((q.tokens || 0) <= 0) return { error: 'no_tokens' };
+    const lr = q.last_round;
+    if (!lr) return { error: 'no_round' };
+    if (lr.won) return { error: 'not_a_loss' };
+    // Restore the full pre-round snapshot (undoes the −1 point AND the lifetime
+    // tick), then spend a token. The game money stays lost — never refunded.
+    Object.assign(q, lr.before);
+    q.tokens = Math.max(0, q.tokens - 1);
+    q.last_round = null;
+    saveData();
+    return { ok: true, tokens: q.tokens, points: q.points, rounds_left: q.rounds_left };
+}
+
+// !goque — Trung Hung: pay the removal fee, end the quẻ, void stacks.
+// Pass confirmed=true to skip the >10%-balance guard.
+function goque(guildId, userId, confirmed) {
+    const auto = checkAutoSettle(guildId, userId);
+    if (auto) return { autoSettled: true, lines: auto.lines };
+    const st = getState(guildId, userId);
+    const q = st.que;
+    if (!q) return { error: 'no_que' };
+    if (q.type !== 'TRUNG_HUNG') return { error: 'wrong_que' };
+    const fee = Q().NGHICH_REMOVE_FEE * tierMult(q.tier);
+    const w = getWallet(guildId, userId);
+    const avail = w.ngoc + (w.lockedNgoc || 0);
+    if (avail < fee) return { error: 'insufficient', fee, available: avail };
+    if (!confirmed && fee > avail * Q().GOQUE_CONFIRM_PCT) {
+        return { needConfirm: true, fee };
+    }
+    spendNgocForGame(guildId, userId, fee);
+    metrics.recordQueSettlement({ guildId, userId, paid: 0, penalty: fee });
+    st.__ref = { guildId, userId };
+    const res = settle(st, 'nghich_goque');
+    return { ok: true, fee, lines: res.lines };
+}
+
+// ── Status / info display ────────────────────────────────────────────────────
+
+function formatStatus(guildId, userId, displayName) {
+    const auto = checkAutoSettle(guildId, userId);
+    const pre = auto ? auto.lines : [];
+    const av = drawAvailability(guildId, userId);
+    const q = av.active;
+    if (!q) {
+        const lines = [
+            `🎴 **${displayName}** — chưa có quẻ nào đang hoạt động.`,
+            `Rút quẻ: \`!rutque <bậc>\` (${TIER_KEYS.join(' / ')}).`,
+            `Còn ${av.totalLeft}/${Q().DAILY_LIMIT} lượt rút hôm nay (Thiên: ${av.thienLeft}/${Q().THIEN_DAILY_LIMIT}).`
+        ];
+        return [...pre, ...lines].join('\n');
+    }
+    return [...pre, ...queStatusLines(q, displayName)].join('\n');
+}
+
+function queStatusLines(q, displayName) {
+    const meta = QUE_META[q.type];
+    const t = tierName(q.tier);
+    const cap = Q().POINT_CAP;
+    const lines = [
+        `🎴 Quẻ của **${displayName}**: ${meta.emoji} **${meta.name}** [${t}]`,
+        `*${meta.flavor}*`,
+        `Còn **${q.rounds_left}** ván · thắng ${q.wins}/${q.wins + q.losses}`
+    ];
+    if (meta.kind === 'cat') {
+        lines.push(`Điểm phúc: **${Math.min(q.points, cap)}** → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}`);
+        if (q.type === 'TIEU_CAT') lines.push(`Lá xoá dấu: ${q.tokens}`);
+        if (q.type === 'TRUNG_CAT') lines.push(`Thua liên tiếp: ${q.consec_losses}/2 · \`!bank\` để chốt`);
+        if (q.type === 'DAI_CAT') lines.push(`Chuỗi thắng: ${q.win_streak} · \`!bank\` để chốt`);
+    } else {
+        if (q.type === 'TIEU_HUNG') {
+            lines.push(`Tạm giữ ${Math.min(q.points, cap)} điểm · đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES}`);
+        } else if (q.type === 'TRUNG_HUNG') {
+            const penalty = Q().NGHICH_PENALTY_PER_STACK * q.stacks * tierMult(q.tier);
+            const fee = Q().NGHICH_REMOVE_FEE * tierMult(q.tier);
+            lines.push(`${q.stacks} stack (phạt ~${fmt(penalty)} ${ngocEmote()}) · chuỗi ${q.win_streak}/${Q().NGHICH_BREAK_STREAK}`);
+            lines.push(`Hoá giải: thắng ${Q().NGHICH_BREAK_STREAK} ván liền hoặc \`!goque\` (${fmt(fee)} ngọc)`);
+        } else if (q.type === 'DAI_HUNG') {
+            const penalty = Q().KIEP_PENALTY_PER_STACK * q.stacks * tierMult(q.tier);
+            const flip = ngocValue(Math.min(q.stacks, cap), q.tier);
+            const lieu = Q().LIEU[q.tier - 1];
+            lines.push(`${q.stacks} stack (phạt ~${fmt(penalty)} / lật ${fmt(flip)} ngọc) · chuỗi ${q.win_streak}/${Q().KIEP_BREAK_STREAK}`);
+            lines.push(`Phá: thắng ${Q().KIEP_BREAK_STREAK} ván liền${lieu != null ? ` hoặc thắng 1 ván cược ≥ ${fmt(lieu)}` : ' (Thiên: chỉ bằng thực lực)'}`);
+        }
+    }
+    return lines;
+}
+
+function formatDrawResult(que, displayName) {
+    return queStatusLines(que, displayName).join('\n');
+}
+
+function formatInfo() {
+    const cap = Q().POINT_CAP;
+    const lines = [
+        '📖 **Quẻ Bói** — lớp điểm phúc song song, KHÔNG đổi tỉ lệ/thưởng của game.',
+        `Rút: \`!rutque <bậc>\` (miễn phí, ${Q().DAILY_LIMIT} lượt/ngày, Thiên ${Q().THIEN_DAILY_LIMIT}/ngày). Mỗi lúc chỉ giữ 1 quẻ.`,
+        'Chỉ ván có **cược ≥ ngưỡng bậc** mới tính vào quẻ. Thưởng/phạt đều là số cố định theo bậc.',
+        '',
+        '**Bậc:** ' + TIER_NAMES.map((n, i) => `${n} ×${Q().TIER_MULT[i]}`).join(' · '),
+        '',
+        '**6 quẻ:**',
+        `🟢 Chuyển (${Q().LIFETIME.TIEU_CAT} ván): thắng +điểm, thua −1; có ${Q().TIEU_CAT_TOKENS} lá \`!xoadau\`.`,
+        `🟢 Phúc (${Q().LIFETIME.TRUNG_CAT} ván): thua 2 ván liền → mất nửa điểm; \`!bank\` chốt.`,
+        `🟢 Liên (${Q().LIFETIME.DAI_CAT} ván): thắng nối thắng ×2 meter, thua → mất sạch; \`!bank\` chốt.`,
+        `🔴 Kiệt (${Q().LIFETIME.TIEU_HUNG} ván): giữ điểm; thua > ${Q().TIEU_HUNG_MAX_LOSSES} → mất pool (không phạt tiền).`,
+        `🔴 Nghịch (${Q().LIFETIME.TRUNG_HUNG} ván): mỗi thua +1 stack phạt; thắng ${Q().NGHICH_BREAK_STREAK} liền hoặc \`!goque\` để thoát.`,
+        `🔴 Kiếp (${Q().LIFETIME.DAI_HUNG} ván): mỗi thua +1 stack phạt; thắng ${Q().KIEP_BREAK_STREAK} liền/liều → lật stack thành điểm.`,
+        '',
+        `1 điểm phúc = ${Q().POINT_VALUE} ngọc × hệ số bậc, tối đa ${cap} điểm/quẻ.`,
+        'Lệnh: `!que` (xem quẻ) · `!bank` · `!xoadau` · `!goque` · `!boiinfo`.'
+    ];
     return lines.join('\n');
 }
 
+// ── Prune ────────────────────────────────────────────────────────────────────
+
+// Reset yesterday's draw counters; drop empty user entries (no active quẻ).
 function pruneDaily(today) {
     today = today || todayStr();
     let removed = 0;
-    const f = data.rutque || {};
+    const f = data.queboi || {};
     for (const guildId of Object.keys(f)) {
         const g = f[guildId];
         for (const uid of Object.keys(g)) {
-            if (!g[uid] || g[uid].date !== today) { delete g[uid]; removed++; }
+            const st = g[uid];
+            if (!st) { delete g[uid]; removed++; continue; }
+            if (st.draws && st.draws.date !== today) {
+                st.draws = { date: today, total: 0, thien: 0 };
+            }
+            if (!st.que && (!st.draws || (!st.draws.total && !st.draws.thien))) {
+                delete g[uid]; removed++;
+            }
         }
         if (Object.keys(g).length === 0) delete f[guildId];
     }
@@ -339,19 +588,21 @@ function pruneDaily(today) {
 }
 
 module.exports = {
-    TIER_META,
-    getEntry,
+    QUE_TYPES,
+    QUE_META,
+    TIER_KEYS,
+    TIER_NAMES,
+    GAMES,
+    getActive,
+    drawAvailability,
     draw,
-    redraw,
-    setTier,
-    getRedrawPrice,
-    getModifiers,
-    manJackpotLuck,
-    applyWinPayout,
-    scaleWinWeights,
-    rerollPlan,
-    formatEvents,
-    formatCard,
-    fuzzyMeter,
+    setQue,
+    onGameResult,
+    bank,
+    xoadau,
+    goque,
+    formatStatus,
+    formatDrawResult,
+    formatInfo,
     pruneDaily
 };

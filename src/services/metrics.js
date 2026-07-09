@@ -198,6 +198,11 @@ const GAME_DEFAULTS = {
         jackpotProcs: 0,
         jackpotBonus: 0,
         decayProcs: 0,
+        // Quẻ Bói settlement flow: quePaid = ngọc faucet (điểm phúc payouts +
+        // Kiếp flips), queBurned = ngọc sink (Nghịch/Kiếp penalties + !goque fee).
+        settlements: 0,
+        quePaid: 0,
+        queBurned: 0,
         playerIds: {}
     }
 };
@@ -745,10 +750,10 @@ function recordFishing({ guildId, outcome, ngocDelta = 0, ttDelta = 0, userId })
     _dirty = true;
 }
 
-// Rút quẻ. Draws/redraws come from the command; effects (reverse / jackpot
-// boost / decay) are recorded by rutque.applyWinPayout as they fire. The
-// reverse/jackpot bonus ngọc already flows through each game's recorded
-// payout — netFromStore must NOT add it again (only redrawBurned is a sink).
+// Rút quẻ (Quẻ Bói). `draw` counts a fortune draw + its quẻ type. The old
+// odds-shift effect fields (reverse/jackpot/decay) are legacy/dormant — the
+// current system settles via recordQueSettlement (quePaid faucet / queBurned
+// sink), which netFromStore folds into minted/burned.
 function recordRutque({ guildId, action, tier, cost = 0, userId }) {
     if (isExcluded(userId)) return;
     _checkRollover();
@@ -771,6 +776,19 @@ function recordRutqueEffect({ guildId, type, amount = 0, userId }) {
     if (type === 'reverse') { m.reverseProcs++; m.reverseBonus += amount; }
     else if (type === 'jackpot') { m.jackpotProcs++; m.jackpotBonus += amount; }
     else if (type === 'decay') { m.decayProcs++; }
+    _dirty = true;
+}
+
+// Quẻ Bói settlement: `paid` ngọc minted to the player (faucet), `penalty`
+// ngọc taken from the player (sink; includes !goque fees).
+function recordQueSettlement({ guildId, userId, paid = 0, penalty = 0 }) {
+    if (isExcluded(userId)) return;
+    _checkRollover();
+    const m = _get(guildId, 'rutque');
+    m.settlements = (m.settlements || 0) + 1;
+    m.quePaid = (m.quePaid || 0) + paid;
+    m.queBurned = (m.queBurned || 0) + penalty;
+    if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
     _dirty = true;
 }
 
@@ -1016,11 +1034,13 @@ function netFromStore(perGuildStore, guildFilter) {
     // Fishing counts NET (rewards − catfish/puffle losses); TT minted are items,
     // not valued in ngọc here — same convention as gacha item drops.
     const mintedFishing = ((flat.fishing && flat.fishing.ngocMinted) || 0) - ((flat.fishing && flat.fishing.ngocBurned) || 0);
-    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss + mintedNoitu + mintedFishing;
-    // Rutque redraw fees are a pure sink; its reverse/jackpot bonuses are NOT
-    // added here — they already sit inside each game's recorded payout.
+    // Quẻ Bói payouts (điểm phúc + Kiếp flips) are a faucet independent of the
+    // games' own recorded payouts, so they add to `minted` here.
+    const mintedQueBoi = (flat.rutque && flat.rutque.quePaid) || 0;
+    const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss + mintedNoitu + mintedFishing + mintedQueBoi;
+    // Rutque sinks: legacy redraw fees + Quẻ Bói penalties/goque fees.
     const burnedGacha = (flat.gacha && flat.gacha.burned) || 0;
-    const burnedRutque = (flat.rutque && flat.rutque.redrawBurned) || 0;
+    const burnedRutque = ((flat.rutque && flat.rutque.redrawBurned) || 0) + ((flat.rutque && flat.rutque.queBurned) || 0);
     const burned = burnedGacha + burnedRutque;
     return {
         netGame, minted, burned, burnedGacha, burnedRutque,
@@ -1112,7 +1132,7 @@ module.exports = {
     recordWordchainViet, recordWordchainVietReject,
     recordGacha, recordWordchainReject, recordVuaTiengViet,
     recordFlashMath, recordMathBoss, recordFishing,
-    recordRutque, recordRutqueEffect,
+    recordRutque, recordRutqueEffect, recordQueSettlement,
     recordDaily, recordGangocCreated, recordGangocClaim,
     formatSlot, formatCoinflip, formatTong, formatMat,
     formatAll, formatAllSections, formatGame, packSections, listBuckets,

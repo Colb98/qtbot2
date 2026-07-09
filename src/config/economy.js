@@ -135,32 +135,54 @@ const DEFAULTS = {
     // × REDRAW_COST_MULT^(redraws today) — scales with wealth so whales can't
     // fish for Đại Cát with pocket change. Total counts ví + locked + bank
     // két (same as !topngoc), so banking ngọc doesn't dodge the scaling.
-    RUTQUE: {
-        REDRAW_BASE_COST: 1000,
-        REDRAW_WEALTH_PCT: 0.01,
-        REDRAW_COST_MULT: 2,
-        REVERSE_PROC: 0.095,
-        REVERSE_MULT: 5,
-        REVERSE_MIN_PAYOUT_RATIO: 2,
-        DICE_COVERAGE_MAX_RATIO: 0.5,
-        COINFLIP_MAX_WIN_RATE: 0.95,
-        DECAY_RATE_MULT: 0.975,
-        MAN_THRESHOLD: 1000,
-        MAN_STEP_PER_POINT: 0.002,
-        MAN_JACKPOT_FADE_END: 2000,
-        MAN_JACKPOT_LUCKY_MIN: 0.05,
-        MAN_BIG_NET: 50000,  MAN_BIG_PTS: 100,
-        MAN_MID_NET: 20000,  MAN_MID_PTS: 40,
-        MAN_SMALL_NET: 5000, MAN_SMALL_PTS: 10,
-        MAN_TINY_PTS: 2,
-        JACKPOT_TIER: { SLOT_MIN_MULT: 18, TONG_MIN_MULT: 999, MAT_MIN_MATCHES: 3 },
-        TIERS: {
-            tieu_cat:   { WEIGHT: 28, RATE_MULT: 1.05, JACKPOT_MULT: 1.00 },
-            trung_cat:  { WEIGHT: 16, RATE_MULT: 1.10, JACKPOT_MULT: 1.00 },
-            dai_cat:    { WEIGHT: 6,  RATE_MULT: 1.30, JACKPOT_MULT: 1.35 },
-            tieu_hung:  { WEIGHT: 28, RATE_MULT: 0.95, JACKPOT_MULT: 1.00 },
-            trung_hung: { WEIGHT: 16, RATE_MULT: 0.85, JACKPOT_MULT: 1.50 },
-            dai_hung:   { WEIGHT: 6,  RATE_MULT: 0.70, JACKPOT_MULT: 1.00 }
+    // ── Quẻ Bói (fortune-draw scoring layer) ────────────────────────────────
+    // A parallel "điểm phúc" scoring layer settled in ngọc. It NEVER touches
+    // any game's odds/payouts — games run 100% unchanged; the quẻ reads each
+    // qualifying round's result and scores/penalises it. All rewards/penalties
+    // are FLAT (per tier), never a % of bet — the anti-whale invariant. Every
+    // number here is live-tunable via the admin panel. See services/rutque.js.
+    QUE_BOI: {
+        DAILY_LIMIT: 10,         // draws/user/day (resets 00:00 ICT)
+        THIEN_DAILY_LIMIT: 5,    // extra cap: Thiên tier draws/user/day
+        AUTO_SETTLE_DAYS: 7,     // safety valve: settle a parked quẻ after 7 days
+        GOQUE_CONFIRM_PCT: 0.10, // !goque asks to confirm if fee > this × balance
+
+        // Base flat values (tier Phàm ×1); scaled by the tier multiplier.
+        POINT_VALUE: 100,                // 1 điểm phúc → ngọc
+        POINT_CAP: 20,                   // max điểm payable per quẻ (meter clamp too)
+        NGHICH_PENALTY_PER_STACK: 150,
+        NGHICH_REMOVE_FEE: 400,          // !goque fee (a sink)
+        KIEP_PENALTY_PER_STACK: 200,
+
+        TIER_MULT: [1, 8, 30, 100, 250], // Phàm, Linh, Huyền, Địa, Thiên
+
+        // Per-game min bet for a round to COUNT toward the quẻ, indexed by tier−1.
+        MIN_BET: {
+            coinflip: [100, 1000, 5000, 20000, 50000],
+            mat:      [100, 1000, 5000, 20000, 50000],
+            tong:     [100, 500, 1500, 4000, 10000],
+            slot:     [50, 250, 750, 2000, 5000]
+        },
+        // Đại Hung "liều" break threshold per tier (null = unavailable at Thiên).
+        LIEU: [2000, 10000, 30000, 50000, null],
+        // Điểm phúc awarded per winning round, per game (≈ round(0.5 / win_rate)).
+        POINTS_PER_WIN: { coinflip: 1, mat: 2, tong: 2, slot: 5 },
+
+        // Quẻ lifetimes (qualifying rounds) and per-quẻ knobs.
+        LIFETIME: {
+            TIEU_CAT: 10, TRUNG_CAT: 10, DAI_CAT: 8,
+            TIEU_HUNG: 5, TRUNG_HUNG: 8, DAI_HUNG: 10
+        },
+        TIEU_CAT_TOKENS: 2,       // xoá dấu tokens
+        TIEU_HUNG_MAX_LOSSES: 2,  // > this ⇒ held pool forfeited
+        NGHICH_BREAK_STREAK: 3,   // wins-in-a-row to break Nghịch
+        KIEP_BREAK_STREAK: 4,     // wins-in-a-row to break Kiếp
+
+        // Draw table — the single economy knob. Keep cát vs hung EV ≈ neutral
+        // or slightly sink-negative. Weights need not sum to 100.
+        DRAW_WEIGHTS: {
+            TIEU_CAT: 20, TRUNG_CAT: 18, DAI_CAT: 12,
+            TIEU_HUNG: 20, TRUNG_HUNG: 18, DAI_HUNG: 12
         }
     },
 

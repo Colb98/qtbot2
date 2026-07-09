@@ -130,23 +130,15 @@ function runMultiFlip({ guildId, userId, displayName, side, isAll, requestedAmou
         const cur = getWallet(guildId, userId);
         if ((cur.ngoc + (cur.lockedNgoc || 0)) < perFlip) break; // safety
         spendNgocForGame(guildId, userId, perFlip);
-        // Fortune is re-read every flip: a Đại Cát decay proc mid-sequence
-        // must already debuff the remaining flips.
-        const mods = rutque.getModifiers(guildId, userId);
-        // Win is rolled against the configured rate (shifted by today's quẻ);
-        // the shown face is derived from it (or rolled freely when no side
-        // was guessed) so the display always matches the outcome.
-        const winRate = Math.min(economy.COINFLIP_WIN_RATE * mods.rateMult, economy.RUTQUE.COINFLIP_MAX_WIN_RATE);
-        const won = Math.random() < winRate;
+        // Odds are fixed — the quẻ (rút quẻ) never shifts them. Win is rolled
+        // against the configured rate; the shown face is derived from it (or
+        // rolled freely when no side was guessed) so display matches outcome.
+        const won = Math.random() < economy.COINFLIP_WIN_RATE;
         const result = side
             ? (won ? side : (side === 'sap' ? 'ngua' : 'sap'))
             : (Math.random() < 0.5 ? 'sap' : 'ngua');
-        let payout = won ? perFlip * 2 : 0;
-        let eventLines = [];
-        let events = [];
+        const payout = won ? perFlip * 2 : 0;
         if (won) {
-            // Coinflip has no jackpot tier — only reverse/decay can apply.
-            ({ payout, eventLines, events } = rutque.applyWinPayout(guildId, userId, { payout, stake: perFlip, game: 'coinflip' }));
             addNgoc(guildId, userId, payout);
             profile.recordWin(guildId, userId, payout, 'Coinflip');
         }
@@ -155,7 +147,10 @@ function runMultiFlip({ guildId, userId, displayName, side, isAll, requestedAmou
         if (metrics && metrics.recordCoinflip) {
             metrics.recordCoinflip({ guildId, amount: perFlip, won, payout, side, viaButton, wasAllIn: isAll, bigWin, userId });
         }
-        plays.push({ result, won, amount: perFlip, payout, eventLines, events });
+        // Quẻ Bói scoring layer: score this round & collect any inline guide /
+        // settlement lines to append to the result message.
+        const eventLines = rutque.onGameResult({ guildId, userId, game: 'coinflip', bet: perFlip, won }).lines;
+        plays.push({ result, won, amount: perFlip, payout, eventLines, events: [] });
     }
     if (plays.length === 0) return { error: 'no_ngoc', available: total };
 

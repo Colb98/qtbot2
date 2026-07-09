@@ -144,25 +144,17 @@ function playSlot({ guildId, userId, requestedAmount, isAllIn = false }) {
     }
     spendNgocForGame(guildId, userId, amount);
 
-    // Fortune (rút quẻ): scale the win-side weights for this spin; payout-side
-    // effects (jackpot boost / reverse / decay) still apply under pity.
-    const mods = rutque.getModifiers(guildId, userId);
-    const spinPool = (mods.active && mods.rateMult !== 1)
-        ? rutque.scaleWinWeights(POOL, p => p.mult > 1, mods.rateMult)
-        : null;
-    const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore, pityThreshold, spinPool);
-    let payout = Math.round(amount * mult);
-    let eventLines = [];
-    let events = [];
-    if (mult > 1 && payout > 0) {
-        const jackpotPortion = mult >= economy.RUTQUE.JACKPOT_TIER.SLOT_MIN_MULT ? payout : 0;
-        ({ payout, eventLines, events } = rutque.applyWinPayout(guildId, userId, { payout, stake: amount, jackpotPortion, game: 'slot' }));
-    }
+    // Odds are fixed — the quẻ (rút quẻ) never touches the spin pool or payout.
+    const { result: spinResult, mult, name: outcomeName } = spin(slotPityBefore, pityThreshold, null);
+    const payout = Math.round(amount * mult);
     if (payout > 0) {
         addNgoc(guildId, userId, payout);
         profile.recordWin(guildId, userId, payout, 'Slot');
     }
     profile.recordGame(guildId, userId, 'slot', amount, payout);
+    // Quẻ Bói scoring layer (won = net profit). Collect inline guide lines.
+    const eventLines = rutque.onGameResult({ guildId, userId, game: 'slot', bet: amount, won: payout > amount }).lines;
+    const events = [];
 
     const walletAfter = getWallet(guildId, userId);
     if (mult <= 1) {

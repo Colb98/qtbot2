@@ -66,30 +66,6 @@ function playMatMulti(roll, faces, amountPer) {
     return { results, totalPayout, anyWon: results.some(r => r.won) };
 }
 
-// True win probability of a bet — used to size the hidden fortune reroll
-// (rút quẻ) exactly. 216 equally likely rolls of 3 dice; SUM_WAYS counts how
-// many produce each tổng.
-const SUM_WAYS = { 3: 1, 4: 3, 5: 6, 6: 10, 7: 15, 8: 21, 9: 25, 10: 27, 11: 27, 12: 25, 13: 21, 14: 15, 15: 10, 16: 6, 17: 3, 18: 1 };
-
-function winProb(game, guesses) {
-    if (game === 'tong') return guesses.reduce((s, g) => s + (SUM_WAYS[g] || 0), 0) / 216;
-    return 1 - Math.pow((6 - new Set(guesses).size) / 6, 3);
-}
-
-// Spread a fortune bonus across the winning cửa pro-rata (remainder to the
-// last one) so per-cửa payouts, metrics and the wallet all add up exactly.
-function distributeBonus(results, bonus) {
-    const winners = results.filter(r => r.payout > 0);
-    if (!winners.length) return;
-    const totalW = winners.reduce((s, r) => s + r.payout, 0);
-    let rem = bonus;
-    for (let i = 0; i < winners.length; i++) {
-        const share = i === winners.length - 1 ? rem : Math.floor(bonus * winners[i].payout / totalW);
-        winners[i].payout += share;
-        rem -= share;
-    }
-}
-
 // Settle one multi-cửa bet end-to-end (wallet, profile, metrics; a single
 // cửa is just N=1) and return the roll + per-cửa results. Shared by the
 // !tong/!mat commands, the replay buttons and auto mode so the bookkeeping
@@ -97,59 +73,12 @@ function distributeBonus(results, bonus) {
 // keep this module free of those dependencies.
 function settleMultiBet({ guildId, userId, game, guesses, amountPer, viaButton, wasAllIn, metrics, profile }) {
     const totalCost = amountPer * guesses.length;
-    const R = economy.RUTQUE;
-    // Fortune coverage gate: a bet spanning ≥ half of all cửa (tổng 8/16 sums,
-    // mặt 3/6 faces) is a near-guaranteed "win" — mặt all-6 always refunds its
-    // stake — so it gets NO fortune effects at all: no reroll, no jackpot
-    // boost, no reverse, no decay points.
-    const totalCua = game === 'tong' ? 16 : 6;
-    const fortuneEligible = guesses.length / totalCua < R.DICE_COVERAGE_MAX_RATIO;
-    const mods = fortuneEligible ? rutque.getModifiers(guildId, userId) : null;
 
-    const resolvePlay = (r) => game === 'tong'
-        ? playTongMulti(r, guesses, amountPer)
-        : playMatMulti(r, guesses, amountPer);
-
-    let roll = rollDice();
-    let play = resolvePlay(roll);
-
-    // Fortune rate shift = hidden single reroll, the only honest way to bias
-    // a deterministic outcome shared by every cửa of the bet. rerollPlan's q
-    // makes P(win) exactly rateMult × base; only the final roll is displayed
-    // (same idea as coinflip deriving the shown face from the rolled outcome).
-    if (mods && mods.active && mods.rateMult !== 1) {
-        const plan = rutque.rerollPlan(winProb(game, guesses), mods.rateMult);
-        if ((plan.direction === 'boost' && !play.anyWon && Math.random() < plan.q)
-            || (plan.direction === 'nerf' && play.anyWon && Math.random() < plan.q)) {
-            roll = rollDice();
-            play = resolvePlay(roll);
-        }
-    }
-
-    let eventLines = [];
-    let events = [];
-    if (mods && mods.active && play.totalPayout > 0) {
-        // Jackpot tier: mặt 3-match only (tổng is disabled by config — its
-        // multiplier is player-chosen). Reverse eligibility is checked on the
-        // AGGREGATE payout/stake ratio inside applyWinPayout, so e.g. a
-        // 5-cửa tổng x8 hit (8 < 2×5) is excluded by design.
-        const jackpotPortion = play.results.reduce((s, r) => {
-            const isJackpot = game === 'tong'
-                ? (r.won && r.mult >= R.JACKPOT_TIER.TONG_MIN_MULT)
-                : (r.matches >= R.JACKPOT_TIER.MAT_MIN_MATCHES);
-            return s + (isJackpot ? r.payout : 0);
-        }, 0);
-        const res = rutque.applyWinPayout(guildId, userId, {
-            payout: play.totalPayout, stake: totalCost, jackpotPortion, game
-        });
-        const bonus = res.payout - play.totalPayout;
-        if (bonus > 0) {
-            distributeBonus(play.results, bonus);
-            play.totalPayout = res.payout;
-        }
-        eventLines = res.eventLines;
-        events = res.events || [];
-    }
+    // Odds are fixed — the quẻ (rút quẻ) never rerolls or boosts a dice bet.
+    const roll = rollDice();
+    const play = game === 'tong'
+        ? playTongMulti(roll, guesses, amountPer)
+        : playMatMulti(roll, guesses, amountPer);
 
     spendNgocForGame(guildId, userId, totalCost);
     if (play.totalPayout > 0) {
@@ -157,6 +86,11 @@ function settleMultiBet({ guildId, userId, game, guesses, amountPer, viaButton, 
         profile.recordWin(guildId, userId, play.totalPayout, game === 'tong' ? 'Tổng xúc xắc' : 'Mặt xúc xắc');
     }
     profile.recordGame(guildId, userId, game, totalCost, play.totalPayout);
+    // Quẻ Bói scoring layer: one bet = one round (won = net profit).
+    const eventLines = rutque.onGameResult({
+        guildId, userId, game, bet: totalCost, won: play.totalPayout > totalCost
+    }).lines;
+    const events = [];
     for (const r of play.results) {
         if (game === 'tong') {
             metrics.recordTong({ guildId, amount: amountPer, won: r.won, mult: r.mult, payout: r.payout, guess: r.guess, viaButton, wasAllIn, userId });
