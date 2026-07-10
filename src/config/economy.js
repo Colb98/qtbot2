@@ -291,6 +291,11 @@ const DEFAULTS = {
         NGOC_PER_WORD: 16,
         WORD_THRESHOLD: 25,
         NGOC_PER_WORD_AFTER: 8,
+        // Wordchain EN has no daily ngọc cap; this is the reference "full day"
+        // used only for the tt_legacy unlock (see currency.accrueFaucetUnlock):
+        // UNLOCK_DAILY_CAP / RESET.FAUCET_TT_PER_DAY ngọc → 1 tt_legacy, and the
+        // unlock is bounded at UNLOCK_DAILY_CAP/day so it also tops out at ~10 TT.
+        UNLOCK_DAILY_CAP: 8000,
         REWARD_CAP_PER_POSITION: 20,
         TIMER_LADDER: [
             { upTo: 10, seconds: 60 },

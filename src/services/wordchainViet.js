@@ -618,7 +618,7 @@ async function endSession(threadId, { reason, winnerId }) {
         const totalForUser = reward + bonus;
         if (totalForUser > 0) {
             addNgoc(session.guildId, uid, totalForUser);
-            accrueFaucetUnlock(session.guildId, uid, totalForUser, cfg.DAILY_CAP_WORDS + cfg.WIN_BONUS_DAILY_CAP);
+            accrueFaucetUnlock(session.guildId, uid, totalForUser, 'wordchainviet', cfg.DAILY_CAP_WORDS + cfg.WIN_BONUS_DAILY_CAP);
         }
         addWords(session.guildId, uid, positions.length);
         totalNgocAwarded += totalForUser;

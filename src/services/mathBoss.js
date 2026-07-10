@@ -84,7 +84,7 @@ function earnNgoc(guildId, userId, amount) {
     if (actual > 0) {
         cap.earned += actual;
         addNgoc(guildId, userId, actual);
-        accrueFaucetUnlock(guildId, userId, actual, economy.MATHBOSS.NGOC_DAILY_CAP);
+        accrueFaucetUnlock(guildId, userId, actual, 'mathboss', economy.MATHBOSS.NGOC_DAILY_CAP);
     }
     return actual;
 }

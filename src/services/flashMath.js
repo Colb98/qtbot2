@@ -55,7 +55,7 @@ function earnNgoc(guildId, userId, amount) {
     if (actual > 0) {
         cap.earned += actual;
         addNgoc(guildId, userId, actual);
-        accrueFaucetUnlock(guildId, userId, actual, economy.FLASHMATH.DAILY_CAP);
+        accrueFaucetUnlock(guildId, userId, actual, 'flashmath', economy.FLASHMATH.DAILY_CAP);
     }
     saveData();
     return actual;

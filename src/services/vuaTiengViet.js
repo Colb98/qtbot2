@@ -113,7 +113,9 @@ function earnNgoc(guildId, userId, difficulty, amount) {
     if (actual > 0) {
         cap.earned += actual;
         addNgoc(guildId, userId, actual);
-        accrueFaucetUnlock(guildId, userId, actual, cfg.DAILY_CAP);
+        // HARD.DAILY_CAP is the max any player can earn/day (the cap accumulator
+        // is shared across difficulties), so it's the single stable unlock ratio.
+        accrueFaucetUnlock(guildId, userId, actual, 'vuatiengviet', economy.VUATIENGVIET.HARD.DAILY_CAP);
     }
     updateLifetime(guildId, userId, actual);
     updateWeekly(guildId, userId, actual);

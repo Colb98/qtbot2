@@ -131,17 +131,30 @@ function spendNgocForGame(guildId, userId, amount) {
     saveData();
 }
 
-// Skill/faucet games (Vua Tiếng Việt · Nối Từ · Flash Math · Boss) also unlock
-// frozen tt_legacy — the parallel to casino stakes above. They don't stake ngọc,
-// so instead of the 1:1 accrual we scale by the game's daily cap: earning
-// `earnedNgoc` out of a `dailyCap`-ngọc day accrues that fraction of
-// FAUCET_TT_PER_DAY conversions' worth of resetWager. Maxing one game's daily cap
-// therefore unlocks ≈ RESET.FAUCET_TT_PER_DAY tt_legacy via !doitt.
-function accrueFaucetUnlock(guildId, userId, earnedNgoc, dailyCap) {
+// Skill/faucet games (Vua Tiếng Việt · Nối Từ · Flash Math · Boss · Wordchain EN)
+// also unlock frozen tt_legacy — the parallel to casino stakes above. They don't
+// stake ngọc, so the unlock is directly proportional to ngọc earned: every
+// `dailyCap / FAUCET_TT_PER_DAY` ngọc unlocks 1 tt_legacy (e.g. a 8000-ngọc/day
+// cap → 800 ngọc per unlock). It's routed through resetWager (redeemed by !doitt)
+// at WAGER_PER_TT per TT so casino and skill progress share one accumulator.
+//
+// A per-game/day counter caps the ngọc that counts toward the unlock at `dailyCap`
+// so each game tops out at ≈ FAUCET_TT_PER_DAY tt_legacy/day even when its ngọc
+// earnings themselves aren't daily-capped (Wordchain EN). Games whose earnings are
+// already capped never hit this bound — it's a safety net, not double-counting.
+function accrueFaucetUnlock(guildId, userId, earnedNgoc, gameKey, dailyCap) {
     if (!(earnedNgoc > 0) || !(dailyCap > 0)) return;
-    const perDay = economy.RESET.FAUCET_TT_PER_DAY * economy.RESET.WAGER_PER_TT;
     const w = getWallet(guildId, userId);
-    w.resetWager = (w.resetWager || 0) + Math.round(earnedNgoc / dailyCap * perDay);
+    const today = todayStr();
+    if (!w.faucetUnlock || w.faucetUnlock.date !== today) {
+        w.faucetUnlock = { date: today, games: {} };
+    }
+    const used = w.faucetUnlock.games[gameKey] || 0;
+    const countable = Math.min(earnedNgoc, Math.max(0, dailyCap - used));
+    if (countable <= 0) return;
+    w.faucetUnlock.games[gameKey] = used + countable;
+    const ngocPerTt = dailyCap / economy.RESET.FAUCET_TT_PER_DAY;
+    w.resetWager = (w.resetWager || 0) + Math.round((countable / ngocPerTt) * economy.RESET.WAGER_PER_TT);
     saveData();
 }
 

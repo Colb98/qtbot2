@@ -144,7 +144,7 @@ async function handleMessageCommand(msg) {
 • \`!ketngoc\` / \`!guingoc <n|all>\` / \`!rutngoc <n|all>\` — Két an toàn cho ngọc: gửi ngọc vào két để **khỏi lỡ tay tiêu** (không dùng được trong game) nhưng **vẫn tính** \`!topngoc\` và có **lãi nhẹ ${Math.round(economy.BANK.INTEREST_RATE * 10000) / 100}%/ngày** (trên mức thấp hơn giữa số dư đầu/cuối ngày).
 • \`!doi [vật phẩm] [1|2|3|all]\` — Đổi vật phẩm cao cấp (TT → linh thú/trang phục, linh thú → bậc cao hơn). Không gõ vật phẩm → menu chọn. Vật phẩm mùa cũ vẫn đổi được nhưng **không tính điểm** BXH.
 • \`!phangiai [linh thú] [n|all]\` — Phân giải linh thú → thiên thưởng. Linh thú giá trị ≥9 TT bị phạt: −10% TT hoặc trừ 20% giá trị bằng ngọc (chọn khi xác nhận).
-• \`!doitt\` — Sau reset máy chủ: quy đổi **Thiên Thưởng (cũ)** → TT mùa mới. Mỗi ${fmt(economy.RESET.WAGER_PER_TT)} ngọc **đã cược** (game casino) hoặc **kiếm được từ game kỹ năng** (Vua Tiếng Việt · Nối Từ · Flash Math · Boss — chơi hết cap ngày mỗi trò ≈ ${economy.RESET.FAUCET_TT_PER_DAY} TT) đổi 1 TT (xem tiến độ trong \`!khodo\`).
+• \`!doitt\` — Sau reset máy chủ: quy đổi **Thiên Thưởng (cũ)** → TT mùa mới. Mỗi ${fmt(economy.RESET.WAGER_PER_TT)} ngọc **đã cược** (game casino) hoặc **kiếm được từ game kỹ năng** (Vua Tiếng Việt · Nối Từ · Flash Math · Boss · Nối Từ Anh — chơi hết cap ngày mỗi trò ≈ ${economy.RESET.FAUCET_TT_PER_DAY} TT) đổi 1 TT (xem tiến độ trong \`!khodo\`).
 • \`!gacha [1-100|all]\` — Quay gacha, ${fmt(economy.GACHA.ROLL_COST)} ngọc/lần. Pity lượt 20 (KT+) / 200 (TT).
 • \`!pity\` — Xem lượt còn lại đến pity.
 • \`!toptt\` / \`!topngoc\` — Bảng xếp hạng.

@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.1.1';
+const CURRENT_VERSION = '3.1.2';
 
 const CHANGELOG = {
+    '3.1.2': {
+        date: '2026-07-10',
+        title: 'Mở khoá TT cũ: thêm Nối Từ Anh · tỉ lệ thuận theo ngọc',
+        changes: [
+            '🌟 **Nối Từ Anh (Wordchain EN) cũng mở khoá Thiên Thưởng (cũ)** — cùng cơ chế với Vua Tiếng Việt · Nối Từ · Flash Math · Boss.',
+            '📐 **Mở khoá tỉ lệ thuận với ngọc kiếm được** — cứ mỗi **(cap ngày ÷ 10)** ngọc từ game kỹ năng mở 1 TT cũ (ví dụ cap 8.000 ngọc/ngày → mỗi **800** ngọc mở 1 TT). Mỗi trò giới hạn ~**10** TT cũ/ngày. Gõ `!doitt` để quy đổi, xem tiến độ trong `!khodo`.'
+        ]
+    },
     '3.1.1': {
         date: '2026-07-10',
         title: 'Câu cá & rút quẻ chơi được ở kênh khoá game',

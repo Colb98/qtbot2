@@ -10,7 +10,7 @@ const {
 const log = require('../../logger');
 const client = require('../client');
 const { data, saveData } = require('../state');
-const { addNgoc, renderEmote, fmt, todayStr } = require('./currency');
+const { addNgoc, accrueFaucetUnlock, renderEmote, fmt, todayStr } = require('./currency');
 const economy = require('../config/economy');
 const metrics = require('./metrics');
 
@@ -409,7 +409,10 @@ async function endSession(threadId, { reason, winnerId }) {
 
         const bonus = (uid === winnerId) ? winBonus : 0;
         const totalForUser = reward + bonus;
-        if (totalForUser > 0) addNgoc(session.guildId, uid, totalForUser);
+        if (totalForUser > 0) {
+            addNgoc(session.guildId, uid, totalForUser);
+            accrueFaucetUnlock(session.guildId, uid, totalForUser, 'wordchaineng', cfg.UNLOCK_DAILY_CAP);
+        }
         const bestPos = positions[positions.length - 1];
         const lifetimeBest = updateLifetime(session.guildId, uid, bestPos);
         const weeklyBest = updateWeekly(session.guildId, uid, bestPos);
