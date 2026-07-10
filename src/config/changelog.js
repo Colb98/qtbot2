@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '3.1.2';
+const CURRENT_VERSION = '3.2.0';
 
 const CHANGELOG = {
+    '3.2.0': {
+        date: '2026-07-10',
+        title: 'Gửi emote động dù không có Nitro',
+        changes: [
+            '✨ **Bot giúp gửi emote động (animated) của server dù bạn không có Nitro** — cứ gõ dạng chữ `:tên_emote:` của một emote động trong server, bot sẽ **xoá tin nhắn gốc** và **đăng lại y hệt** bằng tên + avatar của bạn (qua webhook), lần này emote đã **động** hẳn hoi.',
+            '↪ Tin nhắn đăng lại giữ **ảnh/tệp đính kèm** và có **liên kết tới tin nhắn được trả lời** (webhook không reply trực tiếp được). Không cho phép tag `@everyone/@here` thay bạn.',
+            '⚙️ Chỉ hoạt động khi gõ dạng `:tên:` (chọn từ bảng emote sẽ bị Discord chặn trước khi tới bot) và bot cần quyền **Quản lý tin nhắn** + **Quản lý webhook** trong kênh.'
+        ]
+    },
     '3.1.2': {
         date: '2026-07-10',
         title: 'Mở khoá TT cũ: thêm Nối Từ Anh · tỉ lệ thuận theo ngọc',

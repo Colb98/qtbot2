@@ -8,6 +8,7 @@ const flashMath = require('../services/flashMath');
 const mathBoss = require('../services/mathBoss');
 const { tryEarnFromChat } = require('../services/currency');
 const { isBlockedByMaintenance } = require('../services/maintenance');
+const { handleAnimatedEmote } = require('../services/animatedEmote');
 
 module.exports = {
     name: Events.MessageCreate,
@@ -42,6 +43,7 @@ module.exports = {
                 return;
             }
         }
+        if (!blocked && await handleAnimatedEmote(msg)) return;
         await handleMessageCommand(msg);
     }
 };
