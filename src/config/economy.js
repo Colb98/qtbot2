@@ -158,11 +158,17 @@ const DEFAULTS = {
         GOQUE_CONFIRM_PCT: 0.10, // !goque asks to confirm if fee > this × balance
 
         // Base flat values (tier Phàm ×1); scaled by the tier multiplier.
-        POINT_VALUE: 100,                // 1 điểm phúc → ngọc
-        POINT_CAP: 20,                   // max điểm payable per quẻ (meter clamp too)
-        NGHICH_PENALTY_PER_STACK: 150,
-        NGHICH_REMOVE_FEE: 400,          // !goque fee (a sink)
-        KIEP_PENALTY_PER_STACK: 200,
+        POINT_VALUE: 100,                // ngọc per điểm when the meter is FULL (see curve)
+        POINT_CAP: 20,                   // meter clamp, BOTH directions (±cap)
+        // Payout curve: payout = sign × CAP × (|points|/CAP)^EXP × VALUE × mult.
+        // 1 = linear (legacy). 2 = quadratic — a full meter pays the same
+        // ceiling as before, partial banks pay progressively less (half the
+        // points ≈ a quarter of the ngọc). Negative meters CHARGE the player on
+        // the same curve. Drains the grind, keeps the glory.
+        POINT_CURVE_EXP: 2,
+        NGHICH_PENALTY_PER_STACK: 250,
+        NGHICH_REMOVE_FEE: 600,          // !goque fee (a sink)
+        KIEP_PENALTY_PER_STACK: 350,
 
         TIER_MULT: [1, 8, 30, 100, 250], // Phàm, Linh, Huyền, Địa, Thiên
 
@@ -174,7 +180,9 @@ const DEFAULTS = {
             slot:     [50, 250, 750, 2000, 5000]
         },
         // Đại Hung "liều" break threshold per tier (null = unavailable at Thiên).
-        LIEU: [2000, 10000, 30000, 50000, null],
+        // Kept well above the tier's min bet so the escape is a real gamble,
+        // not a routine-sized wager.
+        LIEU: [3000, 20000, 60000, 120000, null],
         // Điểm phúc awarded per winning round, per game (≈ round(0.5 / win_rate)).
         POINTS_PER_WIN: { coinflip: 1, mat: 2, tong: 2, slot: 5 },
 

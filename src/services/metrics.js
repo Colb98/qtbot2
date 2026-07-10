@@ -199,10 +199,12 @@ const GAME_DEFAULTS = {
         jackpotBonus: 0,
         decayProcs: 0,
         // Quẻ Bói settlement flow: quePaid = ngọc faucet (điểm phúc payouts +
-        // Kiếp flips), queBurned = ngọc sink (Nghịch/Kiếp penalties + !goque fee).
+        // Kiếp flips), queBurned = ngọc sink (negative-meter settles, Nghịch/Kiếp
+        // penalties, !goque fees); bacCounts = player-chosen payout tiers.
         settlements: 0,
         quePaid: 0,
         queBurned: 0,
+        bacCounts: {},
         playerIds: {}
     }
 };
@@ -750,11 +752,12 @@ function recordFishing({ guildId, outcome, ngocDelta = 0, ttDelta = 0, userId })
     _dirty = true;
 }
 
-// Rút quẻ (Quẻ Bói). `draw` counts a fortune draw + its quẻ type. The old
-// odds-shift effect fields (reverse/jackpot/decay) are legacy/dormant — the
-// current system settles via recordQueSettlement (quePaid faucet / queBurned
-// sink), which netFromStore folds into minted/burned.
-function recordRutque({ guildId, action, tier, cost = 0, userId }) {
+// Rút quẻ (Quẻ Bói). `draw` counts a fortune draw + its quẻ type; `bac` is the
+// player-CHOSEN payout tier (bacCounts — the self-selection quePaid scales
+// with). The old odds-shift effect fields (reverse/jackpot/decay) are
+// legacy/dormant — the current system settles via recordQueSettlement (quePaid
+// faucet / queBurned sink); netFromStore folds all of it into minted/burned.
+function recordRutque({ guildId, action, tier, bac, cost = 0, userId }) {
     if (isExcluded(userId)) return;
     _checkRollover();
     const m = _get(guildId, 'rutque');
@@ -765,6 +768,7 @@ function recordRutque({ guildId, action, tier, cost = 0, userId }) {
         m.draws++;
     }
     if (tier) m.tierCounts[tier] = (m.tierCounts[tier] || 0) + 1;
+    if (bac) { m.bacCounts = m.bacCounts || {}; m.bacCounts[bac] = (m.bacCounts[bac] || 0) + 1; }
     if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
     _dirty = true;
 }
@@ -955,12 +959,18 @@ function _formatGame(game, perGuildStore, guildFilter) {
     if (game === 'rutque') {
         const m = _flatGame(perGuildStore, guildFilter, 'rutque');
         const uniq = uniqueCount(m.playerIds);
-        return [
-            `🎴 RUTQUE — ${fmt(m.draws)} lượt rút | ${fmt(m.redraws)} đổi quẻ | Unique: ${fmt(uniq)}`,
-            `**Burned** (đổi quẻ): ${fmt(m.redrawBurned)} ngọc`,
-            `Tiers: ${topEntries(m.tierCounts, 6)}`,
-            `Nghịch thiên: ${fmt(m.reverseProcs)} procs (+${fmt(m.reverseBonus)} ngọc) | Jackpot boost: ${fmt(m.jackpotProcs)} (+${fmt(m.jackpotBonus)} ngọc) | Mãn chiêu tổn: ${fmt(m.decayProcs)}`
-        ].join('\n');
+        const paid = m.quePaid || 0;
+        const burned = (m.queBurned || 0) + (m.redrawBurned || 0);
+        const lines = [
+            `🎴 QUẺ BÓI — ${fmt(m.draws)} lượt rút | ${fmt(m.settlements || 0)} kết toán | Unique: ${fmt(uniq)}`,
+            `**Minted** (kết toán): ${fmt(paid)} ngọc | **Burned** (phạt/kết toán âm/gỡ): ${fmt(burned)} | Net: ${fmt(paid - burned)}`,
+            `Quẻ: ${topEntries(m.tierCounts, 6)}`,
+            `Bậc: ${topEntries(m.bacCounts || {}, 5)}`
+        ];
+        if (m.reverseProcs || m.jackpotProcs || m.decayProcs) {
+            lines.push(`(legacy) Nghịch thiên: ${fmt(m.reverseProcs)} procs (+${fmt(m.reverseBonus)} ngọc) | Jackpot boost: ${fmt(m.jackpotProcs)} (+${fmt(m.jackpotBonus)} ngọc) | Mãn chiêu tổn: ${fmt(m.decayProcs)}`);
+        }
+        return lines.join('\n');
     }
     if (game === 'wordchain_viet' || game === 'noitu') {
         const m = _flatGame(perGuildStore, guildFilter, 'wordchain_viet');
@@ -1038,7 +1048,7 @@ function netFromStore(perGuildStore, guildFilter) {
     // games' own recorded payouts, so they add to `minted` here.
     const mintedQueBoi = (flat.rutque && flat.rutque.quePaid) || 0;
     const minted = mintedWordchain + mintedGangoc + mintedDailyNgocEq + mintedVuaTiengViet + mintedFlashMath + mintedMathBoss + mintedNoitu + mintedFishing + mintedQueBoi;
-    // Rutque sinks: legacy redraw fees + Quẻ Bói penalties/goque fees.
+    // Rutque sinks: negative-meter settles + penalties/goque fees (+ legacy redraws).
     const burnedGacha = (flat.gacha && flat.gacha.burned) || 0;
     const burnedRutque = ((flat.rutque && flat.rutque.redrawBurned) || 0) + ((flat.rutque && flat.rutque.queBurned) || 0);
     const burned = burnedGacha + burnedRutque;

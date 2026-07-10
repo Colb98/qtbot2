@@ -37,6 +37,7 @@ const exchange = require('./services/exchange');
 const bank = require('./services/bank');
 const fishing = require('./services/fishing');
 const rutque = require('./services/rutque');
+const queRecovery = require('./services/queRecovery');
 const reset = require('./services/reset');
 const stolen = require('./services/stolenEmotes');
 
@@ -169,7 +170,7 @@ async function handleMessageCommand(msg) {
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
 • \`!cauca\` (\`!fishing\`) — Câu cá **miễn phí** ${economy.FISHING.DAILY_LIMIT} lần/ngày, xem GIF chờ kết quả: cá nhỏ +${fmt(economy.FISHING.OUTCOMES.small.ngoc)} · cá ngừ +${fmt(economy.FISHING.OUTCOMES.tuna.ngoc)} · rương báu +1 ${renderEmote('thienthuong')} Thiên Thưởng… nhưng coi chừng cá trê/cá nóc **${fmt(economy.FISHING.OUTCOMES.catfish.ngoc)} ngọc** (số dư có thể âm!). Bấm **🎣 Câu tiếp** để câu tiếp không cần gõ lại.
 • **Nút 📦 Kho đồ** ở mọi bàn game — ai bấm cũng xem được **kho đồ của chính mình** (chỉ mình thấy). Sau khi **Auto** dừng, bấm **📊 Tổng kết** để xem ảnh thống kê thắng/thua cả phiên.
-• \`!rutque <bậc>\` (\`!fortune\`) — Rút quẻ bói **miễn phí** (${economy.QUE_BOI.DAILY_LIMIT} lượt/ngày, Thiên ${economy.QUE_BOI.THIEN_DAILY_LIMIT}/ngày). Quẻ **KHÔNG đổi tỉ lệ/thưởng game** — nó là lớp "điểm phúc" chấm song song: chỉ ván **cược ≥ ngưỡng bậc** mới tính, quẻ Cát cho điểm → ngọc, quẻ Hung phạt/thử thách. Bậc càng cao (Phàm→Thiên) thưởng & phạt càng lớn. Xem \`!que\`, chốt \`!bank\`, xoá dấu \`!xoadau\`, gỡ \`!goque\`, luật \`!boiinfo\`.
+• \`!rutque <bậc>\` (\`!fortune\`) — Rút quẻ bói **miễn phí** (${economy.QUE_BOI.DAILY_LIMIT} lượt/ngày, Thiên ${economy.QUE_BOI.THIEN_DAILY_LIMIT}/ngày). Quẻ **KHÔNG đổi tỉ lệ/thưởng game** — nó là lớp "điểm phúc" chấm song song: chỉ ván **cược ≥ ngưỡng bậc** mới tính, **thắng +điểm, thua −điểm** — điểm xuống **ÂM** thì kết toán bị **trừ ngọc**. Quy đổi **luỹ tiến hai chiều**: gồng meter càng đầy, mỗi điểm càng giá trị. Bậc càng cao (Phàm→Thiên) thưởng & phạt càng lớn. Xem \`!que\`, chốt \`!bank\`, xoá dấu \`!xoadau\`, gỡ \`!goque\`, luật \`!boiinfo\`.
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
@@ -509,6 +510,88 @@ ${DISCLAIMER}`;
             const res = rutque.setQue(guildId, msg.author.id, parts[2], parts[3]);
             if (res.error) return msg.reply(`Cú pháp: \`!rutque set <${rutque.QUE_TYPES.join('|')}> <bậc 1-5>\``);
             return msg.reply(rutque.formatDrawResult(res.que, member.displayName));
+        }
+
+        // Superadmin: claw back penalties the settlement forgave (exploit:
+        // empty the wallet before settling → penalty evaporates). Scans chat
+        // history for the forgiveness lines; dry-run by default, `apply`
+        // charges the ngọc back (balances may go negative).
+        // Syntax: !rutque thuhoi [#kênh …] [since:YYYY-MM-DD] [apply]
+        if (sub === 'thuhoi') {
+            if (!isSuperAdmin(msg.author.id)) return;
+            const rest = parts.slice(2);
+            const apply = rest.some(p => p.toLowerCase() === 'apply');
+            let sinceMs;
+            for (const p of rest) {
+                const m = p.match(/^since:(\d{4}-\d{2}-\d{2})$/i);
+                if (m) sinceMs = new Date(`${m[1]}T00:00:00+07:00`).getTime();
+            }
+            if (sinceMs !== undefined && !Number.isFinite(sinceMs)) {
+                return msg.reply('Ngày không hợp lệ. Dùng `since:YYYY-MM-DD`.');
+            }
+            const channels = [...msg.mentions.channels.values()];
+            const status = await msg.reply('🔎 Đang quét lịch sử chat…');
+            let lastEdit = 0;
+            const onProgress = async ({ channel, index, total, scanned }) => {
+                if (Date.now() - lastEdit < 2500) return;
+                lastEdit = Date.now();
+                await status.edit(`🔎 Đang quét ${channel} (${index}/${total}) — ${fmt(scanned)} tin nhắn…`).catch(() => {});
+            };
+            let scan;
+            try {
+                scan = await queRecovery.scanGuild({ guild: msg.guild, channels, sinceMs, onProgress });
+            } catch (e) {
+                log.error('rutque thuhoi scan error:', e);
+                return status.edit(`❌ Quét lỗi: ${e.message}`).catch(() => {});
+            }
+
+            const perUser = new Map();
+            const unattributed = [];
+            for (const e of scan.entries) {
+                if (!e.userId) { unattributed.push(e); continue; }
+                const u = perUser.get(e.userId) || { total: 0, count: 0 };
+                u.total += e.forgiven; u.count++;
+                perUser.set(e.userId, u);
+            }
+            const ngocE = renderEmote('ngoc');
+            const sorted = [...perUser.entries()].sort((a, b) => b[1].total - a[1].total);
+            const grand = sorted.reduce((s, [, u]) => s + u.total, 0);
+            const lines = [
+                `🔎 Quét xong **${scan.channelCount}** kênh · ${fmt(scan.scanned)} tin nhắn — `
+                + `**${scan.entries.length}** lần tha nợ kết toán chưa xử lý`
+                + (scan.alreadyDone ? ` (bỏ qua ${scan.alreadyDone} đã thu hồi trước đó)` : '') + '.'
+            ];
+            for (const [userId, u] of sorted) lines.push(`<@${userId}> — ${u.count} lần · **${fmt(u.total)}** ${ngocE}`);
+            if (sorted.length) lines.push(`Tổng: **${fmt(grand)}** ${ngocE}`);
+            for (const e of unattributed.slice(0, 10)) {
+                lines.push(`⚠️ Không xác định được người chơi (${fmt(e.forgiven)} ${ngocE}): https://discord.com/channels/${guildId}/${e.channelId}/${e.messageId}`);
+            }
+            if (unattributed.length > 10) lines.push(`⚠️ … và ${unattributed.length - 10} tin không xác định khác.`);
+
+            if (apply && scan.entries.length) {
+                const results = queRecovery.applyRecovery(guildId, scan.entries).sort((a, b) => b.total - a.total);
+                lines.push('', `✅ Đã trừ ngược **${results.length}** người chơi:`);
+                for (const r of results) {
+                    const bal = r.ngoc + r.lockedNgoc;
+                    lines.push(`<@${r.userId}> −${fmt(r.total)} → số dư: **${fmt(bal)}** ${ngocE}${bal < 0 ? ' (ÂM)' : ''}`);
+                }
+            } else if (!apply && sorted.length) {
+                lines.push('_Dry-run — gõ `!rutque thuhoi apply` để trừ ngược (cho phép âm ngọc)._');
+            }
+
+            await status.delete().catch(() => {});
+            // Chunked, ping-free send (mentions render but nobody gets pinged).
+            let buf = [];
+            let len = 0;
+            for (const line of lines) {
+                if (len + line.length + 1 > 1900) {
+                    await msg.channel.send({ content: buf.join('\n'), allowedMentions: { parse: [] } });
+                    buf = []; len = 0;
+                }
+                buf.push(line); len += line.length + 1;
+            }
+            if (buf.length) await msg.channel.send({ content: buf.join('\n'), allowedMentions: { parse: [] } });
+            return;
         }
 
         if (!sub) {

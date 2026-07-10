@@ -1,6 +1,23 @@
-const CURRENT_VERSION = '3.4.0';
+const CURRENT_VERSION = '3.6.0';
 
 const CHANGELOG = {
+    '3.6.0': {
+        date: '2026-07-10',
+        title: 'Thu hồi phạt Quẻ Bói bị xoá nợ',
+        changes: [
+            '⚖️ **Truy thu phạt quẻ hung** — trước đây nếu ví không đủ ngọc lúc kết toán quẻ, phần phạt còn thiếu được **xoá nợ**. Lỗ hổng này đã bị lợi dụng (tẩu tán ngọc trước khi kết toán). Bot giờ có công cụ quét lại lịch sử và **truy thu toàn bộ phần phạt đã được xoá** — số dư có thể xuống **ÂM**.',
+            '🧾 Việc truy thu dựa đúng trên các tin nhắn kết toán cũ của bot, mỗi tin chỉ trừ **một lần duy nhất** (chạy lại không trừ trùng).'
+        ]
+    },
+    '3.5.0': {
+        date: '2026-07-10',
+        title: 'Cân bằng Quẻ Bói — có thắng có thua, quy đổi luỹ tiến',
+        changes: [
+            '⚖️ **Quẻ Cát giờ là ván cược thật** — thắng **+điểm**, thua **−điểm**, điểm có thể xuống **ÂM**: kết toán âm sẽ bị **trừ ngọc** (không đủ thì trừ hết & xoá nợ). Quẻ Liên thua nối thua meter nhân đôi chiều âm — gồng chiều nào cũng tim đập. Rút quẻ vẫn **miễn phí**, số lượt/ngày giữ nguyên.',
+            '📈 **Quy đổi luỹ tiến hai chiều** — |điểm| càng cao, mỗi điểm càng giá trị. Gồng đủ 20 điểm vẫn ăn **trọn** như trước (Thiên = 500k ngọc), chốt non nhận ít hơn hẳn (nửa số điểm ≈ ¼ số tiền). Muốn ăn dày phải dám gồng meter!',
+            '🔴 **Quẻ hung nặng tay hơn** — phạt Nghịch 150→250/stack, Kiếp 200→350/stack, phí `!goque` 400→600 (×hệ số bậc). Ngưỡng cược "liều" phá quẻ Kiếp tăng mạnh — hết cửa phá quẻ giá rẻ.'
+        ]
+    },
     '3.4.0': {
         date: '2026-07-10',
         title: 'Phân quyền !steal — xin phép & cấp phép',

@@ -11,8 +11,10 @@ const metrics = require('./metrics');
 // `onGameResult(...)`; the quẻ scores that round (only if the bet ≥ the tier's
 // per-game minimum) and settles in ngọc at the quẻ's natural end (or on break /
 // bank). All rewards/penalties are FLAT per tier (anti-whale), scaled by the
-// tier multiplier. Quẻ lifetime is counted in QUALIFYING ROUNDS, with a 7-day
-// auto-settle safety valve.
+// tier multiplier. Cát meters are SIGNED: wins add points, losses subtract,
+// and a meter that ends negative CHARGES the player at settlement on the same
+// convex curve (see ngocValue). Quẻ lifetime is counted in QUALIFYING ROUNDS,
+// with a 7-day auto-settle safety valve.
 //
 // State: data.queboi[guildId][userId] = { que, draws }
 //   que   = null | { type, tier, rounds_left, points, stacks, win_streak,
@@ -60,7 +62,18 @@ function minBetFor(tier, game) {
 }
 function pointsPerWin(game) { return Q().POINTS_PER_WIN[game] || 1; }
 function ngocEmote() { return renderEmote('ngoc'); }
-function ngocValue(points, tier) { return Math.min(points, Q().POINT_CAP) * Q().POINT_VALUE * tierMult(tier); }
+// Convex payout curve, SIGNED: ±cap × (|p|/cap)^EXP × VALUE × mult. A full
+// positive meter pays the same ceiling as the old linear formula; partial
+// banks pay progressively less (EXP 2 ⇒ half the points ≈ a quarter of the
+// ngọc). Negative meters charge the player on the same curve at settlement.
+// EXP is live-tunable (1 restores linear).
+function ngocValue(points, tier) {
+    const cap = Q().POINT_CAP;
+    const p = Math.max(-cap, Math.min(points, cap));
+    const exp = Q().POINT_CURVE_EXP || 1;
+    const v = Math.round(cap * Math.pow(Math.abs(p) / cap, exp) * Q().POINT_VALUE) * tierMult(tier);
+    return p < 0 ? -v : v;
+}
 
 function getState(guildId, userId) {
     data.queboi = data.queboi || {};
@@ -126,7 +139,7 @@ function draw(guildId, userId, tierArg) {
     st.draws.total = (st.draws.total || 0) + 1;
     if (tier === 5) st.draws.thien = (st.draws.thien || 0) + 1;
     saveData();
-    metrics.recordRutque({ guildId, action: 'draw', tier: type, userId });
+    metrics.recordRutque({ guildId, action: 'draw', tier: type, bac: TIER_KEYS[tier - 1], userId });
     return { ok: true, que: st.que };
 }
 
@@ -211,10 +224,11 @@ function applyRound(q, game, won, bet) {
         case 'TIEU_CAT': {
             if (won) {
                 q.points = Math.min(cap, q.points + ppw);
-                line = `${meta.emoji} Quẻ Chuyển [${t}]: ${q.points} điểm phúc | còn ${q.rounds_left} ván | ${q.tokens} lá xoá dấu`;
+                line = `${meta.emoji} Quẻ Chuyển [${t}]: ${q.points} điểm phúc → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | còn ${q.rounds_left} ván | ${q.tokens} lá xoá dấu`;
             } else {
-                q.points = Math.max(0, q.points - 1);
-                line = `${meta.emoji} Quẻ Chuyển [${t}]: ${q.points} điểm (−1) | còn ${q.rounds_left} ván | ${q.tokens > 0 ? `Gõ \`!xoadau\` để ván này không tính (${q.tokens} lá còn lại)` : 'hết lá xoá dấu'}`;
+                q.points = Math.max(-cap, q.points - ppw);
+                const warn = q.points < 0 ? ` ⚠️ ÂM: kết toán sẽ TRỪ ${fmt(-ngocValue(q.points, q.tier))} ${ngocEmote()}` : '';
+                line = `${meta.emoji} Quẻ Chuyển [${t}]: ${q.points} điểm (−${ppw})${warn} | còn ${q.rounds_left} ván | ${q.tokens > 0 ? `Gõ \`!xoadau\` để ván này không tính (${q.tokens} lá còn lại)` : 'hết lá xoá dấu'}`;
             }
             if (q.rounds_left <= 0) settleReason = 'natural';
             break;
@@ -225,13 +239,16 @@ function applyRound(q, game, won, bet) {
                 q.consec_losses = 0;
                 line = `${meta.emoji} Quẻ Phúc [${t}]: ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | còn ${q.rounds_left} ván | \`!bank\` để chốt`;
             } else {
+                q.points = Math.max(-cap, q.points - ppw);
                 q.consec_losses += 1;
                 if (q.consec_losses >= 2) {
-                    q.points = Math.floor(q.points / 2);
+                    // Double-loss slump: positive meters halve, negative dig deeper.
+                    q.points = q.points > 0 ? Math.floor(q.points / 2) : Math.max(-cap, q.points - ppw);
                     q.consec_losses = 0;
-                    line = `${meta.emoji} Quẻ Phúc [${t}]: 📉 Mất nửa điểm, còn ${q.points} | còn ${q.rounds_left} ván`;
+                    line = `${meta.emoji} Quẻ Phúc [${t}]: 📉 Sụt mạnh! Còn ${q.points} điểm (${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}) | còn ${q.rounds_left} ván`;
                 } else {
-                    line = `${meta.emoji} Quẻ Phúc [${t}]: ${q.points} điểm | ⚠️ Thua thêm 1 ván nữa sẽ mất nửa điểm! | \`!bank\` để chốt ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} ngay`;
+                    const warn = q.points < 0 ? `kết toán ÂM sẽ TRỪ ${fmt(-ngocValue(q.points, q.tier))} ${ngocEmote()}` : `\`!bank\` để chốt ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} ngay`;
+                    line = `${meta.emoji} Quẻ Phúc [${t}]: ${q.points} điểm (−${ppw}) | ⚠️ Thua thêm 1 ván nữa sẽ sụt mạnh! | ${warn}`;
                 }
             }
             if (q.rounds_left <= 0) settleReason = 'natural';
@@ -240,14 +257,15 @@ function applyRound(q, game, won, bet) {
         case 'DAI_CAT': {
             if (won) {
                 q.win_streak += 1;
-                q.points = q.points <= 0 ? ppw : q.points * 2;
-                q.points = Math.min(cap, q.points);
+                q.points = q.points <= 0 ? ppw : Math.min(cap, q.points * 2);
                 const next = Math.min(cap, q.points * 2);
-                line = `${meta.emoji} Quẻ Liên [${t}]: chuỗi ${q.win_streak} | meter ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | Thắng tiếp → ${next} điểm, thua → MẤT SẠCH | \`!bank\` để chốt`;
+                line = `${meta.emoji} Quẻ Liên [${t}]: chuỗi ${q.win_streak} | meter ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | Thắng tiếp → ${next} điểm, thua → ĐẢO CHIỀU ÂM | \`!bank\` để chốt`;
             } else {
-                q.points = 0;
                 q.win_streak = 0;
-                line = `${meta.emoji} Quẻ Liên [${t}]: 💥 Đứt chuỗi, meter về 0 | còn ${q.rounds_left} ván để gây dựng lại`;
+                // Mirror of the win side: losses chain too — the meter flips
+                // negative and doubles with each consecutive loss.
+                q.points = q.points >= 0 ? -ppw : Math.max(-cap, q.points * 2);
+                line = `${meta.emoji} Quẻ Liên [${t}]: 💥 Meter đảo chiều: ${q.points} điểm (${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}) | thua tiếp → ×2 sâu hơn, thắng 1 ván → về +${ppw} | còn ${q.rounds_left} ván`;
             }
             if (q.rounds_left <= 0) settleReason = 'natural';
             break;
@@ -338,10 +356,15 @@ function settle(st, reason) {
         case 'TIEU_CAT':
         case 'TRUNG_CAT':
         case 'DAI_CAT': {
-            paid = ngocValue(q.points, q.tier);
-            outcomeLine = paid > 0
-                ? `Nhận **${fmt(paid)}** ${ngocEmote()} (${Math.min(q.points, cap)} điểm × ${Q().POINT_VALUE} × ${tierMult(q.tier)}).`
-                : `Không có điểm phúc để nhận.`;
+            const v = ngocValue(q.points, q.tier);
+            if (v >= 0) {
+                paid = v;
+                outcomeLine = paid > 0
+                    ? `Nhận **${fmt(paid)}** ${ngocEmote()} (${Math.min(q.points, cap)}/${cap} điểm phúc · bậc ${t} — quy đổi luỹ tiến).`
+                    : `Không có điểm phúc để nhận.`;
+            } else {
+                penalty = -v; // wording comes from the deduction block below
+            }
             break;
         }
         case 'TIEU_HUNG': {
@@ -384,9 +407,10 @@ function settle(st, reason) {
         const avail = w.ngoc + (w.lockedNgoc || 0);
         deducted = Math.min(penalty, avail);
         if (deducted > 0) spendNgocForGame(gId, uId, deducted);
+        const why = q.stacks > 0 ? `${q.stacks} stack` : `${Math.max(-cap, q.points)}/${cap} điểm phúc — quy đổi luỹ tiến`;
         outcomeLine = deducted < penalty
             ? `Phạt ${fmt(penalty)} ${ngocEmote()} — chỉ còn ${fmt(deducted)}, trừ hết & tha phần còn lại.`
-            : `Bị phạt **${fmt(deducted)}** ${ngocEmote()} (${q.stacks} stack).`;
+            : `Bị phạt **${fmt(deducted)}** ${ngocEmote()} (${why}).`;
     }
 
     metrics.recordQueSettlement({ guildId: gId, userId: uId, paid, penalty: deducted });
@@ -512,7 +536,8 @@ function queStatusLines(q, displayName) {
         `Còn **${q.rounds_left}** ván · thắng ${q.wins}/${q.wins + q.losses}`
     ];
     if (meta.kind === 'cat') {
-        lines.push(`Điểm phúc: **${Math.min(q.points, cap)}** → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}`);
+        const p = Math.max(-cap, Math.min(q.points, cap));
+        lines.push(`Điểm phúc: **${p}** → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}${p < 0 ? ' ⚠️ (âm — kết toán sẽ TRỪ ngọc)' : ''}`);
         if (q.type === 'TIEU_CAT') lines.push(`Lá xoá dấu: ${q.tokens}`);
         if (q.type === 'TRUNG_CAT') lines.push(`Thua liên tiếp: ${q.consec_losses}/2 · \`!bank\` để chốt`);
         if (q.type === 'DAI_CAT') lines.push(`Chuỗi thắng: ${q.win_streak} · \`!bank\` để chốt`);
@@ -544,19 +569,19 @@ function formatInfo() {
     const lines = [
         '📖 **Quẻ Bói** — lớp điểm phúc song song, KHÔNG đổi tỉ lệ/thưởng của game.',
         `Rút: \`!rutque <bậc>\` (miễn phí, ${Q().DAILY_LIMIT} lượt/ngày, Thiên ${Q().THIEN_DAILY_LIMIT}/ngày). Mỗi lúc chỉ giữ 1 quẻ.`,
-        'Chỉ ván có **cược ≥ ngưỡng bậc** mới tính vào quẻ. Thưởng/phạt đều là số cố định theo bậc.',
+        'Chỉ ván có **cược ≥ ngưỡng bậc** mới tính vào quẻ. **Thắng +điểm, thua −điểm** — điểm xuống **ÂM** thì kết toán bị **trừ ngọc**.',
         '',
         '**Bậc:** ' + TIER_NAMES.map((n, i) => `${n} ×${Q().TIER_MULT[i]}`).join(' · '),
         '',
         '**6 quẻ:**',
-        `🟢 Chuyển (${Q().LIFETIME.TIEU_CAT} ván): thắng +điểm, thua −1; có ${Q().TIEU_CAT_TOKENS} lá \`!xoadau\`.`,
-        `🟢 Phúc (${Q().LIFETIME.TRUNG_CAT} ván): thua 2 ván liền → mất nửa điểm; \`!bank\` chốt.`,
-        `🟢 Liên (${Q().LIFETIME.DAI_CAT} ván): thắng nối thắng ×2 meter, thua → mất sạch; \`!bank\` chốt.`,
+        `🟢 Chuyển (${Q().LIFETIME.TIEU_CAT} ván): thắng +điểm, thua −điểm; có ${Q().TIEU_CAT_TOKENS} lá \`!xoadau\` xoá ván thua.`,
+        `🟢 Phúc (${Q().LIFETIME.TRUNG_CAT} ván): thắng +, thua −; thua 2 ván liền → sụt mạnh; \`!bank\` chốt lúc nào cũng được.`,
+        `🟢 Liên (${Q().LIFETIME.DAI_CAT} ván): meter nhân đôi theo chuỗi — thắng nối thắng ×2 dương, thua nối thua ×2 **âm**; \`!bank\` chốt.`,
         `🔴 Kiệt (${Q().LIFETIME.TIEU_HUNG} ván): giữ điểm; thua > ${Q().TIEU_HUNG_MAX_LOSSES} → mất pool (không phạt tiền).`,
         `🔴 Nghịch (${Q().LIFETIME.TRUNG_HUNG} ván): mỗi thua +1 stack phạt; thắng ${Q().NGHICH_BREAK_STREAK} liền hoặc \`!goque\` để thoát.`,
         `🔴 Kiếp (${Q().LIFETIME.DAI_HUNG} ván): mỗi thua +1 stack phạt; thắng ${Q().KIEP_BREAK_STREAK} liền/liều → lật stack thành điểm.`,
         '',
-        `1 điểm phúc = ${Q().POINT_VALUE} ngọc × hệ số bậc, tối đa ${cap} điểm/quẻ.`,
+        `Quy đổi **luỹ tiến hai chiều**: |điểm| càng cao, mỗi điểm càng giá trị — +${cap} điểm ăn trọn ${fmt(cap * Q().POINT_VALUE)} ngọc × bậc, −${cap} điểm bị trừ tương ứng (không đủ ngọc thì trừ hết & xoá nợ). Chốt non nhận ít (nửa điểm ≈ ¼ tiền).`,
         'Lệnh: `!que` (xem quẻ) · `!bank` · `!xoadau` · `!goque` · `!boiinfo`.'
     ];
     return lines.join('\n');
