@@ -38,6 +38,7 @@ const bank = require('./services/bank');
 const fishing = require('./services/fishing');
 const rutque = require('./services/rutque');
 const reset = require('./services/reset');
+const stolen = require('./services/stolenEmotes');
 
 const BLOCKED_GAME_CMDS = new Set([
     '!slot', '!coinflip', '!tong', '!sum', '!mat', '!face',
@@ -2376,6 +2377,148 @@ ${DISCLAIMER}`;
             await msg.reply('Failed to upload emotes: ' + (e.message || e));
         }
         return;
+    }
+
+    // ── Stolen-emote commands ────────────────────────────────────────────────
+    // !steal / !emotes: super-admin + allow-listed users. Storage/cleanup/perms:
+    // super-admin only.
+    if (cmd === '!requeststeal' || cmd === '!xinsteal') {
+        const status = await stolen.requestSteal(client, msg.author);
+        if (status === 'already') return msg.reply('Bạn đã có quyền dùng `!steal` rồi.');
+        if (status === 'pending') return msg.reply('Bạn đã gửi yêu cầu trước đó — chờ admin duyệt nhé.');
+        if (status === 'sent') return msg.reply('📨 Đã gửi yêu cầu tới admin. Chờ được duyệt nhé.');
+        return msg.reply('❌ Không gửi được yêu cầu tới admin (admin đang tắt DM). Thử lại sau.');
+    }
+
+    if (cmd === '!stealperm' || cmd === '!allowsteal') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const sub = (parts[1] || '').toLowerCase();
+        if (sub === 'list') {
+            const ids = stolen.listAllowed();
+            return msg.reply(ids.length ? '🥷 Được phép `!steal`:\n' + ids.map(id => `• <@${id}> (\`${id}\`)`).join('\n') : 'Chưa cấp cho ai (ngoài bạn).');
+        }
+        // collect target ids from mentions and raw id tokens
+        const ids = new Set();
+        msg.mentions.users.forEach(u => ids.add(u.id));
+        for (const t of parts.slice(2)) {
+            const m = t.match(/^(?:<@!?)?(\d{15,25})>?$/);
+            if (m) ids.add(m[1]);
+        }
+        if ((sub === 'add' || sub === 'remove') && ids.size === 0) {
+            return msg.reply('Tag người dùng hoặc dán ID. Ví dụ: `!stealperm add @user`.');
+        }
+        if (sub === 'add') {
+            const added = [...ids].filter(id => stolen.grantSteal(id));
+            [...ids].forEach(id => { if (id !== MANAGER_ID) client.users.fetch(id).then(u => u.send('✅ Bạn đã được cấp quyền dùng `!steal` (chôm emote) và `!emotes`.')).catch(() => { }); });
+            return msg.reply(added.length ? `✅ Đã cấp quyền cho: ${added.map(id => `<@${id}>`).join(', ')}.` : 'Những người đó đã có quyền sẵn.');
+        }
+        if (sub === 'remove') {
+            const removed = [...ids].filter(id => stolen.revokeSteal(id));
+            return msg.reply(removed.length ? `✅ Đã thu quyền của: ${removed.map(id => `<@${id}>`).join(', ')}.` : 'Những người đó vốn không có quyền.');
+        }
+        return msg.reply('Cú pháp: `!stealperm add @user` · `!stealperm remove @user` · `!stealperm list`.');
+    }
+
+    if (cmd === '!steal') {
+        if (!stolen.canSteal(msg.author.id)) return;
+        const rest = parts.slice(1);
+        let sourceTok = null, nameTok = null;
+        for (const t of rest) {
+            if (/<a?:\w{2,32}:\d+>/.test(t) || /^\d{15,25}$/.test(t) || /cdn\.discordapp\.com\/emojis\//.test(t)) {
+                if (!sourceTok) sourceTok = t;
+            } else if (!nameTok) {
+                nameTok = t;
+            }
+        }
+
+        let ref = null;
+        if (sourceTok) {
+            const urlM = sourceTok.match(/emojis\/(\d+)\.(gif|png|webp)/);
+            if (urlM) ref = { id: urlM[1], animated: urlM[2] === 'gif', name: null };
+            else ref = stolen.parseEmoteRef(sourceTok);
+        }
+        if (!ref && msg.reference) {
+            const r = await msg.fetchReference().catch(() => null);
+            if (r) {
+                let text = r.content || '';
+                if (r.messageSnapshots && r.messageSnapshots.size) {
+                    for (const s of r.messageSnapshots.values()) text += ' ' + (s.content || '');
+                }
+                ref = stolen.parseEmoteRef(text);
+            }
+        }
+        if (!ref) {
+            return msg.reply('Reply vào tin nhắn chứa emote, hoặc truyền `<a:tên:id>` / id / link cdn. Từ đầu (không phải code) sẽ dùng làm tên.');
+        }
+        try {
+            const { emoji, guild } = await stolen.steal(client, ref, nameTok, msg.author.id);
+            return msg.reply(`✅ Đã chôm ${emoji} \`:${emoji.name}:\` → kho **${guild.name}**. Gõ \`:${emoji.name}:\` để dùng.`);
+        } catch (e) {
+            return msg.reply('❌ ' + e.message);
+        }
+    }
+
+    if (cmd === '!emotes' || cmd === '!stolenemotes') {
+        if (!stolen.canSteal(msg.author.id)) return;
+        return msg.reply(stolen.buildListPayload(client, 0));
+    }
+
+    if (cmd === '!emotestorage' || cmd === '!kho') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const sub = (parts[1] || '').toLowerCase();
+        if (sub === 'add') {
+            if (!msg.guild) return msg.reply('Chạy lệnh này trong server muốn đặt làm kho.');
+            const me = msg.guild.members.me;
+            if (!me || !me.permissions.has('ManageGuildExpressions')) {
+                return msg.reply('Bot cần quyền **Manage Expressions** (quản lý emoji) ở server này trước.');
+            }
+            const ok = stolen.addStorageGuild(msg.guildId);
+            return msg.reply(ok ? `✅ Đã đặt **${msg.guild.name}** làm kho emote.` : 'Server này đã là kho rồi.');
+        }
+        if (sub === 'remove') {
+            const ok = stolen.removeStorageGuild(msg.guildId);
+            return msg.reply(ok ? `✅ Đã bỏ **${msg.guild.name}** khỏi danh sách kho.` : 'Server này không phải kho.');
+        }
+        if (sub === 'create') {
+            const n = Math.min(Math.max(parseInt(parts[2], 10) || 1, 1), 5);
+            const dmLines = [];   // contains invite links — DM only, never in-channel
+            let made = 0, failMsg = null;
+            for (let i = 0; i < n; i++) {
+                try {
+                    const stamp = Date.now().toString(36).slice(-4);
+                    const { guild, invite } = await stolen.createStorageGuild(client, `Emote Vault ${stamp}`);
+                    made++;
+                    dmLines.push(`✅ **${guild.name}** — ${invite || '(không tạo được invite)'}`);
+                } catch (e) {
+                    failMsg = e.message;
+                    break;
+                }
+            }
+            let dmOk = false;
+            if (dmLines.length) {
+                try { await msg.author.send('🗃️ Kho emote mới (link riêng cho bạn):\n' + dmLines.join('\n')); dmOk = true; } catch { /* DMs closed */ }
+            }
+            // Public reply carries NO invite links.
+            let out = made ? `✅ Đã tạo ${made} kho.` : '';
+            if (failMsg) out += (out ? ' ' : '') + '❌ ' + failMsg;
+            if (made && dmOk) out += ' Invite đã gửi riêng qua DM.';
+            else if (made) out += ' ⚠️ Không DM được invite (bạn đang tắt DM). Kho vẫn dùng bình thường — invite chỉ cần nếu bạn muốn tự vào xem kho.';
+            return msg.reply(out || 'Không tạo được kho nào.');
+        }
+        // default: show the list/capacity view
+        return msg.reply(stolen.buildListPayload(client, 0));
+    }
+
+    if (cmd === '!delemote' || cmd === '!delemoji') {
+        if (!isSuperAdmin(msg.author.id)) return;
+        const arg = parts[1];
+        if (!arg) return msg.reply('Cú pháp: `!delemote <tên>` hoặc `!delemote all`.');
+        if (arg.toLowerCase() === 'all') {
+            const removed = await stolen.deleteAll(client);
+            return msg.reply(`🗑️ Đã xoá ${removed} emote khỏi kho.`);
+        }
+        const res = await stolen.deleteEmote(client, arg);
+        return msg.reply(res ? `🗑️ Đã xoá \`:${res.name}:\` khỏi kho **${res.guild}**.` : `Không tìm thấy emote \`${arg}\` trong kho.`);
     }
 
 }

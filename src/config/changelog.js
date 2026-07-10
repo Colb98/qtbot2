@@ -1,6 +1,25 @@
-const CURRENT_VERSION = '3.2.0';
+const CURRENT_VERSION = '3.4.0';
 
 const CHANGELOG = {
+    '3.4.0': {
+        date: '2026-07-10',
+        title: 'Phân quyền !steal — xin phép & cấp phép',
+        changes: [
+            '🙋 **`!requeststeal`** — ai muốn dùng `!steal` thì gõ lệnh này để **xin quyền**; bot gửi thẻ duyệt (Chấp nhận/Từ chối) vào **DM của admin**. Admin bấm là xong, người xin được báo lại.',
+            '🔑 **`!stealperm add/remove/list @user`** (admin) — cấp/thu quyền `!steal` trực tiếp cho người dùng mà không cần họ xin. Người được cấp cũng dùng được `!emotes` để xem kho.',
+            '🔒 Các lệnh kho & xoá (`!emotestorage`, `!delemote`) vẫn **chỉ mình admin**. Link mời server kho giờ **dùng-một-lần, hết hạn sau 7 ngày** và chỉ gửi riêng qua DM (không lộ ra kênh).'
+        ]
+    },
+    '3.3.0': {
+        date: '2026-07-10',
+        title: 'Chôm emote & kho emote riêng của bot',
+        changes: [
+            '🥷 **`!steal`** — reply vào tin nhắn chứa emote (hoặc truyền `<a:tên:id>` / id / link cdn) để **chôm emote** về kho riêng của bot. Có thể đặt tên: `!steal tên`. Emote chôm về dùng được ở mọi kênh bằng cách gõ `:tên:` (bot tự đăng lại thành emote động — nối tiếp tính năng “không cần Nitro”).',
+            '🗃️ **Kho emote (storage guild)** — vì mỗi server bị giới hạn slot emoji, bot dồn emote chôm vào các **server kho** riêng: `!emotestorage add` (đặt server hiện tại làm kho) · `!emotestorage create [n]` (bot tự tạo server kho + gửi invite qua DM, chỉ khi bot đang ở <10 server) · `!emotestorage remove`. Bot tự chọn kho còn chỗ khi upload.',
+            '📋 **`!emotes`** — bảng danh sách emote đã chôm (có phân trang ◀▶), kèm sức chứa từng kho và **cảnh báo khi hết chỗ** để tạo kho mới.',
+            '🗑️ **`!delemote <tên>`** (hoặc `all`) — xoá emote đã chôm khỏi kho. Các lệnh này chỉ dành cho super-admin.'
+        ]
+    },
     '3.2.0': {
         date: '2026-07-10',
         title: 'Gửi emote động dù không có Nitro',

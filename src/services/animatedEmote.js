@@ -56,15 +56,20 @@ async function handleAnimatedEmote(msg) {
     if (!content || content.indexOf(':') === -1) return false;
     if (content.trimStart().startsWith('!')) return false; // leave commands alone
 
-    // Convert bare :name: shortcodes that map to an animated guild emote.
-    const emojis = msg.guild.emojis.cache;
+    // Convert bare :name: shortcodes that map to an emote the BOT can use — i.e.
+    // any emote across every guild the bot is in (the current server plus the
+    // "stolen"-emote storage guilds). This covers both animated emotes (which
+    // non-Nitro users can't send anywhere) and external/stolen static emotes
+    // (usable only in their home server without Nitro). Matching by name here is
+    // what makes `:stolen_name:` work in this server.
+    const emojis = msg.client.emojis.cache;
     let converted = false;
     const rebuilt = content.replace(TOKEN_RE, (full, name) => {
         if (name === undefined) return full; // already a full <a:..:id> / <:..:id>
-        const emoji = emojis.find(e => e.animated && e.name === name);
-        if (!emoji) return full; // not an animated emote of this guild — leave text
+        const emoji = emojis.find(e => e.name === name);
+        if (!emoji) return full; // no emote the bot can use by this name — leave text
         converted = true;
-        return emoji.toString(); // <a:name:id>
+        return emoji.toString(); // <:name:id> or <a:name:id>
     });
 
     if (!converted) return false;

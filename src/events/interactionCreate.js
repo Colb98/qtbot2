@@ -25,6 +25,7 @@ const { isBlockedByMaintenance } = require('../services/maintenance');
 const profile = require('../services/profile');
 const season = require('../services/season');
 const exchange = require('../services/exchange');
+const stolenEmotes = require('../services/stolenEmotes');
 const { handleWordReviewButton } = require('../messageCommands');
 
 module.exports = {
@@ -171,6 +172,10 @@ module.exports = {
                     await handleFishingButton(interaction);
                 } else if (interaction.customId.startsWith('wr:')) {
                     await handleWordReviewButton(interaction);
+                } else if (interaction.customId.startsWith('emotes:')) {
+                    await stolenEmotes.handleListButton(interaction);
+                } else if (interaction.customId.startsWith('stealreq:')) {
+                    await stolenEmotes.handleRequestButton(interaction);
                 } else {
                     await wordchain.handleButtonInteraction(interaction);
                 }
