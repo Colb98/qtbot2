@@ -6,6 +6,9 @@ const economyConfig = require('./economyConfig');
 const adminAuth = require('./adminAuth');
 const sysStatus = require('./sysStatus');
 const wordReview = require('./wordReview');
+const inventoryAdmin = require('./inventoryAdmin');
+const INVENTORY_HTML = require('./inventoryPage');
+const { data } = require('../state');
 
 const DEFAULT_PORT = 3000;
 const SESSION_COOKIE = 'qtadmin';
@@ -70,6 +73,54 @@ function buildGuildList() {
         list.push({ id, name: guildNameFor(id) || `(unknown ${id})` });
     }
     return list;
+}
+
+function buildInventoryGuildList() {
+    const ids = new Set(inventoryAdmin.stateGuildIds());
+    if (_discordClient) {
+        for (const id of _discordClient.guilds.cache.keys()) ids.add(id);
+    }
+    return Array.from(ids).sort().map(id => ({
+        id,
+        name: guildNameFor(id) || `(unknown ${id})`
+    }));
+}
+
+function inventoryPlayerInfo(guildId, userId) {
+    const reg = data.registrations && data.registrations[guildId] && data.registrations[guildId][userId];
+    const guild = _discordClient && _discordClient.guilds.cache.get(guildId);
+    const member = guild && guild.members.cache.get(userId);
+    const name = (reg && (reg.ingame || reg.displayName)) ||
+        (member && member.displayName) ||
+        (member && member.user && (member.user.globalName || member.user.username)) || userId;
+    const tag = (reg && reg.tag) || (member && member.user && member.user.tag) || null;
+    const hasWallet = !!(data.wallet && data.wallet[guildId] && data.wallet[guildId][userId]);
+    return { userId, name, tag, hasWallet };
+}
+
+function searchInventoryPlayers(guildId, query) {
+    const gid = inventoryAdmin.validateId(guildId, 'Guild ID');
+    const q = String(query || '').trim().toLocaleLowerCase('vi');
+    const ids = new Set(inventoryAdmin.statePlayerIds(gid));
+    const guild = _discordClient && _discordClient.guilds.cache.get(gid);
+
+    // A blank search stays compact (wallets + registrations). When searching,
+    // include matching cached Discord members so admins can initialize a wallet.
+    if (q && guild) {
+        for (const member of guild.members.cache.values()) {
+            const haystack = [member.id, member.displayName, member.user && member.user.tag,
+                member.user && member.user.username, member.user && member.user.globalName]
+                .filter(Boolean).join(' ').toLocaleLowerCase('vi');
+            if (haystack.includes(q)) ids.add(member.id);
+        }
+    }
+
+    return Array.from(ids)
+        .map(id => inventoryPlayerInfo(gid, id))
+        .filter(player => !q || [player.userId, player.name, player.tag]
+            .filter(Boolean).join(' ').toLocaleLowerCase('vi').includes(q))
+        .sort((a, b) => Number(b.hasWallet) - Number(a.hasWallet) || a.name.localeCompare(b.name, 'vi'))
+        .slice(0, 100);
 }
 
 function buildSnapshot(date, guildFilter) {
@@ -261,11 +312,13 @@ const HTML_PAGE = `<!DOCTYPE html>
   .net-banner .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
   .net-banner .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
 <header>
   <h1>qtbot metrics</h1>
+  <span class="meta">· <a href="/inventory">quản lý kho đồ</a> · <a href="/admin">kinh tế</a></span>
   <label class="meta">Guild:</label>
   <select id="guildSelect"></select>
   <label class="meta">Ngày:</label>
@@ -743,7 +796,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <div id="appView" class="hidden">
   <header>
     <h1>qtbot — kinh tế</h1>
-    <span class="muted">· <a href="/">metrics dashboard</a> · <a href="/status">VPS status</a> · <a href="/words">từ điển nối từ</a></span>
+    <span class="muted">· <a href="/">metrics dashboard</a> · <a href="/inventory">kho đồ</a> · <a href="/status">VPS status</a> · <a href="/words">từ điển nối từ</a></span>
     <span style="flex:1"></span>
     <span class="muted">Đăng nhập: <b id="meUser">—</b> (<span id="meRole">—</span>)</span>
     <button id="logoutBtn">Đăng xuất</button>
@@ -1017,7 +1070,7 @@ const STATUS_HTML = `<!DOCTYPE html>
 <body>
 <header>
   <h1>qtbot — VPS status</h1>
-  <span class="muted">· <a href="/">metrics</a> · <a href="/admin">kinh tế</a> · <a href="/words">từ điển nối từ</a></span>
+  <span class="muted">· <a href="/">metrics</a> · <a href="/inventory">kho đồ</a> · <a href="/admin">kinh tế</a> · <a href="/words">từ điển nối từ</a></span>
   <span style="flex:1"></span>
   <span class="pill" id="host">—</span>
   <span class="muted">cập nhật: <span id="updated">—</span></span>
@@ -1198,7 +1251,7 @@ const WORDS_HTML = `<!DOCTYPE html>
 <body>
 <header>
   <h1>qtbot — từ điển Nối Từ (!noitu)</h1>
-  <span class="muted">· <a href="/">metrics</a> · <a href="/admin">kinh tế</a> · <a href="/status">VPS status</a></span>
+  <span class="muted">· <a href="/">metrics</a> · <a href="/inventory">kho đồ</a> · <a href="/admin">kinh tế</a> · <a href="/status">VPS status</a></span>
   <span style="flex:1"></span>
   <span class="muted">Từ điển: <b id="dictSize">—</b> từ</span>
   <button id="reloadBtn">↻ Tải lại</button>
@@ -1448,7 +1501,7 @@ load();
 // Async router for /api/admin/* and /admin. Returns nothing; writes the response
 // itself. All routes that mutate require a valid session; account-management
 // routes additionally require the root role.
-async function handleAdmin(req, res, pathname) {
+async function handleAdmin(req, res, pathname, query) {
     try {
         const method = req.method || 'GET';
         const session = currentSession(req);
@@ -1479,6 +1532,34 @@ async function handleAdmin(req, res, pathname) {
 
         // Everything below needs auth.
         if (!session) return sendJson(res, 401, { error: 'Chưa đăng nhập.' });
+
+        if (pathname === '/api/admin/inventory/meta' && method === 'GET') {
+            return sendJson(res, 200, {
+                guilds: buildInventoryGuildList(),
+                fields: inventoryAdmin.fieldDefinitions()
+            });
+        }
+        if (pathname === '/api/admin/inventory/players' && method === 'GET') {
+            return sendJson(res, 200, {
+                players: searchInventoryPlayers(query && query.guildId, query && query.q)
+            });
+        }
+        if (pathname === '/api/admin/inventory/player' && method === 'GET') {
+            const guildId = query && query.guildId;
+            const userId = query && query.userId;
+            const inventory = inventoryAdmin.inventorySnapshot(guildId, userId);
+            return sendJson(res, 200, {
+                inventory,
+                player: inventoryPlayerInfo(inventory.guildId, inventory.userId)
+            });
+        }
+        if (pathname === '/api/admin/inventory/player' && method === 'POST') {
+            const body = await readJsonBody(req);
+            const result = inventoryAdmin.applyChanges(
+                body.guildId, body.userId, body.changes, body.expected, session
+            );
+            return sendJson(res, 200, { ok: true, ...result });
+        }
 
         if (pathname === '/api/admin/economy' && method === 'GET') {
             return sendJson(res, 200, {
@@ -1580,8 +1661,11 @@ function handle(req, res) {
     if (pathname === '/words' || pathname === '/words.html') {
         return sendHtml(res, WORDS_HTML);
     }
+    if (pathname === '/inventory' || pathname === '/inventory.html') {
+        return sendHtml(res, INVENTORY_HTML);
+    }
     if (pathname.startsWith('/api/admin/')) {
-        handleAdmin(req, res, pathname);
+        handleAdmin(req, res, pathname, parsed.query);
         return;
     }
     try {

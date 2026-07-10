@@ -99,6 +99,7 @@ via `state.js` and call `saveData()`.
 
 **Economy core**
 - `currency.js` — wallets (ngọc, ngân phiếu, items + their **locked** variants), `getWallet`, `addNgoc/addItem/addLocked*`, `spendNgocForGame`, chat earn, daily claim, `buildKhodoView` (inventory), `renderEmote`, `fmt`, `ITEM_KEYS`/`ITEM_LABELS`. **Start here for anything about balances/items.**
+- `inventoryAdmin.js` / `inventoryPage.js` — authenticated `/inventory` editor for live player wallets. Exposes every currency/item in usable and locked form, plus bank and pity/progress counters; writes use an allowlist, integer validation, stale-value conflict checks, and audit logs.
 - `economyConfig.js` — runtime editor for `config/economy.js` leaves; persists diff to `economy_overrides.json` (admin panel backend).
 - `exchange.js` — unified `!doi` (convert items up tiers) and `!phangiai` (dismantle pets → thiên thưởng), incl. the select/button UI. Spans all seasons.
 - `gacha.js` — roll logic + pity (`rollMany`, `getPityStatus`, `formatRollResult`).
@@ -134,7 +135,7 @@ via `state.js` and call `saveData()`.
 - `priority.js`, `arrangePerm.js`, `kimlan.js` — guild-war priority lists, /arrange permissions, "kim lan" subgroups.
 - `maintenance.js` — maintenance mode gate (`isBlockedByMaintenance`), checked at the top of every entry point.
 - `metrics.js` — gameplay analytics into per-day server-side bucket files; `!metrics*` admin commands read these.
-- `dashboard.js` — the entire admin web panel (HTTP server, auth-gated pages: economy editor, `/status`, `/words`). `sysStatus.js` feeds the `/status` VPS health page. `adminAuth.js` handles login/accounts.
+- `dashboard.js` — the entire admin web panel (HTTP server, auth-gated pages: economy editor, `/inventory`, `/status`, `/words`). `sysStatus.js` feeds the `/status` VPS health page. `adminAuth.js` handles login/accounts.
 
 ---
 
@@ -232,6 +233,6 @@ from a worker.
 | Guild-war signup/post/reminder/roles | `src/services/{guildWar,roles,scheduler}.js`, `src/events/messageReactionAdd.js` |
 | Cron timing | [src/services/scheduler.js](src/services/scheduler.js) + the game services' `scheduleWeeklyPayout` |
 | Persistence/state shape | [src/state.js](src/state.js) (data shape: grep `data.<key>`) |
-| Admin web panel / metrics views / VPS status | `src/services/{dashboard,metrics,sysStatus,adminAuth}.js` |
+| Admin web panel / inventory / metrics views / VPS status | `src/services/{dashboard,inventoryAdmin,inventoryPage,metrics,sysStatus,adminAuth}.js` |
 | Auth / cooldown / reply helpers | [src/utils.js](src/utils.js) |
 | Ship a feature | bump [src/config/changelog.js](src/config/changelog.js) (§8) |
