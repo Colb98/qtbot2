@@ -131,6 +131,20 @@ function spendNgocForGame(guildId, userId, amount) {
     saveData();
 }
 
+// Skill/faucet games (Vua Tiếng Việt · Nối Từ · Flash Math · Boss) also unlock
+// frozen tt_legacy — the parallel to casino stakes above. They don't stake ngọc,
+// so instead of the 1:1 accrual we scale by the game's daily cap: earning
+// `earnedNgoc` out of a `dailyCap`-ngọc day accrues that fraction of
+// FAUCET_TT_PER_DAY conversions' worth of resetWager. Maxing one game's daily cap
+// therefore unlocks ≈ RESET.FAUCET_TT_PER_DAY tt_legacy via !doitt.
+function accrueFaucetUnlock(guildId, userId, earnedNgoc, dailyCap) {
+    if (!(earnedNgoc > 0) || !(dailyCap > 0)) return;
+    const perDay = economy.RESET.FAUCET_TT_PER_DAY * economy.RESET.WAGER_PER_TT;
+    const w = getWallet(guildId, userId);
+    w.resetWager = (w.resetWager || 0) + Math.round(earnedNgoc / dailyCap * perDay);
+    saveData();
+}
+
 function tryEarnFromChat(guildId, userId) {
     data.chatEarn = data.chatEarn || {};
     data.chatEarn[guildId] = data.chatEarn[guildId] || {};
@@ -281,6 +295,7 @@ module.exports = {
     addLockedNgoc,
     addLockedItem,
     spendNgocForGame,
+    accrueFaucetUnlock,
     bankedTotal,
     tryEarnFromChat,
     tryClaimDaily,

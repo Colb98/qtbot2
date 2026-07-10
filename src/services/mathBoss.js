@@ -8,7 +8,7 @@ const {
 const log = require('../../logger');
 const client = require('../client');
 const { data, saveData } = require('../state');
-const { addNgoc, renderEmote, fmt, todayStr } = require('./currency');
+const { addNgoc, accrueFaucetUnlock, renderEmote, fmt, todayStr } = require('./currency');
 const economy = require('../config/economy');
 const { genEquation } = require('./mathGen');
 const metrics = require('./metrics');
@@ -84,6 +84,7 @@ function earnNgoc(guildId, userId, amount) {
     if (actual > 0) {
         cap.earned += actual;
         addNgoc(guildId, userId, actual);
+        accrueFaucetUnlock(guildId, userId, actual, economy.MATHBOSS.NGOC_DAILY_CAP);
     }
     return actual;
 }

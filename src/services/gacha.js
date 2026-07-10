@@ -70,11 +70,18 @@ function rollMany(n, pity, meta = null) {
     return counts;
 }
 
-function formatRollResult(counts) {
+// `mapKey` maps a logical roll key to the concrete wallet key to DISPLAY, so the
+// pet shows as the current season's item (e.g. season 2 → Sói) instead of the
+// season-agnostic 'cao'. Pass season.mapGachaKey; defaults to identity so gacha.js
+// stays season-agnostic (mirrors the award-site mapping in the callers).
+function formatRollResult(counts, mapKey = (k) => k) {
     const order = ['cao', 'thienthuong', 'kythuong', 'dieu', 'nhuom'];
     const parts = [];
     for (const k of order) {
-        if (counts[k] > 0) parts.push(`${renderEmote(k)} ${ITEM_LABELS[k]} x${fmt(counts[k])}`);
+        if (counts[k] > 0) {
+            const dk = mapKey(k);
+            parts.push(`${renderEmote(dk)} ${ITEM_LABELS[dk]} x${fmt(counts[k])}`);
+        }
     }
     return parts.join(', ');
 }

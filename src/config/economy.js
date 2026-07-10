@@ -396,6 +396,10 @@ const DEFAULTS = {
     // top bracket uses a large finite cap (not Infinity) so the override walker
     // keeps every leaf admin-editable. WAGER_PER_TT = ngọc a player must wager
     // (win or lose) to convert 1 old Thiên Thưởng into a new one (!doitt).
+    // FAUCET_TT_PER_DAY = how many tt_legacy a full day of any single skill/faucet
+    // game (Vua Tiếng Việt · Nối Từ · Flash Math · Boss) unlocks. The unlock
+    // accrues into resetWager proportional to the game's daily ngọc cap, so
+    // maxing out one game's cap ≈ FAUCET_TT_PER_DAY conversions via !doitt.
     RESET: {
         LADDER: [
             { upTo: 500000,        rate: 1.0 },
@@ -403,7 +407,8 @@ const DEFAULTS = {
             { upTo: 2000000,       rate: 0.5 },
             { upTo: 1000000000000, rate: 0.2 }
         ],
-        WAGER_PER_TT: 100000
+        WAGER_PER_TT: 100000,
+        FAUCET_TT_PER_DAY: 10
     }
 };
 

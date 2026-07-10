@@ -1,6 +1,20 @@
-const CURRENT_VERSION = '3.0.0';
+const CURRENT_VERSION = '3.1.1';
 
 const CHANGELOG = {
+    '3.1.1': {
+        date: '2026-07-10',
+        title: 'Câu cá & rút quẻ chơi được ở kênh khoá game',
+        changes: [
+            '🎣🎴 **`!cauca` (`!fishing`) và `!rutque` (`!fortune`) không còn bị chặn ở kênh khoá game** — hai trò **miễn phí** này giờ chơi được ở mọi kênh. Các lệnh quản lý quẻ đi kèm (`!que` · `!bank` · `!xoadau` · `!goque`) cũng được mở khoá theo. Game casino (slot, coinflip, tổng, mặt, gacha…) vẫn bị chặn ở kênh khoá như cũ.'
+        ]
+    },
+    '3.1.0': {
+        date: '2026-07-10',
+        title: 'Chơi game kỹ năng cũng mở khoá Thiên Thưởng (cũ)',
+        changes: [
+            '🌟 **Game kỹ năng mở khoá TT cũ** — ngoài cược ở game casino, giờ **chơi Vua Tiếng Việt · Nối Từ · Flash Math · Boss** cũng tích luỹ tiến độ quy đổi **Thiên Thưởng (cũ)** → TT mùa mới. Chơi **hết cap ngọc trong ngày** của mỗi trò mở khoá khoảng **10** TT cũ (cộng dồn theo tỉ lệ ngọc kiếm được so với cap ngày). Gõ `!doitt` để quy đổi, xem tiến độ trong `!khodo`.'
+        ]
+    },
     '3.0.0': {
         date: '2026-07-09',
         title: 'Reset máy chủ — làm mới cuộc đua sang mùa mới',
