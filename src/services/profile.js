@@ -22,7 +22,7 @@ const GENDERS = ['m', 'f'];
 const DISPLAY_NAME_MIN = 2;
 const DISPLAY_NAME_MAX = 32;
 const DISPLAY_NAME_RE = /^[\p{L}\p{N} _-]+$/u;
-const DAILY_CARD_RENDER_LIMIT = 5;     // non-super-admin cap, resets 00:00 GMT+7
+const DAILY_CARD_RENDER_LIMIT = 20;     // non-super-admin cap, resets 00:00 GMT+7
 
 const VALID_ITEM_KEYS = new Set(ITEM_KEYS);
 
