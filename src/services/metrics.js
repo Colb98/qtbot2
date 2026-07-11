@@ -205,6 +205,8 @@ const GAME_DEFAULTS = {
         quePaid: 0,
         queBurned: 0,
         bacCounts: {},
+        // Per-quẻ-type faucet/sink: byType[TYPE] = { paid, penalty, count }.
+        byType: {},
         playerIds: {}
     }
 };
@@ -395,12 +397,27 @@ function mergeForGame(game, instances) {
             for (const m of instances) v += (m[key] || 0);
             out[key] = v;
         } else if (typeof def[key] === 'object' && def[key] !== null) {
+            // Sum a map of counters. Values may themselves be objects of counters
+            // (e.g. mathboss.byTier[t] = {raids,…}, rutque.byType[type] =
+            // {paid,penalty,count}) — those are merged one level deeper, not
+            // Number()-flattened to 0.
             const merged = {};
-            for (const k of Object.keys(def[key])) merged[k] = 0;
+            for (const k of Object.keys(def[key])) {
+                merged[k] = (def[key][k] && typeof def[key][k] === 'object') ? {} : 0;
+            }
             for (const m of instances) {
                 const sub = m[key] || {};
                 for (const k of Object.keys(sub)) {
-                    merged[k] = (merged[k] || 0) + (Number(sub[k]) || 0);
+                    const val = sub[k];
+                    if (val && typeof val === 'object') {
+                        if (!merged[k] || typeof merged[k] !== 'object') merged[k] = {};
+                        for (const kk of Object.keys(val)) {
+                            merged[k][kk] = (merged[k][kk] || 0) + (Number(val[kk]) || 0);
+                        }
+                    } else {
+                        if (merged[k] && typeof merged[k] === 'object') continue;
+                        merged[k] = (merged[k] || 0) + (Number(val) || 0);
+                    }
                 }
             }
             out[key] = merged;
@@ -784,14 +801,20 @@ function recordRutqueEffect({ guildId, type, amount = 0, userId }) {
 }
 
 // Quẻ Bói settlement: `paid` ngọc minted to the player (faucet), `penalty`
-// ngọc taken from the player (sink; includes !goque fees).
-function recordQueSettlement({ guildId, userId, paid = 0, penalty = 0 }) {
+// ngọc taken from the player (sink; includes !goque fees). `type` (quẻ type
+// key, e.g. TIEU_CAT) breaks the faucet/sink down per quẻ for the dashboard.
+function recordQueSettlement({ guildId, userId, paid = 0, penalty = 0, type }) {
     if (isExcluded(userId)) return;
     _checkRollover();
     const m = _get(guildId, 'rutque');
     m.settlements = (m.settlements || 0) + 1;
     m.quePaid = (m.quePaid || 0) + paid;
     m.queBurned = (m.queBurned || 0) + penalty;
+    if (type) {
+        m.byType = m.byType || {};
+        const bt = m.byType[type] = m.byType[type] || { paid: 0, penalty: 0, count: 0 };
+        bt.paid += paid; bt.penalty += penalty; bt.count += 1;
+    }
     if (userId) m.playerIds[userId] = (m.playerIds[userId] || 0) + 1;
     _dirty = true;
 }
@@ -961,11 +984,17 @@ function _formatGame(game, perGuildStore, guildFilter) {
         const uniq = uniqueCount(m.playerIds);
         const paid = m.quePaid || 0;
         const burned = (m.queBurned || 0) + (m.redrawBurned || 0);
+        const QUE_SHORT = { TIEU_CAT: 'Chuyển', TRUNG_CAT: 'Phúc', DAI_CAT: 'Liên', TIEU_HUNG: 'Kiệt', TRUNG_HUNG: 'Nghịch', DAI_HUNG: 'Kiếp' };
+        const bt = m.byType || {};
+        const btLine = Object.keys(bt).length
+            ? Object.entries(bt).map(([k, v]) => `${QUE_SHORT[k] || k}: +${fmt(v.paid || 0)}/−${fmt(v.penalty || 0)}`).join(' | ')
+            : '(trống)';
         const lines = [
             `🎴 QUẺ BÓI — ${fmt(m.draws)} lượt rút | ${fmt(m.settlements || 0)} kết toán | Unique: ${fmt(uniq)}`,
             `**Minted** (kết toán): ${fmt(paid)} ngọc | **Burned** (phạt/kết toán âm/gỡ): ${fmt(burned)} | Net: ${fmt(paid - burned)}`,
             `Quẻ: ${topEntries(m.tierCounts, 6)}`,
-            `Bậc: ${topEntries(m.bacCounts || {}, 5)}`
+            `Bậc: ${topEntries(m.bacCounts || {}, 5)}`,
+            `Faucet/Sink theo quẻ: ${btLine}`
         ];
         if (m.reverseProcs || m.jackpotProcs || m.decayProcs) {
             lines.push(`(legacy) Nghịch thiên: ${fmt(m.reverseProcs)} procs (+${fmt(m.reverseBonus)} ngọc) | Jackpot boost: ${fmt(m.jackpotProcs)} (+${fmt(m.jackpotBonus)} ngọc) | Mãn chiêu tổn: ${fmt(m.decayProcs)}`);

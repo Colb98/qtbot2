@@ -1,6 +1,17 @@
-const CURRENT_VERSION = '3.6.0';
+const CURRENT_VERSION = '3.7.0';
 
 const CHANGELOG = {
+    '3.7.0': {
+        date: '2026-07-11',
+        title: 'Quẻ Bói — thưởng/phạt đáng giá hơn, chặn rút khi thiếu tiền',
+        changes: [
+            '💎 **Điểm phúc giá hơn hẳn ở bậc cao** — đường cong quy đổi mềm lại (mũ 2→1.25): gồng trọn meter vẫn ăn **trọn** (Thiên = 500k), nhưng mỗi ván thắng/thua giờ **đáng kể hơn nhiều** (một ván thắng Thiên ≈ 12k–28k thay vì ~5k như trước). Áp dụng cho cả quẻ Cát, pool quẻ Kiệt và tiền lật stack quẻ Kiếp.',
+            '⚡ **Cược "liều" phá quẻ Kiếp giờ đặt được** — ngưỡng liều đã hạ về đúng tầm cược tối đa của game (Huyền 35k · Địa 50k). Trước đây Huyền/Địa đòi 60k/120k — vượt mức cược tối đa nên **không thể liều nổi**.',
+            '⚠️ **Cảnh báo & chặn theo số dư** — rút quẻ bậc cao khi tổng ngọc (gồm két) thấp hơn mức phạt tối đa của bậc sẽ **hiện cảnh báo**; nếu số dư không đủ cả mức cược tối thiểu của bậc thì **chặn rút** và gợi ý bậc thấp hơn. Menu `!rutque` đánh dấu 🔒 các bậc chưa đủ tiền.',
+            '🌟 **Nhử vinh quang & doạ tiền phạt** — mỗi ván giờ hiện **tiềm năng thực tế** (tính theo số ván còn lại, không phải mốc trần viển vông): quẻ Cát/Kiệt dangle mốc điểm tối đa còn với tới được & số ngọc tương ứng, khiến chốt non (`!bank`) trông như bỏ tiền lại; quẻ Nghịch/Kiếp hiện "📈 thua hết còn lại → tối đa Y" cùng nhắc `!goque` rẻ hơn nhiều, hối thoát/phá quẻ sớm.',
+            '📊 **Trang metrics có thẻ Quẻ Bói** — thêm biểu đồ phân phối quẻ, phân phối bậc, và faucet/sink của **từng loại quẻ**.'
+        ]
+    },
     '3.6.0': {
         date: '2026-07-10',
         title: 'Thu hồi phạt Quẻ Bói bị xoá nợ',

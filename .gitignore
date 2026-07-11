@@ -11,6 +11,7 @@ data.json
 data.json.*
 backupdata/
 economy_overrides.json
+metrics/
 
 # Local SSH/deploy notes
 ssh.txt

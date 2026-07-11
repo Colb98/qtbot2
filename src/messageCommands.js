@@ -597,9 +597,15 @@ ${DISCLAIMER}`;
         if (!sub) {
             const av = rutque.drawAvailability(guildId, msg.author.id);
             if (av.active) return msg.reply(`Bạn đang có quẻ **${rutque.QUE_META[av.active.type].name}** — mỗi lúc chỉ giữ 1 quẻ. Xem \`!que\`.`);
+            const wealth = rutque.totalWealth(guildId, msg.author.id);
+            const tierList = rutque.TIER_NAMES.map((n, i) => {
+                const mb = rutque.minPossibleBet(i + 1);
+                const locked = wealth < mb;
+                return `\`${rutque.TIER_KEYS[i]}\` ${n} ×${economy.QUE_BOI.TIER_MULT[i]}${locked ? ` 🔒(cần ${fmt(mb)})` : ''}`;
+            }).join(' · ');
             const menu = [
                 '🎴 **Rút quẻ bói** — chọn bậc: `!rutque <bậc>`',
-                rutque.TIER_NAMES.map((n, i) => `\`${rutque.TIER_KEYS[i]}\` ${n} ×${economy.QUE_BOI.TIER_MULT[i]}`).join(' · '),
+                tierList,
                 `Còn ${av.totalLeft}/${economy.QUE_BOI.DAILY_LIMIT} lượt hôm nay (Thiên: ${av.thienLeft}/${economy.QUE_BOI.THIEN_DAILY_LIMIT}). Luật: \`!boiinfo\`.`
             ].join('\n');
             return msg.reply(menu);
@@ -610,7 +616,17 @@ ${DISCLAIMER}`;
         if (res.error === 'bad_tier') return msg.reply(`Bậc không hợp lệ. Dùng: ${rutque.TIER_KEYS.join(', ')} (hoặc 1-5).`);
         if (res.error === 'daily_limit') return msg.reply(`Bạn đã hết ${economy.QUE_BOI.DAILY_LIMIT} lượt rút quẻ hôm nay. Quay lại sau 0:00.`);
         if (res.error === 'thien_limit') return msg.reply(`Bậc Thiên chỉ rút được ${economy.QUE_BOI.THIEN_DAILY_LIMIT} lần/ngày. Đã hết hôm nay.`);
-        return msg.reply(`🎴 **${member.displayName}** rút được quẻ:\n${rutque.formatDrawResult(res.que, member.displayName)}`);
+        if (res.error === 'too_poor') {
+            const guide = res.affordable.length
+                ? `Thử bậc thấp hơn: ${res.affordable.map(a => `\`${a.key}\` ${a.name} (cược ≥ ${fmt(a.minBet)})`).join(' · ')}.`
+                : 'Bạn chưa đủ ngọc để chơi bất kỳ bậc nào — kiếm thêm ngọc trước đã (`!daily`, `!noitu`, chat…).';
+            return msg.reply(`🚫 Số dư của bạn (**${fmt(res.wealth)}** ${renderEmote('ngoc')}, gồm cả két) không đủ để chơi 1 ván tính điểm ở bậc **${rutque.TIER_NAMES[res.tier - 1]}** (cần cược tối thiểu **${fmt(res.minBet)}**). ${guide}`);
+        }
+        let out = `🎴 **${member.displayName}** rút được quẻ:\n${rutque.formatDrawResult(res.que, member.displayName)}`;
+        if (res.warning) {
+            out += `\n⚠️ **Cảnh báo:** số dư của bạn (**${fmt(res.warning.wealth)}** ${renderEmote('ngoc')}, gồm cả két) thấp hơn mức phạt tối đa bậc **${rutque.TIER_NAMES[res.warning.tier - 1]}** (có thể tới **${fmt(res.warning.risk)}**). Một quẻ hung xấu có thể trừ sạch ngọc — cân nhắc cược nhỏ hoặc \`!bank\`/\`!goque\` sớm.`;
+        }
+        return msg.reply(out);
     }
 
     // ── !que: current quẻ status (or draw availability if none).

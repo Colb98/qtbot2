@@ -1,6 +1,6 @@
 const { data, saveData } = require('../state');
 const economy = require('../config/economy');
-const { todayStr, fmt, renderEmote, getWallet, addNgoc, spendNgocForGame } = require('./currency');
+const { todayStr, fmt, renderEmote, getWallet, addNgoc, spendNgocForGame, bankedTotal } = require('./currency');
 const metrics = require('./metrics');
 
 // ── Quẻ Bói ("rút quẻ") — fortune-draw meta-layer over the casino games ──────
@@ -75,6 +75,90 @@ function ngocValue(points, tier) {
     return p < 0 ? -v : v;
 }
 
+// Cheapest bet that makes a round COUNT at this tier (the smallest per-game
+// min across all four games). Below this, drawing the tier is pointless — you
+// could never play a qualifying round.
+function minPossibleBet(tier) {
+    const bets = GAMES.map(g => minBetFor(tier, g)).filter(v => v > 0);
+    return bets.length ? Math.min(...bets) : 0;
+}
+
+// Worst-case single-settlement CHARGE at this tier — the largest amount a bad
+// draw could take: a full negative cát meter, or a fully-stacked Nghịch/Kiếp.
+// Used to warn a player whose whole balance is smaller than this.
+function tierRisk(tier) {
+    const cap = Q().POINT_CAP;
+    const negMeter = Math.abs(ngocValue(-cap, tier));
+    const kiep = Q().KIEP_PENALTY_PER_STACK * (Q().LIFETIME.DAI_HUNG || 0) * tierMult(tier);
+    const nghich = Q().NGHICH_PENALTY_PER_STACK * (Q().LIFETIME.TRUNG_HUNG || 0) * tierMult(tier);
+    return Math.max(negMeter, kiep, nghich);
+}
+
+// Total wealth counted for the draw gates: ví + locked + két (same scope as
+// !topngoc). Két can't be bet directly, but it's the player's real net worth
+// and settlement penalties can wipe it out via withdrawals, so both gates use it.
+function totalWealth(guildId, userId) {
+    const w = getWallet(guildId, userId);
+    return (w.ngoc || 0) + (w.lockedNgoc || 0) + bankedTotal(w);
+}
+
+// Tiers the player can afford to play a qualifying round at (wealth ≥ min bet).
+function affordableTiers(wealth) {
+    const out = [];
+    for (let t = 1; t <= 5; t++) {
+        const mb = minPossibleBet(t);
+        if (wealth >= mb) out.push({ tier: t, key: TIER_KEYS[t - 1], name: TIER_NAMES[t - 1], minBet: mb });
+    }
+    return out;
+}
+
+// ── "Tempt & scare" helpers ──────────────────────────────────────────────────
+// The full-meter payout ("glory") a point/pool meter can reach at this tier.
+function fullGlory(tier) { return ngocValue(Q().POINT_CAP, tier); }
+
+// Best-case points the meter can STILL reach given rounds left, modelling each
+// quẻ's growth: additive quẻ (Chuyển/Phúc/Kiệt) gain ppw per win; Liên (Đại Cát)
+// doubles. This makes the dangled glory REALISTIC — you can't hit 20đ with only
+// 1 round left, so a Phúc at 3đ with 1 mặt-round left shows 5đ, not 20đ.
+function maxReachablePoints(q, ppw) {
+    const cap = Q().POINT_CAP;
+    const k = Math.max(0, q.rounds_left);
+    if (q.type === 'DAI_CAT') {
+        let p = q.points;
+        for (let i = 0; i < k && p < cap; i++) p = p <= 0 ? ppw : Math.min(cap, p * 2);
+        return Math.min(cap, Math.max(p, q.points));
+    }
+    return Math.min(cap, q.points + ppw * k);
+}
+
+// ppw to assume for a projection outside a live round (status / draw view): the
+// game last played, else the best-case game for a freshly-drawn quẻ.
+function assumedPpw(q) {
+    const g = q.last_round && q.last_round.game;
+    return g ? pointsPerWin(g) : Math.max(...GAMES.map(gm => pointsPerWin(gm)));
+}
+
+// Compact glory tag for a cát/Kiệt meter: the realistic ceiling reachable in the
+// rounds left (or a "kịch trần" flag once maxed). Empty when no upside remains.
+function gloryTag(q, ppw) {
+    const cap = Q().POINT_CAP;
+    if (q.points >= cap) return ` · 🌟 KỊCH TRẦN ${fmt(fullGlory(q.tier))}!`;
+    const reach = maxReachablePoints(q, ppw);
+    if (reach <= q.points) return '';
+    const label = reach >= cap ? `đủ ${cap}đ` : `tối đa ${reach}đ`;
+    return ` · 🌟 ${label} = ${fmt(ngocValue(reach, q.tier))}`;
+}
+
+// Worst-case penalty a stacking hung quẻ (Nghịch/Kiếp) grows to if EVERY round
+// left is also a loss (current stacks + rounds left — already realistic, not the
+// full-lifetime theoretical max). Scares players into escaping now (!goque /
+// breaking the streak) instead of riding it out.
+function worstStackPenalty(q) {
+    const key = q.type === 'DAI_HUNG' ? 'KIEP_PENALTY_PER_STACK' : 'NGHICH_PENALTY_PER_STACK';
+    const maxStacks = q.stacks + Math.max(0, q.rounds_left);
+    return Q()[key] * maxStacks * tierMult(q.tier);
+}
+
 function getState(guildId, userId) {
     data.queboi = data.queboi || {};
     data.queboi[guildId] = data.queboi[guildId] || {};
@@ -134,13 +218,23 @@ function draw(guildId, userId, tierArg) {
     if ((st.draws.total || 0) >= Q().DAILY_LIMIT) return { error: 'daily_limit' };
     if (tier === 5 && (st.draws.thien || 0) >= Q().THIEN_DAILY_LIMIT) return { error: 'thien_limit' };
 
+    // Balance gates. Block if the player can't even afford a qualifying round at
+    // this tier; warn (but allow) if a bad draw could exceed their whole balance.
+    const wealth = totalWealth(guildId, userId);
+    const minBet = minPossibleBet(tier);
+    if (wealth < minBet) {
+        return { error: 'too_poor', tier, minBet, wealth, affordable: affordableTiers(wealth) };
+    }
+
     const type = rollQueType();
     st.que = newQue(type, tier);
     st.draws.total = (st.draws.total || 0) + 1;
     if (tier === 5) st.draws.thien = (st.draws.thien || 0) + 1;
     saveData();
     metrics.recordRutque({ guildId, action: 'draw', tier: type, bac: TIER_KEYS[tier - 1], userId });
-    return { ok: true, que: st.que };
+    const risk = tierRisk(tier);
+    const warning = wealth < risk ? { risk, wealth, tier } : null;
+    return { ok: true, que: st.que, warning };
 }
 
 function newQue(type, tier) {
@@ -224,7 +318,7 @@ function applyRound(q, game, won, bet) {
         case 'TIEU_CAT': {
             if (won) {
                 q.points = Math.min(cap, q.points + ppw);
-                line = `${meta.emoji} Quẻ Chuyển [${t}]: ${q.points} điểm phúc → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | còn ${q.rounds_left} ván | ${q.tokens} lá xoá dấu`;
+                line = `${meta.emoji} Quẻ Chuyển [${t}]: ${q.points} điểm phúc → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}${gloryTag(q, ppw)} | còn ${q.rounds_left} ván | ${q.tokens} lá xoá dấu`;
             } else {
                 q.points = Math.max(-cap, q.points - ppw);
                 const warn = q.points < 0 ? ` ⚠️ ÂM: kết toán sẽ TRỪ ${fmt(-ngocValue(q.points, q.tier))} ${ngocEmote()}` : '';
@@ -237,7 +331,7 @@ function applyRound(q, game, won, bet) {
             if (won) {
                 q.points = Math.min(cap, q.points + ppw);
                 q.consec_losses = 0;
-                line = `${meta.emoji} Quẻ Phúc [${t}]: ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | còn ${q.rounds_left} ván | \`!bank\` để chốt`;
+                line = `${meta.emoji} Quẻ Phúc [${t}]: ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}${gloryTag(q, ppw)} | còn ${q.rounds_left} ván | \`!bank\` chốt non (gồng tiếp ăn dày hơn)`;
             } else {
                 q.points = Math.max(-cap, q.points - ppw);
                 q.consec_losses += 1;
@@ -259,7 +353,7 @@ function applyRound(q, game, won, bet) {
                 q.win_streak += 1;
                 q.points = q.points <= 0 ? ppw : Math.min(cap, q.points * 2);
                 const next = Math.min(cap, q.points * 2);
-                line = `${meta.emoji} Quẻ Liên [${t}]: chuỗi ${q.win_streak} | meter ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()} | Thắng tiếp → ${next} điểm, thua → ĐẢO CHIỀU ÂM | \`!bank\` để chốt`;
+                line = `${meta.emoji} Quẻ Liên [${t}]: chuỗi ${q.win_streak} | meter ${q.points} điểm → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}${gloryTag(q, ppw)} | Thắng tiếp → ${next} điểm, thua → ĐẢO CHIỀU ÂM | \`!bank\` chốt non`;
             } else {
                 q.win_streak = 0;
                 // Mirror of the win side: losses chain too — the meter flips
@@ -273,13 +367,13 @@ function applyRound(q, game, won, bet) {
         case 'TIEU_HUNG': {
             if (won) {
                 q.points = Math.min(cap, q.points + ppw);
-                line = `🔴 Quẻ Kiệt [${t}]: đang tạm giữ ${q.points} điểm | đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} cho phép | còn ${q.rounds_left} ván`;
+                line = `🔴 Quẻ Kiệt [${t}]: giữ ${q.points} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()})${gloryTag(q)} | đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} cho phép | còn ${q.rounds_left} ván`;
             } else {
                 q.stacks += 1;
                 if (q.stacks > Q().TIEU_HUNG_MAX_LOSSES) {
-                    line = `🔴 Quẻ Kiệt [${t}]: 🗳️ Mất toàn bộ ${q.points} điểm tạm giữ. Quẻ còn ${q.rounds_left} ván (không còn gì để mất).`;
+                    line = `🔴 Quẻ Kiệt [${t}]: 🗳️ Mất trắng pool ${q.points} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}). Quẻ còn ${q.rounds_left} ván (không còn gì để mất).`;
                 } else {
-                    line = `🔴 Quẻ Kiệt [${t}]: đang tạm giữ ${q.points} điểm | đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} cho phép | còn ${q.rounds_left} ván`;
+                    line = `🔴 Quẻ Kiệt [${t}]: giữ ${q.points} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()})${gloryTag(q)} | ⚠️ đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} — thua quá là mất trắng | còn ${q.rounds_left} ván`;
                 }
             }
             if (q.rounds_left <= 0) settleReason = 'natural';
@@ -298,8 +392,9 @@ function applyRound(q, game, won, bet) {
                 q.win_streak = 0;
                 q.stacks += 1;
                 const penalty = Q().NGHICH_PENALTY_PER_STACK * q.stacks * mult;
+                const worst = worstStackPenalty(q);
                 const fee = Q().NGHICH_REMOVE_FEE * mult;
-                line = `🔴 Quẻ Nghịch [${t}]: ${q.stacks} stack đen (phạt dự kiến ${fmt(penalty)} ${ngocEmote()}) | còn ${q.rounds_left} ván | Hoá giải: thắng ${Q().NGHICH_BREAK_STREAK} ván liền, hoặc \`!goque\` (${fmt(fee)} ngọc)`;
+                line = `🔴 Quẻ Nghịch [${t}]: ${q.stacks} stack đen — phạt ${fmt(penalty)} ${ngocEmote()}${worst > penalty ? ` 📈 thua hết còn lại → **tối đa ${fmt(worst)}**!` : ''} | còn ${q.rounds_left} ván | Thoát: thắng ${Q().NGHICH_BREAK_STREAK} ván liền, hoặc \`!goque\` chỉ **${fmt(fee)}** (rẻ hơn nhiều)`;
             }
             if (!settleReason && q.rounds_left <= 0) settleReason = 'natural';
             break;
@@ -322,10 +417,11 @@ function applyRound(q, game, won, bet) {
                 q.win_streak = 0;
                 q.stacks += 1;
                 const penalty = Q().KIEP_PENALTY_PER_STACK * q.stacks * mult;
+                const worst = worstStackPenalty(q);
                 const flip = ngocValue(Math.min(q.stacks, cap), q.tier);
                 const lieu = Q().LIEU[q.tier - 1];
                 const lieuHint = lieu != null ? `, hoặc thắng 1 ván cược ≥ ${fmt(lieu)}` : '';
-                line = `🔴 Quẻ Kiếp [${t}]: ${q.stacks} stack (phạt ${fmt(penalty)} / lật thành ${fmt(flip)} ngọc nếu phá quẻ) | còn ${q.rounds_left} ván | Phá: thắng ${Q().KIEP_BREAK_STREAK} ván liền${lieuHint}`;
+                line = `🔴 Quẻ Kiếp [${t}]: ${q.stacks} stack — phạt ${fmt(penalty)} ${ngocEmote()}${worst > penalty ? ` 📈 thua hết còn lại → **tối đa ${fmt(worst)}**!` : ''} (phá quẻ → lật thành ${fmt(flip)} ngọc) | còn ${q.rounds_left} ván | Phá: thắng ${Q().KIEP_BREAK_STREAK} ván liền${lieuHint}`;
             }
             if (!settleReason && q.rounds_left <= 0) settleReason = 'natural';
             break;
@@ -337,8 +433,11 @@ function applyRound(q, game, won, bet) {
 // ── Settlement ───────────────────────────────────────────────────────────────
 
 // Settle & clear the active quẻ. reason: natural | bank | nghich_break |
-// nghich_goque | kiep_break | auto_settle. Returns { lines, paid, penalty }.
-function settle(st, reason) {
+// nghich_goque | kiep_break | auto_settle. `opts.feeSink` folds an already-spent
+// sink (the !goque fee) into the recorded burn so metrics count it once, under
+// this quẻ's type. Returns { lines, paid, penalty }.
+function settle(st, reason, opts = {}) {
+    const feeSink = opts.feeSink || 0;
     const q = st.que;
     // Callers thread the owning guild/user through st.__ref (the quẻ object
     // itself doesn't store them — state is keyed by guildId→userId).
@@ -413,7 +512,7 @@ function settle(st, reason) {
             : `Bị phạt **${fmt(deducted)}** ${ngocEmote()} (${why}).`;
     }
 
-    metrics.recordQueSettlement({ guildId: gId, userId: uId, paid, penalty: deducted });
+    metrics.recordQueSettlement({ guildId: gId, userId: uId, paid, penalty: deducted + feeSink, type: q.type });
 
     const rounds = Q().LIFETIME[q.type] - q.rounds_left;
     const header = `${meta.emoji} **Kết toán quẻ ${meta.name} [${t}]** — ${reasonLabel(reason)}`;
@@ -502,9 +601,10 @@ function goque(guildId, userId, confirmed) {
         return { needConfirm: true, fee };
     }
     spendNgocForGame(guildId, userId, fee);
-    metrics.recordQueSettlement({ guildId, userId, paid: 0, penalty: fee });
     st.__ref = { guildId, userId };
-    const res = settle(st, 'nghich_goque');
+    // Fee already spent above; fold it into the settlement's recorded sink so
+    // metrics count it exactly once, attributed to the Nghịch quẻ.
+    const res = settle(st, 'nghich_goque', { feeSink: fee });
     return { ok: true, fee, lines: res.lines };
 }
 
@@ -537,23 +637,26 @@ function queStatusLines(q, displayName) {
     ];
     if (meta.kind === 'cat') {
         const p = Math.max(-cap, Math.min(q.points, cap));
-        lines.push(`Điểm phúc: **${p}** → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}${p < 0 ? ' ⚠️ (âm — kết toán sẽ TRỪ ngọc)' : ''}`);
+        const ppw = assumedPpw(q);
+        lines.push(`Điểm phúc: **${p}** → ${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}${p < 0 ? ' ⚠️ (âm — kết toán sẽ TRỪ ngọc)' : gloryTag(q, ppw)}`);
         if (q.type === 'TIEU_CAT') lines.push(`Lá xoá dấu: ${q.tokens}`);
-        if (q.type === 'TRUNG_CAT') lines.push(`Thua liên tiếp: ${q.consec_losses}/2 · \`!bank\` để chốt`);
-        if (q.type === 'DAI_CAT') lines.push(`Chuỗi thắng: ${q.win_streak} · \`!bank\` để chốt`);
+        if (q.type === 'TRUNG_CAT') lines.push(`Thua liên tiếp: ${q.consec_losses}/2 · \`!bank\` chốt non (gồng tiếp ăn dày hơn)`);
+        if (q.type === 'DAI_CAT') lines.push(`Chuỗi thắng: ${q.win_streak} · \`!bank\` chốt non (gồng tiếp ăn dày hơn)`);
     } else {
         if (q.type === 'TIEU_HUNG') {
-            lines.push(`Tạm giữ ${Math.min(q.points, cap)} điểm · đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES}`);
+            lines.push(`Tạm giữ ${Math.min(q.points, cap)} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()})${q.points > 0 ? gloryTag(q, assumedPpw(q)) : ''} · đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES}`);
         } else if (q.type === 'TRUNG_HUNG') {
             const penalty = Q().NGHICH_PENALTY_PER_STACK * q.stacks * tierMult(q.tier);
+            const worst = worstStackPenalty(q);
             const fee = Q().NGHICH_REMOVE_FEE * tierMult(q.tier);
-            lines.push(`${q.stacks} stack (phạt ~${fmt(penalty)} ${ngocEmote()}) · chuỗi ${q.win_streak}/${Q().NGHICH_BREAK_STREAK}`);
-            lines.push(`Hoá giải: thắng ${Q().NGHICH_BREAK_STREAK} ván liền hoặc \`!goque\` (${fmt(fee)} ngọc)`);
+            lines.push(`${q.stacks} stack · phạt giờ ~${fmt(penalty)} ${ngocEmote()} · 📈 thua hết → **tối đa ${fmt(worst)}** · chuỗi ${q.win_streak}/${Q().NGHICH_BREAK_STREAK}`);
+            lines.push(`Thoát: thắng ${Q().NGHICH_BREAK_STREAK} ván liền hoặc \`!goque\` chỉ **${fmt(fee)}** ngọc (rẻ hơn nhiều)`);
         } else if (q.type === 'DAI_HUNG') {
             const penalty = Q().KIEP_PENALTY_PER_STACK * q.stacks * tierMult(q.tier);
+            const worst = worstStackPenalty(q);
             const flip = ngocValue(Math.min(q.stacks, cap), q.tier);
             const lieu = Q().LIEU[q.tier - 1];
-            lines.push(`${q.stacks} stack (phạt ~${fmt(penalty)} / lật ${fmt(flip)} ngọc) · chuỗi ${q.win_streak}/${Q().KIEP_BREAK_STREAK}`);
+            lines.push(`${q.stacks} stack · phạt giờ ~${fmt(penalty)} · 📈 thua hết → **tối đa ${fmt(worst)}** · phá quẻ lật ${fmt(flip)} ngọc · chuỗi ${q.win_streak}/${Q().KIEP_BREAK_STREAK}`);
             lines.push(`Phá: thắng ${Q().KIEP_BREAK_STREAK} ván liền${lieu != null ? ` hoặc thắng 1 ván cược ≥ ${fmt(lieu)}` : ' (Thiên: chỉ bằng thực lực)'}`);
         }
     }
@@ -581,7 +684,7 @@ function formatInfo() {
         `🔴 Nghịch (${Q().LIFETIME.TRUNG_HUNG} ván): mỗi thua +1 stack phạt; thắng ${Q().NGHICH_BREAK_STREAK} liền hoặc \`!goque\` để thoát.`,
         `🔴 Kiếp (${Q().LIFETIME.DAI_HUNG} ván): mỗi thua +1 stack phạt; thắng ${Q().KIEP_BREAK_STREAK} liền/liều → lật stack thành điểm.`,
         '',
-        `Quy đổi **luỹ tiến hai chiều**: |điểm| càng cao, mỗi điểm càng giá trị — +${cap} điểm ăn trọn ${fmt(cap * Q().POINT_VALUE)} ngọc × bậc, −${cap} điểm bị trừ tương ứng (không đủ ngọc thì trừ hết & xoá nợ). Chốt non nhận ít (nửa điểm ≈ ¼ tiền).`,
+        `Quy đổi **luỹ tiến hai chiều**: |điểm| càng cao, mỗi điểm càng giá trị — +${cap} điểm ăn trọn ${fmt(cap * Q().POINT_VALUE)} ngọc × bậc, −${cap} điểm bị trừ tương ứng (không đủ ngọc thì trừ hết & xoá nợ). Chốt non nhận ít hơn (gồng nửa meter ≈ 42% tiền).`,
         'Lệnh: `!que` (xem quẻ) · `!bank` · `!xoadau` · `!goque` · `!boiinfo`.'
     ];
     return lines.join('\n');
@@ -622,6 +725,10 @@ module.exports = {
     drawAvailability,
     draw,
     setQue,
+    minPossibleBet,
+    tierRisk,
+    totalWealth,
+    affordableTiers,
     onGameResult,
     bank,
     xoadau,

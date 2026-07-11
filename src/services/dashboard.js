@@ -491,6 +491,20 @@ function renderGameCards(snap) {
     ]));
   }
 
+  if (s.rutque) {
+    const m = s.rutque;
+    const paid = m.quePaid || 0;
+    const burned = (m.queBurned || 0) + (m.redrawBurned || 0);
+    const net = paid - burned;
+    cards.push(card('🎴 QUẺ BÓI (faucet/sink) — ' + fmt(m.draws || 0) + ' lượt rút', [
+      row('Kết toán', fmt(m.settlements || 0)),
+      row('Minted (điểm phúc / lật stack)', fmt(paid) + ' ngọc', 'good'),
+      row('Burned (phạt / kết toán âm / gỡ)', fmt(burned) + ' ngọc', 'bad'),
+      row('Net', fmt(net) + ' ngọc', goodbad(net)),
+      row('Unique players', fmt(m.uniquePlayers || 0), 'accent')
+    ]));
+  }
+
   document.getElementById('grid').innerHTML = cards.join('');
 }
 
@@ -562,6 +576,26 @@ function gcBar(id, labels, data, color, xLabel) {
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { label: c => fmt(c.parsed.y) } }
+      },
+      scales: {
+        x: { ticks: { color: '#8a96a3', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { ticks: { color: '#8a96a3', font: { size: 10 }, callback: v => fmt(v) }, grid: { color: 'rgba(255,255,255,0.05)' } }
+      }
+    }
+  });
+}
+
+// Grouped/diverging bar with multiple datasets. Pass faucet as +data and sink
+// as −data to render them above/below the zero line.
+function gcBar2(id, labels, datasets) {
+  gameCharts[id] = new Chart(document.getElementById(id).getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: datasets.map(d => ({ label: d.label, data: d.data, backgroundColor: d.color, borderRadius: 3 })) },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, labels: { color: '#e6e6e6', boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmt(Math.abs(c.parsed.y)) } }
       },
       scales: {
         x: { ticks: { color: '#8a96a3', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
@@ -649,6 +683,38 @@ function renderGameCharts(snap) {
     if (gVals.some(v => v > 0)) {
       container.appendChild(gcCard('gc_gacha_items', '🎁 Gacha — Phân phối vật phẩm'));
       gcDonut('gc_gacha_items', gLabels, gVals);
+    }
+  }
+
+  if (s.rutque && (s.rutque.draws || 0) > 0) {
+    const m = s.rutque;
+    const QUE_ORDER = ['TIEU_CAT','TRUNG_CAT','DAI_CAT','TIEU_HUNG','TRUNG_HUNG','DAI_HUNG'];
+    const QUE_NAMES = { TIEU_CAT:'🟢 Chuyển', TRUNG_CAT:'🟢 Phúc', DAI_CAT:'🟢 Liên', TIEU_HUNG:'🔴 Kiệt', TRUNG_HUNG:'🔴 Nghịch', DAI_HUNG:'🔴 Kiếp' };
+    const BAC_ORDER = ['pham','linh','huyen','dia','thien'];
+    const BAC_NAMES = { pham:'Phàm', linh:'Linh', huyen:'Huyền', dia:'Địa', thien:'Thiên' };
+
+    const tc = m.tierCounts || {};
+    const tcKeys = QUE_ORDER.filter(k => (tc[k]||0) > 0);
+    if (tcKeys.length) {
+      container.appendChild(gcCard('gc_rq_type', '🎴 Quẻ Bói — Phân phối quẻ'));
+      gcDonut('gc_rq_type', tcKeys.map(k => QUE_NAMES[k]), tcKeys.map(k => tc[k]));
+    }
+
+    const bc = m.bacCounts || {};
+    const bcKeys = BAC_ORDER.filter(k => (bc[k]||0) > 0);
+    if (bcKeys.length) {
+      container.appendChild(gcCard('gc_rq_bac', '🎴 Quẻ Bói — Phân phối bậc'));
+      gcDonut('gc_rq_bac', bcKeys.map(k => BAC_NAMES[k]), bcKeys.map(k => bc[k]));
+    }
+
+    const bt = m.byType || {};
+    const btKeys = QUE_ORDER.filter(k => bt[k] && ((bt[k].paid||0) > 0 || (bt[k].penalty||0) > 0));
+    if (btKeys.length) {
+      container.appendChild(gcCard('gc_rq_fs', '🎴 Quẻ Bói — Faucet / Sink theo quẻ'));
+      gcBar2('gc_rq_fs', btKeys.map(k => QUE_NAMES[k]), [
+        { label: 'Faucet (nhận)', data: btKeys.map(k => bt[k].paid || 0), color: 'rgba(102,187,106,0.85)' },
+        { label: 'Sink (phạt)', data: btKeys.map(k => -(bt[k].penalty || 0)), color: 'rgba(239,83,80,0.85)' }
+      ]);
     }
   }
 }
