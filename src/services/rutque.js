@@ -367,13 +367,13 @@ function applyRound(q, game, won, bet) {
         case 'TIEU_HUNG': {
             if (won) {
                 q.points = Math.min(cap, q.points + ppw);
-                line = `🔴 Quẻ Kiệt [${t}]: giữ ${q.points} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()})${gloryTag(q)} | đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} cho phép | còn ${q.rounds_left} ván`;
+                line = `🔴 Quẻ Kiệt [${t}]: giữ ${q.points} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()})${gloryTag(q, ppw)} | đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} cho phép | còn ${q.rounds_left} ván`;
             } else {
                 q.stacks += 1;
                 if (q.stacks > Q().TIEU_HUNG_MAX_LOSSES) {
                     line = `🔴 Quẻ Kiệt [${t}]: 🗳️ Mất trắng pool ${q.points} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()}). Quẻ còn ${q.rounds_left} ván (không còn gì để mất).`;
                 } else {
-                    line = `🔴 Quẻ Kiệt [${t}]: giữ ${q.points} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()})${gloryTag(q)} | ⚠️ đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} — thua quá là mất trắng | còn ${q.rounds_left} ván`;
+                    line = `🔴 Quẻ Kiệt [${t}]: giữ ${q.points} điểm (~${fmt(ngocValue(q.points, q.tier))} ${ngocEmote()})${gloryTag(q, ppw)} | ⚠️ đã thua ${q.stacks}/${Q().TIEU_HUNG_MAX_LOSSES} — thua quá là mất trắng | còn ${q.rounds_left} ván`;
                 }
             }
             if (q.rounds_left <= 0) settleReason = 'natural';
