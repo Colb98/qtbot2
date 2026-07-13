@@ -170,7 +170,7 @@ async function handleMessageCommand(msg) {
 • \`!xoso\` — Xổ số tích lũy: chọn 4 số 1-${lottery.LOTTERY.NUMBER_POOL_MAX}, vé ${fmt(lottery.LOTTERY.TICKET_PRICE)} ngọc (max ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt). Quay 10h sáng & 10h tối. \`!xoso pool\` / \`!xoso bao [n]\` / \`!xoso ve\`.
 • \`!cauca\` (\`!fishing\`) — Câu cá **miễn phí** ${economy.FISHING.DAILY_LIMIT} lần/ngày, xem GIF chờ kết quả: cá nhỏ +${fmt(economy.FISHING.OUTCOMES.small.ngoc)} · cá ngừ +${fmt(economy.FISHING.OUTCOMES.tuna.ngoc)} · rương báu +1 ${renderEmote('thienthuong')} Thiên Thưởng… nhưng coi chừng cá trê/cá nóc **${fmt(economy.FISHING.OUTCOMES.catfish.ngoc)} ngọc** (số dư có thể âm!). Bấm **🎣 Câu tiếp** để câu tiếp không cần gõ lại.
 • **Nút 📦 Kho đồ** ở mọi bàn game — ai bấm cũng xem được **kho đồ của chính mình** (chỉ mình thấy). Sau khi **Auto** dừng, bấm **📊 Tổng kết** để xem ảnh thống kê thắng/thua cả phiên.
-• \`!rutque <bậc>\` (\`!fortune\`) — Rút quẻ bói **miễn phí** (${economy.QUE_BOI.DAILY_LIMIT} lượt/ngày, Thiên ${economy.QUE_BOI.THIEN_DAILY_LIMIT}/ngày). Quẻ **KHÔNG đổi tỉ lệ/thưởng game** — nó là lớp "điểm phúc" chấm song song: chỉ ván **cược ≥ ngưỡng bậc** mới tính, **thắng +điểm, thua −điểm** — điểm xuống **ÂM** thì kết toán bị **trừ ngọc**. Quy đổi **luỹ tiến hai chiều**: gồng meter càng đầy, mỗi điểm càng giá trị. Bậc càng cao (Phàm→Thiên) thưởng & phạt càng lớn. Xem \`!que\`, chốt \`!bank\`, xoá dấu \`!xoadau\`, gỡ \`!goque\`, luật \`!boiinfo\`.
+• \`!rutque <bậc>\` (\`!fortune\`) — Rút quẻ bói **miễn phí**. Quẻ **KHÔNG đổi tỉ lệ/thưởng game** — nó là lớp "điểm phúc" chấm song song: chỉ ván **cược ≥ ngưỡng bậc** mới tính, **thắng +điểm, thua −điểm** — điểm xuống **ÂM** thì kết toán bị **trừ ngọc**. Quy đổi **luỹ tiến hai chiều**: gồng meter càng đầy, mỗi điểm càng giá trị. Bậc càng cao (Phàm→Thiên) thưởng & phạt càng lớn. Xem \`!que\`, chốt \`!bank\`, xoá dấu \`!xoadau\`, gỡ \`!goque\`, luật \`!boiinfo\`.
 • \`!wordchain\` — Tạo thread chơi nối từ tiếng Anh **co-op** (nhiều người cùng nối). Thưởng Ngọc theo các từ mỗi người đóng góp.
 • \`!wordchain_top [week]\` — Bảng xếp hạng English Wordchain (lifetime / tuần).
 • \`!boquathuong\` — Bỏ qua / nhận lại thưởng tuần English Wordchain (toggle, thưởng chuyển xuống người xếp dưới).
@@ -606,7 +606,7 @@ ${DISCLAIMER}`;
             const menu = [
                 '🎴 **Rút quẻ bói** — chọn bậc: `!rutque <bậc>`',
                 tierList,
-                `Còn ${av.totalLeft}/${economy.QUE_BOI.DAILY_LIMIT} lượt hôm nay (Thiên: ${av.thienLeft}/${economy.QUE_BOI.THIEN_DAILY_LIMIT}). Luật: \`!boiinfo\`.`
+                'Luật: `!boiinfo`.'
             ].join('\n');
             return msg.reply(menu);
         }
@@ -614,8 +614,8 @@ ${DISCLAIMER}`;
         const res = rutque.draw(guildId, msg.author.id, sub);
         if (res.error === 'active') return msg.reply('Bạn đang có 1 quẻ hoạt động — mỗi lúc chỉ giữ 1 quẻ. Xem `!que`.');
         if (res.error === 'bad_tier') return msg.reply(`Bậc không hợp lệ. Dùng: ${rutque.TIER_KEYS.join(', ')} (hoặc 1-5).`);
-        if (res.error === 'daily_limit') return msg.reply(`Bạn đã hết ${economy.QUE_BOI.DAILY_LIMIT} lượt rút quẻ hôm nay. Quay lại sau 0:00.`);
-        if (res.error === 'thien_limit') return msg.reply(`Bậc Thiên chỉ rút được ${economy.QUE_BOI.THIEN_DAILY_LIMIT} lần/ngày. Đã hết hôm nay.`);
+        if (res.error === 'daily_limit') return msg.reply('Bạn đã hết lượt rút quẻ hôm nay. Quay lại sau 0:00.');
+        if (res.error === 'thien_limit') return msg.reply('Bậc Thiên đã hết lượt rút hôm nay. Quay lại sau 0:00.');
         if (res.error === 'too_poor') {
             const guide = res.affordable.length
                 ? `Thử bậc thấp hơn: ${res.affordable.map(a => `\`${a.key}\` ${a.name} (cược ≥ ${fmt(a.minBet)})`).join(' · ')}.`

@@ -498,17 +498,21 @@ function settle(st, reason, opts = {}) {
         }
     }
 
-    // Apply wallet effects (edge case §10.1: never negative — forgive remainder).
+    // Apply wallet effects. Penalties are ALWAYS deducted in full — the ví may
+    // go NEGATIVE (never forgiven): otherwise gifting/hiding ngọc right before
+    // settlement dodges the charge (see services/queRecovery.js for the
+    // historical claw-back of the old forgive path). Két is untouched here, but
+    // a negative ví means any later withdrawal pays the debt first.
     let deducted = 0;
     if (paid > 0) addNgoc(gId, uId, paid);
     if (penalty > 0) {
         const w = getWallet(gId, uId);
         const avail = w.ngoc + (w.lockedNgoc || 0);
-        deducted = Math.min(penalty, avail);
-        if (deducted > 0) spendNgocForGame(gId, uId, deducted);
+        deducted = penalty;
+        spendNgocForGame(gId, uId, penalty);
         const why = q.stacks > 0 ? `${q.stacks} stack` : `${Math.max(-cap, q.points)}/${cap} điểm phúc — quy đổi luỹ tiến`;
-        outcomeLine = deducted < penalty
-            ? `Phạt ${fmt(penalty)} ${ngocEmote()} — chỉ còn ${fmt(deducted)}, trừ hết & tha phần còn lại.`
+        outcomeLine = penalty > avail
+            ? `Bị phạt **${fmt(penalty)}** ${ngocEmote()} (${why}) — không đủ ngọc, ví bị **ÂM ${fmt(penalty - avail)}** (nợ không được xoá).`
             : `Bị phạt **${fmt(deducted)}** ${ngocEmote()} (${why}).`;
     }
 
@@ -618,8 +622,7 @@ function formatStatus(guildId, userId, displayName) {
     if (!q) {
         const lines = [
             `🎴 **${displayName}** — chưa có quẻ nào đang hoạt động.`,
-            `Rút quẻ: \`!rutque <bậc>\` (${TIER_KEYS.join(' / ')}).`,
-            `Còn ${av.totalLeft}/${Q().DAILY_LIMIT} lượt rút hôm nay (Thiên: ${av.thienLeft}/${Q().THIEN_DAILY_LIMIT}).`
+            `Rút quẻ: \`!rutque <bậc>\` (${TIER_KEYS.join(' / ')}).`
         ];
         return [...pre, ...lines].join('\n');
     }
@@ -671,7 +674,7 @@ function formatInfo() {
     const cap = Q().POINT_CAP;
     const lines = [
         '📖 **Quẻ Bói** — lớp điểm phúc song song, KHÔNG đổi tỉ lệ/thưởng của game.',
-        `Rút: \`!rutque <bậc>\` (miễn phí, ${Q().DAILY_LIMIT} lượt/ngày, Thiên ${Q().THIEN_DAILY_LIMIT}/ngày). Mỗi lúc chỉ giữ 1 quẻ.`,
+        `Rút: \`!rutque <bậc>\` (miễn phí). Mỗi lúc chỉ giữ 1 quẻ.`,
         'Chỉ ván có **cược ≥ ngưỡng bậc** mới tính vào quẻ. **Thắng +điểm, thua −điểm** — điểm xuống **ÂM** thì kết toán bị **trừ ngọc**.',
         '',
         '**Bậc:** ' + TIER_NAMES.map((n, i) => `${n} ×${Q().TIER_MULT[i]}`).join(' · '),
@@ -684,7 +687,7 @@ function formatInfo() {
         `🔴 Nghịch (${Q().LIFETIME.TRUNG_HUNG} ván): mỗi thua +1 stack phạt; thắng ${Q().NGHICH_BREAK_STREAK} liền hoặc \`!goque\` để thoát.`,
         `🔴 Kiếp (${Q().LIFETIME.DAI_HUNG} ván): mỗi thua +1 stack phạt; thắng ${Q().KIEP_BREAK_STREAK} liền/liều → lật stack thành điểm.`,
         '',
-        `Quy đổi **luỹ tiến hai chiều**: |điểm| càng cao, mỗi điểm càng giá trị — +${cap} điểm ăn trọn ${fmt(cap * Q().POINT_VALUE)} ngọc × bậc, −${cap} điểm bị trừ tương ứng (không đủ ngọc thì trừ hết & xoá nợ). Chốt non nhận ít hơn (gồng nửa meter ≈ 42% tiền).`,
+        `Quy đổi **luỹ tiến hai chiều**: |điểm| càng cao, mỗi điểm càng giá trị — +${cap} điểm ăn trọn ${fmt(cap * Q().POINT_VALUE)} ngọc × bậc, −${cap} điểm bị trừ tương ứng (không đủ ngọc thì ví bị ÂM — nợ KHÔNG được xoá). Chốt non nhận ít hơn (gồng nửa meter ≈ 42% tiền).`,
         'Lệnh: `!que` (xem quẻ) · `!bank` · `!xoadau` · `!goque` · `!boiinfo`.'
     ];
     return lines.join('\n');

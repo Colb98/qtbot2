@@ -152,8 +152,12 @@ const DEFAULTS = {
     // are FLAT (per tier), never a % of bet — the anti-whale invariant. Every
     // number here is live-tunable via the admin panel. See services/rutque.js.
     QUE_BOI: {
-        DAILY_LIMIT: 10,         // draws/user/day (resets 00:00 ICT)
-        THIEN_DAILY_LIMIT: 5,    // extra cap: Thiên tier draws/user/day
+        // Draw caps are effectively DISABLED (matches live overrides). The gate
+        // code stays as a safety valve, but no command text mentions a cap and
+        // the economy MUST NOT rely on it: per-draw EV has to stay ≤ 0 under
+        // best play, or unlimited draws become a money printer.
+        DAILY_LIMIT: 9999,       // draws/user/day (resets 00:00 ICT)
+        THIEN_DAILY_LIMIT: 9999, // extra cap: Thiên tier draws/user/day
         AUTO_SETTLE_DAYS: 7,     // safety valve: settle a parked quẻ after 7 days
         GOQUE_CONFIRM_PCT: 0.10, // !goque asks to confirm if fee > this × balance
 

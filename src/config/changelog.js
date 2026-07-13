@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.7.0';
+const CURRENT_VERSION = '3.8.0';
 
 const CHANGELOG = {
+    '3.8.0': {
+        date: '2026-07-13',
+        title: 'Quẻ Bói — phạt trừ đủ, hết xoá nợ',
+        changes: [
+            '⚖️ **Phạt kết toán quẻ giờ trừ ĐỦ 100%** — không đủ ngọc thì ví bị **ÂM**, nợ **không được xoá** như trước. Tẩu tán ngọc (gift/bank) trước khi kết toán không còn né được phạt; ví âm thì rút két ra là trả nợ trước.',
+            '🎴 **Rút quẻ không giới hạn lượt/ngày** — bỏ dòng đếm lượt trong `!rutque`, `!que`, `!boiinfo` và `!help` (khớp với server: giới hạn ngày đã được gỡ).'
+        ]
+    },
     '3.7.0': {
         date: '2026-07-11',
         title: 'Quẻ Bói — thưởng/phạt đáng giá hơn, chặn rút khi thiếu tiền',

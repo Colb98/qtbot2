@@ -5,10 +5,12 @@ const metrics = require('./metrics');
 
 // ── Quẻ Bói penalty claw-back ────────────────────────────────────────────────
 //
-// The settlement edge case (rutque.js §10.1) forgives whatever part of a hung
-// penalty the player can't cover — the "Phạt X — chỉ còn Y, trừ hết & tha
+// The settlement edge case (rutque.js §10.1) FORGAVE whatever part of a hung
+// penalty the player couldn't cover — the "Phạt X — chỉ còn Y, trừ hết & tha
 // phần còn lại." line. Players exploited it by emptying their wallet (bank /
-// gift) right before settling, so the penalty evaporated. The forgiven amount
+// gift) right before settling, so the penalty evaporated. The forgive path was
+// removed in v3.8.0 (penalties now deduct in full; the ví may go negative), so
+// this scanner only ever matches messages from before that. The forgiven amount
 // was never recorded anywhere (metrics only logged the deducted part), so the
 // only remaining ledger is the bot's own chat messages.
 //
