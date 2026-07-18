@@ -196,6 +196,7 @@ from a worker.
 ## 8. Deploy & versioning (project conventions — see also memory)
 
 - **Deploy:** push code to the VPS (`root@149.28.132.82:~/qtbot`) via git; runtime data files stay server-side only. (`deploy.bat` only scp's `index.js` and is not the full path.)
+- **Runtime:** the bot runs under **pm2** on the VPS (process name `qtbot`, cwd `/root/qtbot`; `.env` lives there, loaded via `__dirname`-anchored dotenv). The `pm2-root` systemd unit resurrects the saved process list on boot — after changing the pm2 process definition, run `pm2 save`.
 - **Versioning:** after every feature, bump `CURRENT_VERSION` and add a `CHANGELOG` entry in [src/config/changelog.js](src/config/changelog.js). Format `a.b.c`: `c`=fix, `b`=feature, `a`=big update. The changelog is user-facing (`!changelog`) and Vietnamese.
 - **Slash command changes** also need `node deploy_command.js` to re-register with Discord.
 

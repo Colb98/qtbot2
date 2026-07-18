@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.7.0';
+const CURRENT_VERSION = '3.7.1';
 
 const CHANGELOG = {
+    '3.7.1': {
+        date: '2026-07-19',
+        title: 'Ổn định vận hành sau khi VPS khởi động lại',
+        changes: [
+            '🔧 Bot giờ **tự khởi động lại** sau khi VPS reboot (trước phải bật tay) và luôn đọc đúng file cấu hình dù được khởi động từ thư mục nào.'
+        ]
+    },
     '3.7.0': {
         date: '2026-07-11',
         title: 'Quẻ Bói — thưởng/phạt đáng giá hơn, chặn rút khi thiếu tiền',
