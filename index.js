@@ -38,4 +38,11 @@ registerEvents(client);
 renderPool.start();
 dashboard.start(client);
 
-client.login(TOKEN);
+client.login(TOKEN).catch((e) => {
+    // Exit instead of lingering: a failed login leaves the client destroyed
+    // (token cleared) while gateway shards may still reconnect, so any send
+    // would crash. Let pm2 restart us with backoff.
+    log.error('Login failed, exiting so the process manager can retry:', e);
+    try { flushState(); } catch (_) {}
+    process.exit(1);
+});
