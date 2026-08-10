@@ -53,7 +53,7 @@ function remove(guildId, index) {
 function renderForPrompt(guildId) {
     const items = load(guildId);
     if (!items.length) return '';
-    return '## Quy tắc bổ sung do thành viên đặt (`!ai rule`)\n' +
+    return '## Member-set rules (via `!ai rule`) — follow them\n' +
         items.map((i) => `- ${i.text}`).join('\n');
 }
 

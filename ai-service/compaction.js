@@ -11,17 +11,17 @@ const { enqueue, QueueFullError } = require('./queue');
 
 // Structured schema: freeform summaries drop odd-shaped details; forcing fixed
 // sections makes the model check each category (§9 of the integration plan).
-const SUMMARIZE_SYSTEM = `Bạn là công cụ tóm tắt hội thoại Discord (nhiều người nói chuyện với bot QT).
-Gộp "tóm tắt trước đó" (nếu có) với đoạn hội thoại mới thành MỘT bản tóm tắt duy nhất, theo đúng các mục:
-- Người tham gia: ai đang chat, vai trò/đặc điểm đáng nhớ
-- Chủ đề: đang bàn gì, diễn biến chính
-- Quyết định / kết luận: những gì đã chốt
-- Chưa xong: câu hỏi hoặc việc còn dang dở
-- Đùa / biệt danh: joke nội bộ, cách gọi riêng đang dùng
-- Thông tin đáng nhớ khác
+const SUMMARIZE_SYSTEM = `You summarize a Discord conversation (multiple users chatting with the bot QT).
+Merge the "previous summary" (if any) with the new messages into ONE summary using exactly these sections:
+- Participants: who is chatting, memorable traits/roles
+- Topics: what is being discussed, key developments
+- Decisions / conclusions: what got settled
+- Unresolved: open questions or unfinished business
+- Jokes / nicknames: running jokes, special names in use
+- Other notable facts
 
-Bỏ mục nào không có gì. Viết ngắn gọn bằng tiếng Việt, gạch đầu dòng, tối đa ~300 từ.
-Chỉ trả về bản tóm tắt, không thêm lời dẫn.`;
+Skip empty sections. Write concisely IN VIETNAMESE, bullet points, max ~300 words.
+Return only the summary, no preamble.`;
 
 function transcriptOf(messages) {
     return messages
@@ -40,8 +40,8 @@ async function compactSession(sessionKey) {
         { role: 'system', content: SUMMARIZE_SYSTEM },
         {
             role: 'user',
-            content: (prev ? `## Tóm tắt trước đó\n${prev}\n\n` : '') +
-                `## Đoạn hội thoại cần gộp vào tóm tắt\n${transcriptOf(old)}`,
+            content: (prev ? `## Previous summary\n${prev}\n\n` : '') +
+                `## Conversation to fold into the summary\n${transcriptOf(old)}`,
         },
     ], { maxTokens: config.summaryMaxTokens });
 

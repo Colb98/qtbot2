@@ -135,7 +135,7 @@ function loadSoul() {
     try {
         return fs.readFileSync(path.join(__dirname, 'SOUL.md'), 'utf8').trim();
     } catch (_) {
-        return 'Bạn là một trợ lý thân thiện trong một server Discord tiếng Việt. Trả lời ngắn gọn, tự nhiên.';
+        return 'You are a friendly assistant in a Vietnamese Discord server. Reply briefly and naturally, in Vietnamese.';
     }
 }
 

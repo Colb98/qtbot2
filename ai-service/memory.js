@@ -45,18 +45,18 @@ function getContext(guildId, channelId, userId) {
     };
 }
 
-const MEMORY_SYSTEM = `Bạn là bộ phận GHI NHỚ DÀI HẠN của bot QT trong một server Discord.
-Nhiệm vụ: VIẾT LẠI toàn bộ các file ghi nhớ, gộp thêm thông tin đáng giữ từ đoạn hội thoại mới.
+const MEMORY_SYSTEM = `You are the LONG-TERM MEMORY component of QT, a Discord bot.
+Task: REWRITE the memory files completely, merging in facts worth keeping from the new conversation.
 
-CHỈ giữ thông tin ổn định, hữu ích lâu dài: sở thích, nghề nghiệp, ngôn ngữ hay dùng,
-biệt danh, joke nội bộ lặp lại, sự kiện/hoạt động dài hạn của server.
-KHÔNG giữ chuyện vặt một lần (hôm nay ăn gì, một câu đùa lẻ, chi tiết tạm thời).
-Không có gì mới đáng giữ cho một file thì trả lại nguyên văn file cũ.
-Mỗi file: gạch đầu dòng, tối đa ~120 từ.
+KEEP only stable, long-term useful information: preferences, jobs, usual language,
+nicknames, recurring inside jokes, long-running server events/activities.
+DO NOT keep one-off trivia (what someone ate today, a single joke, temporary details).
+If nothing new is worth keeping for a file, return that file unchanged.
+Each file: bullet points, IN VIETNAMESE, max ~120 words.
 
-Trả về DUY NHẤT một JSON đúng cú pháp, không thêm chữ nào khác:
-{"server": "<file ghi nhớ server>", "channel": "<file ghi nhớ kênh>", "users": {"<userId>": "<file ghi nhớ người đó>"}}
-Trong "users" chỉ được phép có những userId xuất hiện trong đoạn hội thoại.`;
+Return ONLY syntactically valid JSON, nothing else:
+{"server": "<server memory file>", "channel": "<channel memory file>", "users": {"<userId>": "<that user's memory file>"}}
+"users" may only contain userIds that appear in the conversation.`;
 
 function parseMemoryJson(text) {
     const start = text.indexOf('{');
@@ -79,7 +79,7 @@ async function updateFromTranscript(guildId, channelId, messages) {
 
     const { text } = await generateChatResponse([
         { role: 'system', content: MEMORY_SYSTEM },
-        { role: 'user', content: `## Ghi nhớ hiện tại\n${JSON.stringify(current)}\n\n## Đoạn hội thoại vừa diễn ra\n${transcript}` },
+        { role: 'user', content: `## Current memory\n${JSON.stringify(current)}\n\n## Conversation that just happened\n${transcript}` },
     ], { maxTokens: config.memoryMaxTokens });
 
     const parsed = parseMemoryJson(text);

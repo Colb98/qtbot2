@@ -22,12 +22,12 @@ const search = require('./search');
 const RULES = loadRules();
 const SYSTEM = loadSoul() +
     (RULES ? `\n\n${RULES}` : '') +
-    '\n\nTin nhắn của người dùng có dạng "Tên: nội dung" để bạn biết ai đang nói. ' +
-    'KHÔNG thêm tiền tố tên (kiểu "QT:") vào câu trả lời của bạn.' +
+    '\n\nUser messages are formatted "Name: content" so you know who is speaking. ' +
+    'Do NOT prefix your own replies with a name (like "QT:").' +
     (config.searchEnabled
-        ? '\n\n## Tìm kiếm web\nKhi cần thông tin mới hoặc thời sự (tin tức, giá cả, kết quả, sự kiện gần đây...), ' +
-          'trả lời CHỈ bằng đúng một dòng: [[search: <câu truy vấn ngắn>]] — hệ thống sẽ đưa kết quả để bạn trả lời tiếp. ' +
-          'Chỉ dùng khi thật sự cần. Khi trả lời dựa trên kết quả tìm kiếm, nêu nguồn (URL) nếu hữu ích.'
+        ? '\n\n## Web search tool\nWhen you need fresh or time-sensitive information, reply with EXACTLY one line: ' +
+          '[[search: <short query>]] — you will receive results to answer from. ' +
+          'When answering from results, cite the source (URL) when useful.'
         : '');
 
 function readJsonBody(req, limit = 64 * 1024) {
@@ -63,10 +63,10 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
     let system = SYSTEM;
     const guildAdvice = advice.renderForPrompt(guildId);
     if (guildAdvice) system += `\n\n${guildAdvice}`;
-    if (mem.server) system += `\n\n## Ghi nhớ về server\n${mem.server}`;
-    if (mem.channel) system += `\n\n## Ghi nhớ về kênh này\n${mem.channel}`;
-    if (mem.user) system += `\n\n## Ghi nhớ về ${name}\n${mem.user}`;
-    if (summary) system += `\n\n## Tóm tắt phần trước của cuộc trò chuyện\n${summary}`;
+    if (mem.server) system += `\n\n## Server memory\n${mem.server}`;
+    if (mem.channel) system += `\n\n## Channel memory\n${mem.channel}`;
+    if (mem.user) system += `\n\n## Memory about ${name}\n${mem.user}`;
+    if (summary) system += `\n\n## Summary of earlier conversation\n${summary}`;
     const messages = [
         { role: 'system', content: system },
         ...history.map((m) => m.role === 'user'
