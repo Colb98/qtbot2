@@ -76,11 +76,11 @@ function maybeHandle(msg) {
     }
     lastRequestAt.set(msg.author.id, now);
 
-    process(msg).catch((e) => log.error('[aiChat] unexpected failure:', e));
+    processMessage(msg).catch((e) => log.error('[aiChat] unexpected failure:', e));
     return true;
 }
 
-async function process(msg) {
+async function processMessage(msg) {
     const content = stripBotMention(msg);
     if (!content) return;
 
