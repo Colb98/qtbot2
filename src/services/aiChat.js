@@ -2,6 +2,8 @@
 // All authorization, trigger detection and rate limiting happens here, before
 // anything reaches the LLM service. The LLM side gets text in, text out.
 const log = require('../../logger');
+const { data, saveData } = require('../state');
+const { isSuperAdmin } = require('../utils');
 
 const ENABLED = process.env.AI_ENABLED === 'true';
 const SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:3001';
@@ -132,6 +134,24 @@ async function serviceCall(method, path, body) {
     return data;
 }
 
+// Editing AI rules is superadmin-approved: the superadmin grants/revokes
+// per-user permission with `!ai allow/deny @user`; grants persist in data.json
+// (bot-side — authorization never lives in the AI service).
+function ruleEditors(guildId) {
+    if (!data.aiRuleEditors) data.aiRuleEditors = {};
+    if (!data.aiRuleEditors[guildId]) data.aiRuleEditors[guildId] = [];
+    return data.aiRuleEditors[guildId];
+}
+
+function canEditRules(guildId, userId) {
+    return isSuperAdmin(userId) || ruleEditors(guildId).includes(userId);
+}
+
+function parseUserId(arg) {
+    const m = arg.match(/^<@!?(\d{5,25})>$|^(\d{5,25})$/);
+    return m ? (m[1] || m[2]) : null;
+}
+
 function renderRules(items) {
     if (!items.length) return 'Chưa có quy tắc nào. Thêm bằng `!ai rule <nội dung>`.';
     return '📏 **Quy tắc bổ sung cho AI:**\n' +
@@ -152,19 +172,36 @@ async function handleAiCommand(msg) {
             const { items } = await serviceCall('GET', `/advice?guildId=${guildId}`);
             return void await msg.reply(renderRules(items));
         }
-        const del = arg.match(/^rule\s+(?:xoa|xoá|del)\s+(\d+)$/i);
-        if (del) {
-            const { items } = await serviceCall('DELETE', '/advice', { guildId, index: parseInt(del[1], 10) - 1 });
-            return void await msg.reply('🗑️ Đã xoá.\n' + renderRules(items));
+        const grant = arg.match(/^(allow|deny)\s+(\S+)$/i);
+        if (grant) {
+            if (!isSuperAdmin(msg.author.id)) return void await msg.reply('🔒 Chỉ Superadmin mới cấp/thu quyền sửa quy tắc.');
+            const targetId = parseUserId(grant[2]);
+            if (!targetId) return void await msg.reply('Dùng: `!ai allow @user` hoặc `!ai deny @user`.');
+            const editors = ruleEditors(guildId);
+            const allow = grant[1].toLowerCase() === 'allow';
+            if (allow && !editors.includes(targetId)) editors.push(targetId);
+            if (!allow) data.aiRuleEditors[guildId] = editors.filter((id) => id !== targetId);
+            saveData();
+            const list = data.aiRuleEditors[guildId];
+            return void await msg.reply((allow ? `✅ <@${targetId}> giờ được sửa quy tắc AI.` : `🚫 Đã thu quyền của <@${targetId}>.`) +
+                `\n-# Được cấp quyền: ${list.length ? list.map((id) => `<@${id}>`).join(', ') : '(chưa ai)'} — Superadmin luôn có quyền.`);
         }
-        const addMatch = arg.match(/^rule\s+([\s\S]+)$/i);
-        if (addMatch) {
+        const del = arg.match(/^rule\s+(?:xoa|xoá|del)\s+(\d+)$/i);
+        const addMatch = !del && arg.match(/^rule\s+([\s\S]+)$/i);
+        if (del || addMatch) {
+            if (!canEditRules(guildId, msg.author.id)) {
+                return void await msg.reply('🔒 Sửa quy tắc AI cần được Superadmin cấp quyền (`!ai allow @user`). Bạn vẫn xem được bằng `!ai rules`.');
+            }
+            if (del) {
+                const { items } = await serviceCall('DELETE', '/advice', { guildId, index: parseInt(del[1], 10) - 1 });
+                return void await msg.reply('🗑️ Đã xoá.\n' + renderRules(items));
+            }
             const { items } = await serviceCall('POST', '/advice', {
                 guildId, text: addMatch[1], author: msg.member?.displayName || msg.author.username,
             });
             return void await msg.reply(`✅ Đã thêm quy tắc — AI sẽ áp dụng từ tin nhắn sau.\n` + renderRules(items));
         }
-        await msg.reply('Lệnh AI: `!ai reset` · `!ai rules` · `!ai rule <nội dung>` · `!ai rule xoa <số>`');
+        await msg.reply('Lệnh AI: `!ai reset` · `!ai rules` · `!ai rule <nội dung>` · `!ai rule xoa <số>` · `!ai allow/deny @user` (Superadmin)');
     } catch (e) {
         log.error('[aiChat] !ai command failed:', e.message);
         msg.reply(`⚠️ ${e.message.startsWith('ai-service') ? 'AI đang tạm nghỉ, thử lại sau chút nhé.' : e.message}`).catch(() => {});
