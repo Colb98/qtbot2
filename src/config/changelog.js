@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.14.0';
+const CURRENT_VERSION = '3.15.0';
 
 const CHANGELOG = {
+    '3.15.0': {
+        date: '2026-08-10',
+        title: 'Dạy AI cách trả lời',
+        changes: [
+            '📏 **Đặt quy tắc cho AI ngay trong chat** — `!ai rule <nội dung>` (ví dụ: "Hãy luôn search thông tin trên internet nếu không biết chắc"), AI áp dụng ngay và nhớ vĩnh viễn. `!ai rules` xem danh sách, `!ai rule xoa <số>` xoá.',
+            '🔎 **AI chăm tra web hơn hẳn** — quy tắc mặc định mới bắt AI phải tra web khi không chắc hoặc khi thông tin có thể đã thay đổi, thay vì đoán từ trí nhớ cũ.'
+        ]
+    },
     '3.14.0': {
         date: '2026-08-10',
         title: 'AI biết tra cứu web',

@@ -251,6 +251,30 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(c15.text.includes('DÙNG_SEARCH giá vàng bao nhiêu?'), 'original question should stay in context');
     console.log('ok 15 — web search tool loop grounds the answer, queries reported');
 
+    // 16. RULES.md + member advice: both must reach the system prompt; advice
+    // is capped and removable.
+    const adv = await fetch('http://127.0.0.1:3999/advice', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: 'g1', text: 'Luôn trả lời kèm emoji 🦆', author: 'Tester' }),
+    });
+    assert.strictEqual(adv.status, 200);
+    const c16 = JSON.parse((await (await chat(msgFor('chanB', 'test quy tắc'))).json()).text);
+    assert.ok(c16.messages[0].content.includes('RULES — quy tắc trả lời'), 'RULES.md should be in the system prompt');
+    assert.ok(c16.messages[0].content.includes('Luôn trả lời kèm emoji'), 'member advice should be in the system prompt');
+    const advDel = await fetch('http://127.0.0.1:3999/advice', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: 'g1', index: 0 }),
+    });
+    assert.strictEqual((await advDel.json()).items.length, 0);
+    const c16b = JSON.parse((await (await chat(msgFor('chanB', 'sau khi xoá'))).json()).text);
+    assert.ok(!c16b.messages[0].content.includes('Luôn trả lời kèm emoji'), 'removed advice must leave the prompt');
+    const advBad = await fetch('http://127.0.0.1:3999/advice', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: 'g1', text: 'x'.repeat(400) }),
+    });
+    assert.strictEqual(advBad.status, 400, 'oversized advice must be rejected');
+    console.log('ok 16 — RULES.md + member advice in prompt; add/remove/caps work');
+
     console.log('PASS: all Phase 1–5 + admin smoke checks green');
     process.exit(0);
 })().catch((e) => {

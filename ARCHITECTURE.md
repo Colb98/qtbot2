@@ -210,8 +210,17 @@ messageCreate → aiChat.maybeHandle(msg)        [src/services/aiChat.js]
         │ DELETE /session {guildId, channelId}
         ▼
 qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
-    index.js      HTTP server; prompt = SOUL + channel history + new message,
-                  user turns stored/sent as "DisplayName: content" (multi-speaker)
+    index.js      HTTP server; prompt = SOUL + RULES + member advice + memory +
+                  summary + history + new message; user turns stored/sent as
+                  "DisplayName: content" (multi-speaker)
+    SOUL.md       personality (git-tracked); RULES.md = behavioral rules
+                  (git-tracked — edit + redeploy to change how the bot answers,
+                  e.g. the always-search-when-unsure policy)
+    advice.js     member-set standing advice via `!ai rule <text>` / `!ai rules`
+                  / `!ai rule xoa <n>` (authorized users) — per-guild, persisted
+                  in ai-service/data/advice-<gid>.json, capped (20 × 300 chars),
+                  injected into every prompt; conversation guidance only, grants
+                  no capabilities
     sessions.js   per-channel sessions `ch:<guildId>:<channelId>` shaped
                   {summary, messages}: rolling summary + recent verbatim tail;
                   debounce-flushed to ai-service/data/ (gitignored, server-side

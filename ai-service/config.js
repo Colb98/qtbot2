@@ -139,8 +139,18 @@ function loadSoul() {
     }
 }
 
+// Behavioral rules, git-tracked next to SOUL.md — edit + redeploy to change
+// how the bot answers (SOUL is who it is; RULES is how it must behave).
+function loadRules() {
+    try {
+        return fs.readFileSync(path.join(__dirname, 'RULES.md'), 'utf8').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
 module.exports = {
-    config, loadProviders, loadSoul,
+    config, loadProviders, loadSoul, loadRules,
     KNOWN_PROVIDERS, effectiveOrder, modelFor, fallbackModelFor, credsFor,
     getOverrides, saveOverrides,
 };

@@ -5,10 +5,11 @@
 const http = require('http');
 const log = require('../logger');
 const {
-    config, loadSoul,
+    config, loadSoul, loadRules,
     KNOWN_PROVIDERS, effectiveOrder, modelFor, fallbackModelFor, credsFor,
     getOverrides, saveOverrides,
 } = require('./config');
+const advice = require('./advice');
 const { generateChatResponse, healthSnapshot, rebuild } = require('./providers');
 const sessions = require('./sessions');
 const { enqueue, QueueFullError } = require('./queue');
@@ -18,7 +19,9 @@ const search = require('./search');
 
 // Channel sessions are shared, multi-speaker conversations: user turns are
 // prefixed with the speaker's display name so the model can track who's who.
+const RULES = loadRules();
 const SYSTEM = loadSoul() +
+    (RULES ? `\n\n${RULES}` : '') +
     '\n\nTin nhắn của người dùng có dạng "Tên: nội dung" để bạn biết ai đang nói. ' +
     'KHÔNG thêm tiền tố tên (kiểu "QT:") vào câu trả lời của bạn.' +
     (config.searchEnabled
@@ -58,6 +61,8 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
     // Scoped memory only (§11): server + this channel + the current speaker.
     const mem = memory.getContext(guildId, channelId, userId);
     let system = SYSTEM;
+    const guildAdvice = advice.renderForPrompt(guildId);
+    if (guildAdvice) system += `\n\n${guildAdvice}`;
     if (mem.server) system += `\n\n## Ghi nhớ về server\n${mem.server}`;
     if (mem.channel) system += `\n\n## Ghi nhớ về kênh này\n${mem.channel}`;
     if (mem.user) system += `\n\n## Ghi nhớ về ${name}\n${mem.user}`;
@@ -176,11 +181,30 @@ async function handleAdminConfig(req, res) {
     send(res, 200, adminSnapshot());
 }
 
+async function handleAdvice(req, res) {
+    if (req.method === 'GET') {
+        const guildId = new URL(req.url, 'http://x').searchParams.get('guildId');
+        if (!guildId) return send(res, 400, { error: 'guildId required' });
+        return send(res, 200, { items: advice.list(guildId) });
+    }
+    const body = await readJsonBody(req);
+    if (!body.guildId) return send(res, 400, { error: 'guildId required' });
+    try {
+        if (req.method === 'POST') return send(res, 200, { items: advice.add(body.guildId, body.text, body.author) });
+        const items = advice.remove(body.guildId, body.index);
+        if (items === null) return send(res, 400, { error: 'Số thứ tự không đúng.' });
+        return send(res, 200, { items });
+    } catch (e) {
+        return send(res, 400, { error: e.message });
+    }
+}
+
 const server = http.createServer((req, res) => {
     const route = `${req.method} ${req.url.split('?')[0]}`;
     const task =
         route === 'POST /chat' ? handleChat(req, res) :
         route === 'DELETE /session' ? handleSessionReset(req, res) :
+        route === 'GET /advice' || route === 'POST /advice' || route === 'DELETE /advice' ? handleAdvice(req, res) :
         route === 'GET /admin/config' || route === 'PUT /admin/config' ? handleAdminConfig(req, res) :
         route === 'GET /health' ? Promise.resolve(send(res, 200, { ok: true, providers: healthSnapshot() })) :
         Promise.resolve(send(res, 404, { error: 'not found' }));

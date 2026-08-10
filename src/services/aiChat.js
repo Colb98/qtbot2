@@ -54,9 +54,9 @@ function chunkText(text, size = 2000) {
  */
 function maybeHandle(msg) {
     if (!ENABLED || !msg.guildId) return false;
-    if (msg.content.trim().toLowerCase() === '!ai reset') {
+    if (/^!ai(\s|$)/i.test(msg.content.trim())) {
         if (!isAuthorized(msg.member)) return false; // fall through, command chain ignores it
-        resetSession(msg).catch((e) => log.error('[aiChat] reset failed:', e));
+        handleAiCommand(msg).catch((e) => log.error('[aiChat] !ai command failed:', e));
         return true;
     }
     if (msg.content.startsWith('!')) return false; // bot commands win, even in the AI channel
@@ -123,19 +123,51 @@ async function processMessage(msg) {
     }
 }
 
-async function resetSession(msg) {
+async function serviceCall(method, path, body) {
+    const opts = { method, signal: AbortSignal.timeout(5000) };
+    if (body) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+    const res = await fetch(`${SERVICE_URL}${path}`, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `ai-service HTTP ${res.status}`);
+    return data;
+}
+
+function renderRules(items) {
+    if (!items.length) return 'Chưa có quy tắc nào. Thêm bằng `!ai rule <nội dung>`.';
+    return '📏 **Quy tắc bổ sung cho AI:**\n' +
+        items.map((r, i) => `\`${i + 1}.\` ${r.text} — *${r.author || '?'}*`).join('\n') +
+        '\n-# `!ai rule <nội dung>` thêm · `!ai rule xoa <số>` xoá';
+}
+
+// `!ai reset` | `!ai rules` | `!ai rule <text>` | `!ai rule xoa <n>`
+async function handleAiCommand(msg) {
+    const arg = msg.content.trim().replace(/^!ai\s*/i, '');
+    const guildId = msg.guildId;
     try {
-        const res = await fetch(`${SERVICE_URL}/session`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ guildId: msg.guildId, channelId: msg.channelId }),
-            signal: AbortSignal.timeout(5000),
-        });
-        if (!res.ok) throw new Error(`ai-service HTTP ${res.status}`);
-        await msg.reply('🧹 Bot đã quên đoạn chat trong kênh này.');
+        if (/^reset$/i.test(arg)) {
+            await serviceCall('DELETE', '/session', { guildId, channelId: msg.channelId });
+            return void await msg.reply('🧹 Bot đã quên đoạn chat trong kênh này (quy tắc và trí nhớ dài hạn vẫn giữ).');
+        }
+        if (/^rules?$/i.test(arg)) {
+            const { items } = await serviceCall('GET', `/advice?guildId=${guildId}`);
+            return void await msg.reply(renderRules(items));
+        }
+        const del = arg.match(/^rule\s+(?:xoa|xoá|del)\s+(\d+)$/i);
+        if (del) {
+            const { items } = await serviceCall('DELETE', '/advice', { guildId, index: parseInt(del[1], 10) - 1 });
+            return void await msg.reply('🗑️ Đã xoá.\n' + renderRules(items));
+        }
+        const addMatch = arg.match(/^rule\s+([\s\S]+)$/i);
+        if (addMatch) {
+            const { items } = await serviceCall('POST', '/advice', {
+                guildId, text: addMatch[1], author: msg.member?.displayName || msg.author.username,
+            });
+            return void await msg.reply(`✅ Đã thêm quy tắc — AI sẽ áp dụng từ tin nhắn sau.\n` + renderRules(items));
+        }
+        await msg.reply('Lệnh AI: `!ai reset` · `!ai rules` · `!ai rule <nội dung>` · `!ai rule xoa <số>`');
     } catch (e) {
-        log.error('[aiChat] session reset failed:', e.message);
-        msg.reply('🧠 AI đang tạm nghỉ, thử lại sau chút nhé.').catch(() => {});
+        log.error('[aiChat] !ai command failed:', e.message);
+        msg.reply(`⚠️ ${e.message.startsWith('ai-service') ? 'AI đang tạm nghỉ, thử lại sau chút nhé.' : e.message}`).catch(() => {});
     }
 }
 
