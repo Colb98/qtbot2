@@ -202,22 +202,33 @@ or privileged functions. If `qtbot-ai` is down, only AI chat breaks.
 
 ```
 messageCreate → aiChat.maybeHandle(msg)        [src/services/aiChat.js]
-    trigger: AI channel (AI_CHANNEL_IDS) OR @mention/reply to bot
+    trigger: AI channel (AI_CHANNEL_IDS) OR @mention/reply to bot; `!ai reset` clears session
     auth:    member has one of AI_ALLOWED_ROLE_IDS (checked HERE, never by the LLM)
-    limits:  per-user cooldown + global in-flight cap
+    limits:  per-user cooldown + global in-flight cap; service 429 (busy) → ⏳ react
+    scope:   guild channels only — DMs are deliberately not supported
         │ POST /chat {userId, displayName, channelId, guildId, content}
+        │ DELETE /session {guildId, channelId}
         ▼
 qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
-    index.js      HTTP server, SOUL.md system prompt (Phase 1: stateless, no sessions yet)
+    index.js      HTTP server; prompt = SOUL + channel history + new message,
+                  user turns stored/sent as "DisplayName: content" (multi-speaker)
+    sessions.js   per-channel sessions `ch:<guildId>:<channelId>`, capped at
+                  AI_SESSION_MAX_MESSAGES/~TOKENS (oldest dropped — Phase 4 will
+                  compact here instead), debounce-flushed to ai-service/data/
+                  (gitignored, server-side runtime state; failed generations never enter history)
+    queue.js      per-session FIFO (depth AI_SESSION_QUEUE_DEPTH, overflow → 429);
+                  different sessions run concurrently
     providers.js  OpenAI-compat router: cloudflare → groq → openrouter,
-                  429/5xx/timeout → cooldown + failover; 400 = our bug, no failover
+                  429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
+                  Disable a provider by removing it from AI_PROVIDER_ORDER.
     config.js     env-driven: AI_PROVIDER_ORDER, per-provider keys/models/base-URLs
 ```
 
 - **Env keys** (all in the same `.env`): `AI_ENABLED`, `AI_CHANNEL_IDS`, `AI_ALLOWED_ROLE_IDS`,
   `AI_SERVICE_URL`/`AI_SERVICE_PORT`, `AI_REQUEST_TIMEOUT_MS`, `AI_USER_COOLDOWN_MS`,
   `AI_MAX_CONCURRENT`, `AI_MAX_RESPONSE_TOKENS`, `AI_PROVIDER_TIMEOUT_MS`,
-  `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, plus per provider:
+  `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, `AI_SESSION_MAX_MESSAGES`,
+  `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
   `OPENROUTER_API_KEY`+`OPENROUTER_MODEL` (optional `*_BASE_URL` overrides).
 - **Deploy:** `pm2 start ai-service/index.js --name qtbot-ai --cwd /root/qtbot` then `pm2 save`.
@@ -227,7 +238,8 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
   tool execution live on the bot side. The AI service must never gain Discord
   credentials or read/write `data.json`. AI state (future sessions/memory) stays
   under `ai-service/`'s own storage.
-- Phases 3+ (sessions, compaction, memory) per the integration plan are not yet implemented.
+- Phases 4+ (compaction, long-term memory) per the integration plan are not yet implemented;
+  the plug-in point for compaction is the trim loop in [ai-service/sessions.js](ai-service/sessions.js).
 
 ---
 

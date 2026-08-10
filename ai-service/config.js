@@ -16,6 +16,9 @@ const config = {
     providerTimeoutMs: int('AI_PROVIDER_TIMEOUT_MS', 30000),
     providerCooldownMs: int('AI_PROVIDER_COOLDOWN_MS', 60000),
     temperature: Number(process.env.AI_TEMPERATURE) || 0.7,
+    sessionMaxMessages: int('AI_SESSION_MAX_MESSAGES', 30),
+    sessionMaxTokens: int('AI_SESSION_MAX_TOKENS', 3000),
+    sessionQueueDepth: int('AI_SESSION_QUEUE_DEPTH', 3),
     providerOrder: (process.env.AI_PROVIDER_ORDER || 'cloudflare,groq,openrouter')
         .split(',').map(s => s.trim()).filter(Boolean),
 };

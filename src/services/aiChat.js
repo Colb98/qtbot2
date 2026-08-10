@@ -54,6 +54,11 @@ function chunkText(text, size = 2000) {
  */
 function maybeHandle(msg) {
     if (!ENABLED || !msg.guildId) return false;
+    if (msg.content.trim().toLowerCase() === '!ai reset') {
+        if (!isAuthorized(msg.member)) return false; // fall through, command chain ignores it
+        resetSession(msg).catch((e) => log.error('[aiChat] reset failed:', e));
+        return true;
+    }
     if (msg.content.startsWith('!')) return false; // bot commands win, even in the AI channel
     const inAiChannel = CHANNEL_IDS.has(msg.channelId);
     const addressed = isAddressingBot(msg);
@@ -101,6 +106,7 @@ async function processMessage(msg) {
             }),
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
+        if (res.status === 429) { msg.react('⏳').catch(() => {}); return; } // session busy
         if (!res.ok) throw new Error(`ai-service HTTP ${res.status}`);
         const { text } = await res.json();
         const chunks = chunkText(text);
@@ -112,6 +118,22 @@ async function processMessage(msg) {
     } finally {
         clearInterval(typing);
         inFlight--;
+    }
+}
+
+async function resetSession(msg) {
+    try {
+        const res = await fetch(`${SERVICE_URL}/session`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ guildId: msg.guildId, channelId: msg.channelId }),
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) throw new Error(`ai-service HTTP ${res.status}`);
+        await msg.reply('🧹 Bot đã quên đoạn chat trong kênh này.');
+    } catch (e) {
+        log.error('[aiChat] session reset failed:', e.message);
+        msg.reply('🧠 AI đang tạm nghỉ, thử lại sau chút nhé.').catch(() => {});
     }
 }
 

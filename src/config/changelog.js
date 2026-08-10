@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '3.9.0';
+const CURRENT_VERSION = '3.10.0';
 
 const CHANGELOG = {
+    '3.10.0': {
+        date: '2026-08-10',
+        title: 'AI có trí nhớ 🧠',
+        changes: [
+            '🧠 **AI giờ nhớ cuộc trò chuyện trong kênh** — hỏi nối tiếp, nhắc lại chuyện vừa nói đều được. Mỗi kênh là một cuộc hội thoại riêng, không lẫn sang kênh khác.',
+            '👥 AI phân biệt được **ai đang nói** trong kênh chat chung.',
+            '🧹 Gõ `!ai reset` để bot quên sạch đoạn chat trong kênh (khi muốn đổi chủ đề hoặc bot "lú").',
+            '⏳ Bot trả lời **theo thứ tự** từng tin trong kênh; spam quá nhanh sẽ bị đánh dấu chờ.'
+        ]
+    },
     '3.9.0': {
         date: '2026-08-10',
         title: 'Chat với AI 🤖',

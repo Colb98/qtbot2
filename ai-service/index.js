@@ -1,13 +1,19 @@
-// qtbot-ai — isolated LLM chat service (Phase 1: stateless chat, provider failover).
-// Runs as its own pm2 process; the bot talks to it over localhost HTTP.
-// Authorization happens in the bot BEFORE requests reach here, so this must
-// only ever bind to localhost.
+// qtbot-ai — isolated LLM chat service (Phase 3: per-channel sessions, ordered
+// generations, provider failover). Runs as its own pm2 process; the bot talks
+// to it over localhost HTTP. Authorization happens in the bot BEFORE requests
+// reach here, so this must only ever bind to localhost.
 const http = require('http');
 const log = require('../logger');
 const { config, loadSoul } = require('./config');
 const { generateChatResponse, healthSnapshot } = require('./providers');
+const sessions = require('./sessions');
+const { enqueue, QueueFullError } = require('./queue');
 
-const SOUL = loadSoul();
+// Channel sessions are shared, multi-speaker conversations: user turns are
+// prefixed with the speaker's display name so the model can track who's who.
+const SYSTEM = loadSoul() +
+    '\n\nTin nhắn của người dùng có dạng "Tên: nội dung" để bạn biết ai đang nói. ' +
+    'KHÔNG thêm tiền tố tên (kiểu "QT:") vào câu trả lời của bạn.';
 
 function readJsonBody(req, limit = 64 * 1024) {
     return new Promise((resolve, reject) => {
@@ -27,35 +33,63 @@ function readJsonBody(req, limit = 64 * 1024) {
 }
 
 function send(res, status, obj) {
-    const body = JSON.stringify(obj);
     res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(body);
+    res.end(JSON.stringify(obj));
+}
+
+const sessionKeyOf = (b) => `ch:${b.guildId}:${b.channelId}`;
+
+async function runChat(sessionKey, name, userText) {
+    const started = Date.now();
+    const history = sessions.getHistory(sessionKey);
+    const messages = [
+        { role: 'system', content: SYSTEM },
+        ...history.map((m) => m.role === 'user'
+            ? { role: 'user', content: `${m.name}: ${m.content}` }
+            : { role: 'assistant', content: m.content }),
+        { role: 'user', content: `${name}: ${userText}` },
+    ];
+    const { text, provider } = await generateChatResponse(messages);
+    // Only successful exchanges enter history — a failed generation leaves the
+    // session exactly as it was, so a retry isn't a duplicate.
+    sessions.append(sessionKey, { role: 'user', name, content: userText });
+    sessions.append(sessionKey, { role: 'assistant', content: text });
+    log.info(`[ai] done session=${sessionKey} provider=${provider} history=${history.length} total=${Date.now() - started}ms`);
+    return { text, provider };
 }
 
 async function handleChat(req, res) {
     const body = await readJsonBody(req);
-    const { userId, displayName, content } = body;
-    if (!userId || typeof content !== 'string' || !content.trim()) {
-        return send(res, 400, { error: 'userId and non-empty content required' });
+    const { guildId, channelId, userId, displayName, content } = body;
+    if (!guildId || !channelId || !userId || typeof content !== 'string' || !content.trim()) {
+        return send(res, 400, { error: 'guildId, channelId, userId and non-empty content required' });
     }
-    const started = Date.now();
-    log.info(`[ai] request user=${userId} channel=${body.channelId || '-'} chars=${content.length}`);
+    const sessionKey = sessionKeyOf(body);
+    const name = String(displayName || 'thành viên').slice(0, 60);
+    log.info(`[ai] request user=${userId} session=${sessionKey} chars=${content.length}`);
+    let task;
+    try {
+        task = enqueue(sessionKey, () => runChat(sessionKey, name, content.slice(0, 4000)), config.sessionQueueDepth);
+    } catch (e) {
+        if (e instanceof QueueFullError) return send(res, 429, { error: 'session busy' });
+        throw e;
+    }
+    send(res, 200, await task);
+}
 
-    // Phase 1 is stateless: SOUL + speaker identity + the single message.
-    // Sessions/history land in Phase 3, compaction in Phase 4.
-    const messages = [
-        { role: 'system', content: `${SOUL}\n\nNgười đang nói chuyện với bạn: ${displayName || 'một thành viên'}.` },
-        { role: 'user', content: content.slice(0, 4000) },
-    ];
-    const { text, provider } = await generateChatResponse(messages);
-    log.info(`[ai] done user=${userId} provider=${provider} total=${Date.now() - started}ms`);
-    send(res, 200, { text, provider });
+async function handleSessionReset(req, res) {
+    const body = await readJsonBody(req);
+    if (!body.guildId || !body.channelId) return send(res, 400, { error: 'guildId and channelId required' });
+    const existed = sessions.reset(sessionKeyOf(body));
+    log.info(`[ai] session reset ${sessionKeyOf(body)} existed=${existed}`);
+    send(res, 200, { ok: true, existed });
 }
 
 const server = http.createServer((req, res) => {
     const route = `${req.method} ${req.url.split('?')[0]}`;
     const task =
         route === 'POST /chat' ? handleChat(req, res) :
+        route === 'DELETE /session' ? handleSessionReset(req, res) :
         route === 'GET /health' ? Promise.resolve(send(res, 200, { ok: true, providers: healthSnapshot() })) :
         Promise.resolve(send(res, 404, { error: 'not found' }));
     task.catch((e) => {
@@ -70,7 +104,8 @@ server.listen(config.port, config.host, () => {
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => {
-        log.info(`[ai] received ${sig}, shutting down`);
+        log.info(`[ai] received ${sig}, flushing sessions and shutting down`);
+        sessions.flushSync();
         server.close(() => process.exit(0));
         setTimeout(() => process.exit(0), 3000).unref();
     });
