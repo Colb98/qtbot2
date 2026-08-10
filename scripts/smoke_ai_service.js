@@ -40,11 +40,19 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         if (last.includes('FORCE_FAIL')) { res.writeHead(500); return res.end('{}'); }
         if (last.includes('SLOW')) await new Promise((r) => setTimeout(r, 300));
         // A user message containing DÙNG_SEARCH makes the "model" request a web
-        // search; once results come back (marked block) it echoes as usual.
+        // search; on the result list it selects page 1 to read; once page
+        // contents come back it echoes as usual.
         if (last.includes('DÙNG_SEARCH') && !last.includes('Search results')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
                 choices: [{ message: { content: '[[search: giá vàng hôm nay]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        if (last.includes('[Search results')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '[[read: 1]]' } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
@@ -74,6 +82,18 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             results: [{ title: 'Giá vàng SJC', url: 'https://example.com/gold', content: 'Giá vàng hôm nay 88 triệu/lượng' }],
         }));
     });
+    // Serper (primary backend) returns nothing → cascade must fall through to
+    // Tavily. Jina reader fake serves full page content for the result URL.
+    const serperPort = await fakeProvider((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ organic: [] }));
+    });
+    const jinaPort = await fakeProvider((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('BÀI VIẾT ĐẦY ĐỦ: Giá vàng SJC hôm nay niêm yết 88,5 triệu đồng/lượng chiều bán ra, ' +
+            'tăng 300 nghìn so với hôm qua. Vàng nhẫn 9999 giao dịch quanh 76,2 triệu đồng/lượng. ' +
+            'Chuyên gia dự báo giá còn biến động theo đà thế giới.');
+    });
 
     // Must be set before ai-service modules load (dotenv won't override these).
     // Compaction thresholds are tiny so it triggers within a few (huge, echoed)
@@ -93,8 +113,13 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     process.env.OPENROUTER_BASE_URL = `http://127.0.0.1:${orPort}/v1/chat/completions`;
     process.env.XAI_API_KEY = 'fake';
     process.env.XAI_BASE_URL = `http://127.0.0.1:${orPort}/v1/chat/completions`; // same echo server
+    process.env.GEMINI_API_KEY = 'fake';
+    process.env.GEMINI_BASE_URL = `http://127.0.0.1:${orPort}/v1/chat/completions`; // same echo server
     process.env.TAVILY_API_KEY = 'fake';
     process.env.TAVILY_BASE_URL = `http://127.0.0.1:${searchPort}/search`;
+    process.env.SERPER_API_KEY = 'fake';
+    process.env.SERPER_BASE_URL = `http://127.0.0.1:${serperPort}/search`;
+    process.env.JINA_BASE_URL = `http://127.0.0.1:${jinaPort}/`;
 
     require('../ai-service/index.js');
     await new Promise((r) => setTimeout(r, 300)); // let the service bind
@@ -200,6 +225,16 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(c11.text.includes('grok-4.5'), `grok default model should apply, got: ${c11.text.slice(0, 80)}`);
     console.log('ok 11 — grok (xAI) provider works with default model');
 
+    // 11b. Gemini (Google) provider routes and uses its default model.
+    await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerOrder: ['gemini'] }),
+    });
+    const c11b = await (await chat(msgFor('chanF2', 'thử gemini'))).json();
+    assert.strictEqual(c11b.provider, 'gemini');
+    assert.ok(c11b.text.includes('gemini-2.5-flash'), `gemini default model should apply, got: ${c11b.text.slice(0, 80)}`);
+    console.log('ok 11b — gemini (Google) provider works with default model');
+
     // 12. Compaction: after several exchanges the old messages are folded into
     // a rolling summary (carried in the system message) and only the recent
     // tail stays verbatim. The echo provider makes this inspectable: parse the
@@ -240,16 +275,21 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(!c14b.messages[0].content.includes('Channel memory'), 'chanB has no channel memory');
     console.log('ok 14 — retrieval scoped to server + channel + speaker; no cross-user leak');
 
-    // 15. Web search tool loop: model emits [[search: ...]] → service runs the
-    // search → regenerates with results as labeled untrusted context → reply
-    // carries the queries in meta. Final answer (echo) proves the results and
-    // the original question were both in the second generation's context.
+    // 15. Two-step search tool loop: model emits [[search: ...]] → cascade
+    // runs (serper empty → tavily hits) → model gets the numbered result list
+    // and selects [[read: 1]] → page fetched via jina reader → regenerates
+    // with full page content as labeled untrusted context. Final answer
+    // (echo) proves the result list, the selected page's content and the
+    // original question were all in the last generation's context.
     const c15 = await (await chat(msgFor('chanH', 'DÙNG_SEARCH giá vàng bao nhiêu?'))).json();
     assert.deepStrictEqual(c15.searchQueries, ['giá vàng hôm nay']);
+    assert.strictEqual(c15.pagesRead, 1, 'exactly one page should have been read');
     assert.ok(c15.text.includes('Search results'), 'results block should reach the model');
-    assert.ok(c15.text.includes('Giá vàng SJC'), 'search result content should reach the model');
+    assert.ok(c15.text.includes('Giá vàng SJC'), 'search result title should reach the model');
+    assert.ok(c15.text.includes('[Page contents'), 'page contents block should reach the model');
+    assert.ok(c15.text.includes('BÀI VIẾT ĐẦY ĐỦ'), 'selected page content should reach the model');
     assert.ok(c15.text.includes('DÙNG_SEARCH giá vàng bao nhiêu?'), 'original question should stay in context');
-    console.log('ok 15 — web search tool loop grounds the answer, queries reported');
+    console.log('ok 15 — search → select → read-pages loop grounds the answer');
 
     // 16. RULES.md + member advice: both must reach the system prompt; advice
     // is capped and removable.

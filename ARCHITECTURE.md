@@ -234,13 +234,23 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   via the provider router. Runs as a follow-up task on the session's
                   queue — never delays a reply, never races a generation. Kill
                   switch: AI_COMPACTION_ENABLED=false.
-    search.js     the only LLM tool (web search), per the §4 capability rules:
-                  the model can only REQUEST a search by replying "[[search: q]]"
-                  (works on every provider — no native function-calling needed);
-                  deterministic code validates the query, runs Tavily (or Brave)
-                  with timeout + caps (per-message, daily), feeds results back as
-                  labeled untrusted text, regenerates. Replies show "🔎 tìm web".
-                  Enabled iff TAVILY_API_KEY or BRAVE_API_KEY is set.
+    search.js     the only LLM tool (web search), per the §4 capability rules —
+                  a two-step marker flow (works on every provider, no native
+                  function-calling needed): (1) the model replies "[[search: q]]"
+                  → deterministic code validates the query and runs the backend
+                  cascade Serper (Google) → Tavily (next backend only when the
+                  previous returned < AI_SEARCH_MIN_RESULTS), returning up to
+                  AI_SEARCH_MAX_RESULTS numbered results (title+snippet+URL);
+                  (2) the model selects with "[[read: 1,3,7]]" → code fetches
+                  those pages in parallel (Jina Reader → plain HTTP → Firecrawl,
+                  first success wins) and returns full page content, labeled
+                  untrusted, then regenerates. The model never supplies a URL —
+                  [[read]] takes indices into the results it just received,
+                  validated and capped at AI_FETCH_MAX_PAGES here. Both steps
+                  are deduped and capped per message (loop-bait guard).
+                  Replies show "🔎 tìm web". Enabled iff SERPER_API_KEY or
+                  TAVILY_API_KEY is set. Page-read kill
+                  switch: AI_FETCH_ENABLED=false.
     memory.js     long-term memory in ai-service/data/memory/ — server-<gid>.md,
                   channel-<cid>.md, user-<uid>.md (hand-editable markdown).
                   Written at compaction time from the folded messages (facts get
@@ -254,7 +264,7 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   clear memory — delete the file on the VPS to forget someone.
     queue.js      per-session FIFO (depth AI_SESSION_QUEUE_DEPTH, overflow → 429);
                   different sessions run concurrently
-    providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI),
+    providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI) → gemini,
                   429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
                   Disable a provider by removing it from AI_PROVIDER_ORDER.
     config.js     env-driven: AI_PROVIDER_ORDER, per-provider keys/models/base-URLs;
@@ -274,12 +284,16 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
   `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
   `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
-  `AI_MEMORY_MAX_TOKENS`, `AI_SEARCH_ENABLED`, `TAVILY_API_KEY`/`BRAVE_API_KEY`,
-  `AI_SEARCH_MAX_RESULTS`, `AI_SEARCH_TIMEOUT_MS`, `AI_SEARCH_MAX_PER_MESSAGE`,
-  `AI_SEARCH_DAILY_LIMIT`, plus per provider:
+  `AI_MEMORY_MAX_TOKENS`, `AI_SEARCH_ENABLED`, `SERPER_API_KEY`/`TAVILY_API_KEY`
+  (cascade in that order), `AI_SEARCH_MAX_RESULTS`, `AI_SEARCH_MIN_RESULTS`,
+  `AI_SEARCH_TIMEOUT_MS`, `AI_SEARCH_MAX_PER_MESSAGE`, `AI_SEARCH_DAILY_LIMIT`,
+  `AI_SEARCH_BLOCK_MAX_CHARS`, `AI_FETCH_ENABLED`, `AI_FETCH_MAX_PAGES`,
+  `AI_FETCH_TIMEOUT_MS`, `AI_FETCH_MAX_CHARS`, `JINA_API_KEY` (optional, higher
+  reader limits), `FIRECRAWL_API_KEY` (optional, last-resort fetcher), plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
   `OPENROUTER_API_KEY`+`OPENROUTER_MODEL`, `XAI_API_KEY`+`XAI_MODEL` (grok — XAI_ prefix on
-  purpose, don't confuse with GROQ_) (optional `*_BASE_URL` overrides).
+  purpose, don't confuse with GROQ_), `GEMINI_API_KEY` (or `GOOGLE_API_KEY`)+`GEMINI_MODEL`
+  (Google OpenAI-compat endpoint) (optional `*_BASE_URL` overrides).
 - **Deploy:** `pm2 start ai-service/index.js --name qtbot-ai --cwd /root/qtbot` then `pm2 save`.
   Kill switch: `AI_ENABLED=false` (bot ignores triggers) and/or stop `qtbot-ai`.
 - **Test:** `node scripts/smoke_ai_service.js` — offline, fakes providers, verifies failover/normalize/health.

@@ -1,6 +1,21 @@
-const CURRENT_VERSION = '3.15.0';
+const CURRENT_VERSION = '3.17.0';
 
 const CHANGELOG = {
+    '3.17.0': {
+        date: '2026-08-10',
+        title: 'AI tra cứu sâu hơn hẳn',
+        changes: [
+            '🔎 **Tìm kiếm bằng Google** — bot giờ tra cứu qua Google (Serper), thiếu kết quả thì tự chuyển sang Tavily dự phòng.',
+            '📖 **AI đọc cả bài viết, không chỉ vài dòng tóm tắt** — bot xem ~10 kết quả, tự chọn 2–4 trang liên quan nhất rồi đọc toàn bộ nội dung trước khi trả lời, nên câu trả lời về build, guide, meta sẽ chi tiết hơn nhiều.'
+        ]
+    },
+    '3.16.0': {
+        date: '2026-08-10',
+        title: 'AI khoẻ hơn với Gemini',
+        changes: [
+            '🤖 **Thêm Google Gemini vào dàn AI** — bot giờ có thể chạy trên Gemini (mặc định `gemini-2.5-flash`) bên cạnh Groq/Cloudflare/OpenRouter/Grok. Nhà nào sập thì tự chuyển nhà khác, trả lời mượt hơn.'
+        ]
+    },
     '3.15.0': {
         date: '2026-08-10',
         title: 'Dạy AI cách trả lời',

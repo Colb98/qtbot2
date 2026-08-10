@@ -27,30 +27,37 @@ const config = {
     compactKeepRecent: int('AI_COMPACT_KEEP_RECENT', 10),
     summaryMaxTokens: int('AI_SUMMARY_MAX_TOKENS', 500),
     searchEnabled: process.env.AI_SEARCH_ENABLED !== 'false'
-        && !!(process.env.TAVILY_API_KEY || process.env.BRAVE_API_KEY),
-    searchMaxResults: int('AI_SEARCH_MAX_RESULTS', 4),
+        && !!(process.env.SERPER_API_KEY || process.env.TAVILY_API_KEY),
+    searchMaxResults: int('AI_SEARCH_MAX_RESULTS', 10),
+    searchMinResults: int('AI_SEARCH_MIN_RESULTS', 3),   // fewer → cascade to next backend
     searchTimeoutMs: int('AI_SEARCH_TIMEOUT_MS', 10000),
     searchMaxPerMessage: int('AI_SEARCH_MAX_PER_MESSAGE', 2),
     searchDailyLimit: int('AI_SEARCH_DAILY_LIMIT', 200),
+    searchBlockMaxChars: int('AI_SEARCH_BLOCK_MAX_CHARS', 15000), // hard cap per tool block
+    fetchEnabled: process.env.AI_FETCH_ENABLED !== 'false',
+    fetchMaxPages: int('AI_FETCH_MAX_PAGES', 4),          // max pages per [[read]] selection
+    fetchTimeoutMs: int('AI_FETCH_TIMEOUT_MS', 8000),
+    fetchMaxCharsPerPage: int('AI_FETCH_MAX_CHARS', 3500),
     memoryEnabled: process.env.AI_MEMORY_ENABLED !== 'false',
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)
     memoryMaxTokens: int('AI_MEMORY_MAX_TOKENS', 700),             // LLM output budget for rewrites
-    providerOrder: (process.env.AI_PROVIDER_ORDER || 'groq,cloudflare,openrouter,grok')
+    providerOrder: (process.env.AI_PROVIDER_ORDER || 'groq,cloudflare,openrouter,grok,gemini')
         .split(',').map(s => s.trim()).filter(Boolean),
 };
 
-const KNOWN_PROVIDERS = ['groq', 'cloudflare', 'openrouter', 'grok'];
+const KNOWN_PROVIDERS = ['groq', 'cloudflare', 'openrouter', 'grok', 'gemini'];
 
 const DEFAULT_MODELS = {
     cloudflare: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
     groq: 'llama-3.3-70b-versatile',
     openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
     grok: 'grok-4.5',
+    gemini: 'gemini-2.5-flash',
 };
 // grok (xAI) deliberately uses XAI_* keys — GROK_API_KEY next to GROQ_API_KEY
 // would be a typo waiting to happen.
-const ENV_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_MODEL', groq: 'GROQ_MODEL', openrouter: 'OPENROUTER_MODEL', grok: 'XAI_MODEL' };
+const ENV_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_MODEL', groq: 'GROQ_MODEL', openrouter: 'OPENROUTER_MODEL', grok: 'XAI_MODEL', gemini: 'GEMINI_MODEL' };
 
 // Runtime overrides set from the admin dashboard; persisted so they survive
 // restarts. Precedence: override > env > hardcoded default.
@@ -111,6 +118,16 @@ function credsFor(name) {
         return {
             url: process.env.XAI_BASE_URL || 'https://api.x.ai/v1/chat/completions',
             key: process.env.XAI_API_KEY,
+        };
+    }
+    if (name === 'gemini') {
+        // Google's OpenAI-compat endpoint — same Bearer + chat/completions
+        // shape as every other provider. GOOGLE_API_KEY accepted as an alias.
+        const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        if (!key) return null;
+        return {
+            url: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+            key,
         };
     }
     return null;

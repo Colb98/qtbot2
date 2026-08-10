@@ -26,8 +26,11 @@ const SYSTEM = loadSoul() +
     'Do NOT prefix your own replies with a name (like "QT:").' +
     (config.searchEnabled
         ? '\n\n## Web search tool\nWhen you need fresh or time-sensitive information, reply with EXACTLY one line: ' +
-          '[[search: <short query>]] — you will receive results to answer from. ' +
-          'When answering from results, cite the source (URL) when useful.'
+          '[[search: <short query>]] — you will receive a numbered list of results (title + snippet + URL). ' +
+          'Then pick the most relevant results and reply with EXACTLY one line: [[read: <numbers separated by commas>]] ' +
+          'to receive their full page content. For questions needing detail ' +
+          '(guides, builds, how-to), ALWAYS read pages before answering — snippets alone are not enough. ' +
+          'When answering, mention 1-2 source names (site or page title) in plain text — no links needed.'
         : '');
 
 function readJsonBody(req, limit = 64 * 1024) {
@@ -76,20 +79,42 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
     ];
     let { text, provider } = await generateChatResponse(messages);
 
-    // Tool loop: the model asks for a search via [[search: ...]]; we run it and
-    // regenerate with the results. Capped per message; intermediate steps stay
-    // out of the session — only the user's message and the final answer persist.
+    // Tool loop: the model asks for a search via [[search: ...]], receives a
+    // numbered result list, then may select pages to read via [[read: 1,3]].
+    // Both steps are capped per message; intermediate steps stay out of the
+    // session — only the user's message and the final answer persist.
     const searchQueries = [];
+    const readsDone = [];
+    let lastResults = [];
+    let pagesRead = 0;
     while (config.searchEnabled) {
         const query = search.extractQuery(text);
         // Same-query repeats are loop bait (a model can echo the prior tool
         // step from its context) — one run per distinct query per message.
-        if (!query || searchQueries.includes(query) || searchQueries.length >= config.searchMaxPerMessage) break;
-        searchQueries.push(query);
-        const results = await search.run(query);
-        messages.push({ role: 'assistant', content: `[[search: ${query}]]` });
-        messages.push({ role: 'user', content: results });
-        ({ text, provider } = await generateChatResponse(messages));
+        if (query && !searchQueries.includes(query) && searchQueries.length < config.searchMaxPerMessage) {
+            searchQueries.push(query);
+            const { block, results } = await search.run(query);
+            lastResults = results;
+            messages.push({ role: 'assistant', content: `[[search: ${query}]]` });
+            messages.push({ role: 'user', content: block });
+            ({ text, provider } = await generateChatResponse(messages));
+            continue;
+        }
+        const idx = config.fetchEnabled && lastResults.length ? search.extractRead(text) : null;
+        if (idx) {
+            // Same-selection repeats are the [[read]] flavor of loop bait; the
+            // key is scoped to the search so a new query re-opens selection.
+            const key = `${searchQueries.length}:${idx.join(',')}`;
+            if (readsDone.includes(key) || readsDone.length >= config.searchMaxPerMessage) break;
+            readsDone.push(key);
+            pagesRead += idx.length;
+            const block = await search.readPages(searchQueries[searchQueries.length - 1], lastResults, idx);
+            messages.push({ role: 'assistant', content: `[[read: ${idx.join(',')}]]` });
+            messages.push({ role: 'user', content: block });
+            ({ text, provider } = await generateChatResponse(messages));
+            continue;
+        }
+        break;
     }
     text = search.stripMarkers(text) || 'Mình tìm chưa ra thông tin, thử lại sau nhé.';
 
@@ -99,8 +124,8 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
     sessions.append(sessionKey, { role: 'assistant', content: text });
     maybeScheduleCompaction(sessionKey); // runs after us on this session's queue
     log.info(`[ai] done session=${sessionKey} provider=${provider} history=${history.length} ` +
-        `searches=${searchQueries.length} total=${Date.now() - started}ms`);
-    return { text, provider, searchQueries };
+        `searches=${searchQueries.length} pagesRead=${pagesRead} total=${Date.now() - started}ms`);
+    return { text, provider, searchQueries, pagesRead };
 }
 
 async function handleChat(req, res) {
