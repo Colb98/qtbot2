@@ -19,7 +19,7 @@ const config = {
     sessionMaxMessages: int('AI_SESSION_MAX_MESSAGES', 30),
     sessionMaxTokens: int('AI_SESSION_MAX_TOKENS', 3000),
     sessionQueueDepth: int('AI_SESSION_QUEUE_DEPTH', 3),
-    providerOrder: (process.env.AI_PROVIDER_ORDER || 'cloudflare,groq,openrouter')
+    providerOrder: (process.env.AI_PROVIDER_ORDER || 'groq,cloudflare,openrouter')
         .split(',').map(s => s.trim()).filter(Boolean),
 };
 

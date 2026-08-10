@@ -218,7 +218,7 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   (gitignored, server-side runtime state; failed generations never enter history)
     queue.js      per-session FIFO (depth AI_SESSION_QUEUE_DEPTH, overflow → 429);
                   different sessions run concurrently
-    providers.js  OpenAI-compat router: cloudflare → groq → openrouter,
+    providers.js  OpenAI-compat router: groq → cloudflare → openrouter,
                   429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
                   Disable a provider by removing it from AI_PROVIDER_ORDER.
     config.js     env-driven: AI_PROVIDER_ORDER, per-provider keys/models/base-URLs
