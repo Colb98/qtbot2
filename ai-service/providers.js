@@ -1,11 +1,22 @@
 const log = require('../logger');
 const { config, loadProviders } = require('./config');
 
-const providers = loadProviders(log);
+let providers = loadProviders(log);
 
-// Per-provider health: name -> { cooldownUntil, lastFailure }
+// Per-provider health: name -> { cooldownUntil, lastFailure }. Survives
+// rebuilds so reordering doesn't wipe cooldown state.
 const health = new Map();
-for (const p of providers) health.set(p.name, { cooldownUntil: 0, lastFailure: null });
+function ensureHealth() {
+    for (const p of providers) if (!health.has(p.name)) health.set(p.name, { cooldownUntil: 0, lastFailure: null });
+}
+ensureHealth();
+
+// Re-read order/model config (after an admin change) without restarting.
+function rebuild() {
+    providers = loadProviders(log);
+    ensureHealth();
+    log.info(`[ai] providers rebuilt: ${providers.map(p => `${p.name}(${p.model})`).join(' → ') || '(none)'}`);
+}
 
 function setCooldown(name, ms, reason) {
     const h = health.get(name);
@@ -86,6 +97,8 @@ async function generateChatResponse(messages) {
         const started = Date.now();
         try {
             const { text, usage } = await callProvider(p, messages);
+            const h = health.get(p.name);
+            h.cooldownUntil = 0; h.lastFailure = null; // a success clears cooldown state
             log.info(`[ai] provider=${p.name} model=${p.model} latency=${Date.now() - started}ms` +
                 (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''));
             return { text, provider: p.name };
@@ -108,4 +121,4 @@ async function generateChatResponse(messages) {
     throw new AllProvidersFailedError(attempts);
 }
 
-module.exports = { generateChatResponse, healthSnapshot, AllProvidersFailedError, _normalize: normalize };
+module.exports = { generateChatResponse, healthSnapshot, rebuild, AllProvidersFailedError, _normalize: normalize };

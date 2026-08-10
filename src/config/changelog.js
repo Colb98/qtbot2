@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.10.0';
+const CURRENT_VERSION = '3.11.0';
 
 const CHANGELOG = {
+    '3.11.0': {
+        date: '2026-08-10',
+        title: 'Bảng điều khiển AI cho admin',
+        changes: [
+            '🎛️ **Trang quản trị AI** trên dashboard (`/ai`): đổi thứ tự ưu tiên nhà cung cấp, chọn model, xem trạng thái từng nhà cung cấp theo thời gian thực. Thay đổi áp dụng ngay, không cần restart bot.'
+        ]
+    },
     '3.10.0': {
         date: '2026-08-10',
         title: 'AI có trí nhớ 🧠',

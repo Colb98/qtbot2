@@ -8,7 +8,10 @@ const sysStatus = require('./sysStatus');
 const wordReview = require('./wordReview');
 const inventoryAdmin = require('./inventoryAdmin');
 const INVENTORY_HTML = require('./inventoryPage');
+const AI_ADMIN_HTML = require('./aiAdminPage');
 const { data } = require('../state');
+
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:3001';
 
 const DEFAULT_PORT = 3000;
 const SESSION_COOKIE = 'qtadmin';
@@ -1699,6 +1702,23 @@ async function handleAdmin(req, res, pathname, query) {
                 return sendJson(res, 200, { ok: true, accounts: adminAuth.listAccounts() });
             }
         }
+        // Proxy to the qtbot-ai admin API — the AI service is localhost-only,
+        // so this authenticated route is its only exposure.
+        if (pathname === '/api/admin/ai/config' && (method === 'GET' || method === 'PUT')) {
+            try {
+                const opts = { method, signal: AbortSignal.timeout(5000) };
+                if (method === 'PUT') {
+                    opts.headers = { 'Content-Type': 'application/json' };
+                    opts.body = JSON.stringify(await readJsonBody(req));
+                }
+                const r = await fetch(`${AI_SERVICE_URL}/admin/config`, opts);
+                return sendJson(res, r.status, await r.json());
+            } catch (e) {
+                if (/invalid JSON|payload too large/.test(e.message)) throw e;
+                return sendJson(res, 502, { error: 'Không kết nối được qtbot-ai.' });
+            }
+        }
+
         if (pathname === '/api/admin/accounts/password' && method === 'POST') {
             if (session.role !== 'root') return sendJson(res, 403, { error: 'Chỉ tài khoản gốc mới đổi mật khẩu tài khoản khác.' });
             const body = await readJsonBody(req);
@@ -1729,6 +1749,9 @@ function handle(req, res) {
     }
     if (pathname === '/inventory' || pathname === '/inventory.html') {
         return sendHtml(res, INVENTORY_HTML);
+    }
+    if (pathname === '/ai' || pathname === '/ai.html') {
+        return sendHtml(res, AI_ADMIN_HTML);
     }
     if (pathname.startsWith('/api/admin/')) {
         handleAdmin(req, res, pathname, parsed.query);

@@ -4,8 +4,12 @@
 // reach here, so this must only ever bind to localhost.
 const http = require('http');
 const log = require('../logger');
-const { config, loadSoul } = require('./config');
-const { generateChatResponse, healthSnapshot } = require('./providers');
+const {
+    config, loadSoul,
+    KNOWN_PROVIDERS, effectiveOrder, modelFor, fallbackModelFor, credsFor,
+    getOverrides, saveOverrides,
+} = require('./config');
+const { generateChatResponse, healthSnapshot, rebuild } = require('./providers');
 const sessions = require('./sessions');
 const { enqueue, QueueFullError } = require('./queue');
 
@@ -85,11 +89,61 @@ async function handleSessionReset(req, res) {
     send(res, 200, { ok: true, existed });
 }
 
+// What the admin dashboard sees: full catalog (including unconfigured or
+// disabled providers), effective order, and live health.
+function adminSnapshot() {
+    const health = healthSnapshot();
+    const order = effectiveOrder();
+    return {
+        order,
+        providers: KNOWN_PROVIDERS.map((name) => ({
+            name,
+            configured: !!credsFor(name),           // creds present in env
+            active: order.includes(name) && !!credsFor(name),
+            override: getOverrides().models[name] || null,
+            effectiveModel: modelFor(name),
+            fallbackModel: fallbackModelFor(name),  // what applies if override is cleared
+            health: health[name] || { healthy: true, lastFailure: null, cooldownUntil: null },
+        })),
+    };
+}
+
+async function handleAdminConfig(req, res) {
+    if (req.method === 'GET') return send(res, 200, adminSnapshot());
+
+    const body = await readJsonBody(req);
+    const next = getOverrides();
+    if (body.providerOrder !== undefined) {
+        if (!Array.isArray(body.providerOrder) || !body.providerOrder.length) {
+            return send(res, 400, { error: 'providerOrder must be a non-empty array' });
+        }
+        const order = [...new Set(body.providerOrder.map(String))];
+        const bad = order.filter((n) => !KNOWN_PROVIDERS.includes(n));
+        if (bad.length) return send(res, 400, { error: `unknown providers: ${bad.join(', ')}` });
+        next.providerOrder = order;
+    }
+    if (body.models !== undefined) {
+        if (!body.models || typeof body.models !== 'object') return send(res, 400, { error: 'models must be an object' });
+        for (const [name, model] of Object.entries(body.models)) {
+            if (!KNOWN_PROVIDERS.includes(name)) return send(res, 400, { error: `unknown provider: ${name}` });
+            const m = String(model || '').trim();
+            if (m.length > 150) return send(res, 400, { error: `model name too long for ${name}` });
+            if (m) next.models[name] = m;
+            else delete next.models[name]; // empty = revert to env/default
+        }
+    }
+    saveOverrides(next);
+    rebuild();
+    log.info(`[ai] admin config updated: order=${effectiveOrder().join(',')}`);
+    send(res, 200, adminSnapshot());
+}
+
 const server = http.createServer((req, res) => {
     const route = `${req.method} ${req.url.split('?')[0]}`;
     const task =
         route === 'POST /chat' ? handleChat(req, res) :
         route === 'DELETE /session' ? handleSessionReset(req, res) :
+        route === 'GET /admin/config' || route === 'PUT /admin/config' ? handleAdminConfig(req, res) :
         route === 'GET /health' ? Promise.resolve(send(res, 200, { ok: true, providers: healthSnapshot() })) :
         Promise.resolve(send(res, 404, { error: 'not found' }));
     task.catch((e) => {

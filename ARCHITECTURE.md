@@ -221,8 +221,15 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     providers.js  OpenAI-compat router: groq → cloudflare → openrouter,
                   429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
                   Disable a provider by removing it from AI_PROVIDER_ORDER.
-    config.js     env-driven: AI_PROVIDER_ORDER, per-provider keys/models/base-URLs
+    config.js     env-driven: AI_PROVIDER_ORDER, per-provider keys/models/base-URLs;
+                  admin overrides (order + models) in ai-service/data/overrides.json
+                  win over env, applied live via providers.rebuild()
 ```
+
+**Admin panel:** `/ai` on the dashboard ([src/services/aiAdminPage.js](src/services/aiAdminPage.js))
+— reorder/enable providers, override models, live health. Uses the existing
+dashboard session auth; `/api/admin/ai/config` proxies to the service's
+`GET|PUT /admin/config` (the localhost-only service's sole exposure).
 
 - **Env keys** (all in the same `.env`): `AI_ENABLED`, `AI_CHANNEL_IDS`, `AI_ALLOWED_ROLE_IDS`,
   `AI_SERVICE_URL`/`AI_SERVICE_PORT`, `AI_REQUEST_TIMEOUT_MS`, `AI_USER_COOLDOWN_MS`,

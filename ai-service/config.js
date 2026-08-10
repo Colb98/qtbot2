@@ -4,6 +4,9 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const fs = require('fs');
 const path = require('path');
 
+const DATA_DIR = path.join(__dirname, 'data');
+const OVERRIDES_FILE = path.join(DATA_DIR, 'overrides.json');
+
 function int(name, def) {
     const v = parseInt(process.env[name], 10);
     return Number.isFinite(v) ? v : def;
@@ -23,49 +26,82 @@ const config = {
         .split(',').map(s => s.trim()).filter(Boolean),
 };
 
-// Provider catalog. All three speak the OpenAI chat-completions format, so a
-// provider is just a URL + key + model; entries missing credentials are skipped.
-const PROVIDER_DEFS = {
-    cloudflare: () => {
+const KNOWN_PROVIDERS = ['groq', 'cloudflare', 'openrouter'];
+
+const DEFAULT_MODELS = {
+    cloudflare: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    groq: 'llama-3.3-70b-versatile',
+    openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
+};
+const ENV_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_MODEL', groq: 'GROQ_MODEL', openrouter: 'OPENROUTER_MODEL' };
+
+// Runtime overrides set from the admin dashboard; persisted so they survive
+// restarts. Precedence: override > env > hardcoded default.
+let overrides = { providerOrder: null, models: {} };
+try {
+    const raw = JSON.parse(fs.readFileSync(OVERRIDES_FILE, 'utf8'));
+    if (Array.isArray(raw.providerOrder) && raw.providerOrder.length) overrides.providerOrder = raw.providerOrder;
+    if (raw.models && typeof raw.models === 'object') overrides.models = raw.models;
+} catch (e) {
+    if (e.code !== 'ENOENT') console.warn('[ai] could not read overrides.json:', e.message);
+}
+
+function getOverrides() {
+    return { providerOrder: overrides.providerOrder, models: { ...overrides.models } };
+}
+
+function saveOverrides(next) {
+    overrides = next;
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(OVERRIDES_FILE, JSON.stringify(overrides, null, 2));
+}
+
+// The model that wins without any override (what the dashboard shows as placeholder).
+function fallbackModelFor(name) {
+    return process.env[ENV_MODEL_KEYS[name]] || DEFAULT_MODELS[name];
+}
+
+function modelFor(name) {
+    return overrides.models[name] || fallbackModelFor(name);
+}
+
+function credsFor(name) {
+    if (name === 'cloudflare') {
         const account = process.env.CLOUDFLARE_ACCOUNT_ID;
         const token = process.env.CLOUDFLARE_API_TOKEN;
         if (!account || !token) return null;
         return {
-            name: 'cloudflare',
             url: process.env.CLOUDFLARE_BASE_URL || `https://api.cloudflare.com/client/v4/accounts/${account}/ai/v1/chat/completions`,
             key: token,
-            model: process.env.CLOUDFLARE_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
         };
-    },
-    groq: () => {
-        const key = process.env.GROQ_API_KEY;
-        if (!key) return null;
+    }
+    if (name === 'groq') {
+        if (!process.env.GROQ_API_KEY) return null;
         return {
-            name: 'groq',
             url: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1/chat/completions',
-            key,
-            model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+            key: process.env.GROQ_API_KEY,
         };
-    },
-    openrouter: () => {
-        const key = process.env.OPENROUTER_API_KEY;
-        if (!key) return null;
+    }
+    if (name === 'openrouter') {
+        if (!process.env.OPENROUTER_API_KEY) return null;
         return {
-            name: 'openrouter',
             url: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1/chat/completions',
-            key,
-            model: process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free',
+            key: process.env.OPENROUTER_API_KEY,
         };
-    },
-};
+    }
+    return null;
+}
+
+function effectiveOrder() {
+    return overrides.providerOrder || config.providerOrder;
+}
 
 function loadProviders(log) {
     const providers = [];
-    for (const name of config.providerOrder) {
-        const def = PROVIDER_DEFS[name];
-        if (!def) { log.warn(`Unknown provider "${name}" in AI_PROVIDER_ORDER, skipping`); continue; }
-        const p = def();
-        if (p) providers.push(p);
+    for (const name of effectiveOrder()) {
+        if (!KNOWN_PROVIDERS.includes(name)) { log.warn(`Unknown provider "${name}" in order, skipping`); continue; }
+        const creds = credsFor(name);
+        if (creds) providers.push({ name, ...creds, model: modelFor(name) });
         else log.warn(`Provider "${name}" has no credentials configured, skipping`);
     }
     return providers;
@@ -79,4 +115,8 @@ function loadSoul() {
     }
 }
 
-module.exports = { config, loadProviders, loadSoul };
+module.exports = {
+    config, loadProviders, loadSoul,
+    KNOWN_PROVIDERS, effectiveOrder, modelFor, fallbackModelFor, credsFor,
+    getOverrides, saveOverrides,
+};

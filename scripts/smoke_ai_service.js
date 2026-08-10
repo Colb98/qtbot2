@@ -41,7 +41,7 @@ const msgFor = (channelId, content, name = 'Tester') =>
         if (last.includes('SLOW')) await new Promise((r) => setTimeout(r, 300));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-            choices: [{ message: { content: JSON.stringify(body.messages) } }],
+            choices: [{ message: { content: JSON.stringify({ model: body.model, messages: body.messages }) } }],
             usage: { prompt_tokens: 1, completion_tokens: 1 },
         }));
     });
@@ -116,7 +116,42 @@ const msgFor = (channelId, content, name = 'Tester') =>
     assert.ok(!disk.includes('FORCE_FAIL'), 'failed generations must not enter history');
     console.log('ok 7 — sessions persist to disk, failed exchanges excluded');
 
-    console.log('PASS: all Phase 1–3 smoke checks green');
+    // 8. Admin config: snapshot reflects env order and configured creds.
+    const snap = await (await fetch('http://127.0.0.1:3999/admin/config')).json();
+    assert.deepStrictEqual(snap.order, ['cloudflare', 'groq', 'openrouter']);
+    assert.ok(snap.providers.every((p) => p.configured), 'all fakes have creds');
+    console.log('ok 8 — GET /admin/config snapshot');
+
+    // 9. Reorder + model override apply live, no restart; success clears cooldown.
+    const put = await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerOrder: ['openrouter'], models: { openrouter: 'my-custom-model' } }),
+    });
+    assert.strictEqual(put.status, 200);
+    const c9 = await (await chat(msgFor('chanE', 'sau đổi config'))).json();
+    assert.strictEqual(c9.provider, 'openrouter');
+    assert.ok(c9.text.includes('my-custom-model'), 'model override should reach the provider');
+    const snap9 = await (await fetch('http://127.0.0.1:3999/admin/config')).json();
+    assert.strictEqual(snap9.providers.find((p) => p.name === 'openrouter').health.healthy, true,
+        'success should clear cooldown');
+    const overridesDisk = fs.readFileSync(path.join(DATA_DIR, 'overrides.json'), 'utf8');
+    assert.ok(overridesDisk.includes('my-custom-model'), 'overrides should persist to disk');
+    console.log('ok 9 — reorder + model override applied live and persisted');
+
+    // 10. Validation: unknown provider names and oversized models are rejected.
+    const bad1 = await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerOrder: ['bogus'] }),
+    });
+    assert.strictEqual(bad1.status, 400);
+    const bad2 = await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ models: { openrouter: 'x'.repeat(200) } }),
+    });
+    assert.strictEqual(bad2.status, 400);
+    console.log('ok 10 — admin config validation rejects bad input');
+
+    console.log('PASS: all Phase 1–3 + admin smoke checks green');
     process.exit(0);
 })().catch((e) => {
     console.error('FAIL:', e.message);
