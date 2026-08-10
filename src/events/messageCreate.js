@@ -9,6 +9,7 @@ const mathBoss = require('../services/mathBoss');
 const { tryEarnFromChat } = require('../services/currency');
 const { isBlockedByMaintenance } = require('../services/maintenance');
 const { handleAnimatedEmote } = require('../services/animatedEmote');
+const aiChat = require('../services/aiChat');
 
 module.exports = {
     name: Events.MessageCreate,
@@ -44,6 +45,7 @@ module.exports = {
             }
         }
         if (!blocked && await handleAnimatedEmote(msg)) return;
+        if (!blocked && aiChat.maybeHandle(msg)) return;
         await handleMessageCommand(msg);
     }
 };

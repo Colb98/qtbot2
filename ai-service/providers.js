@@ -1,0 +1,111 @@
+const log = require('../logger');
+const { config, loadProviders } = require('./config');
+
+const providers = loadProviders(log);
+
+// Per-provider health: name -> { cooldownUntil, lastFailure }
+const health = new Map();
+for (const p of providers) health.set(p.name, { cooldownUntil: 0, lastFailure: null });
+
+function setCooldown(name, ms, reason) {
+    const h = health.get(name);
+    h.cooldownUntil = Date.now() + ms;
+    h.lastFailure = reason;
+    log.warn(`[ai] provider ${name} → ${reason}, cooldown ${Math.round(ms / 1000)}s`);
+}
+
+function healthSnapshot() {
+    const out = {};
+    for (const [name, h] of health) {
+        out[name] = {
+            healthy: Date.now() >= h.cooldownUntil,
+            lastFailure: h.lastFailure,
+            cooldownUntil: h.cooldownUntil || null,
+        };
+    }
+    return out;
+}
+
+// Open models sometimes emit reasoning tags or stray whitespace.
+function normalize(text) {
+    return String(text || '')
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/^<think>[\s\S]*/i, '') // unclosed think block: model never got to the answer
+        .trim();
+}
+
+class AllProvidersFailedError extends Error {
+    constructor(attempts) {
+        super(`All providers failed: ${attempts.join('; ')}`);
+        this.name = 'AllProvidersFailedError';
+    }
+}
+
+async function callProvider(p, messages) {
+    const res = await fetch(p.url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${p.key}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            model: p.model,
+            messages,
+            max_tokens: config.maxResponseTokens,
+            temperature: config.temperature,
+        }),
+        signal: AbortSignal.timeout(config.providerTimeoutMs),
+    });
+    if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        const err = new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+        err.status = res.status;
+        err.retryAfterMs = parseFloat(res.headers.get('retry-after')) * 1000 || null;
+        throw err;
+    }
+    const data = await res.json();
+    const text = normalize(data.choices?.[0]?.message?.content);
+    if (!text) throw new Error('empty completion');
+    return { text, usage: data.usage || null };
+}
+
+/**
+ * Route a chat completion through the provider chain.
+ * Failover on transient errors (429/5xx/timeout/network) and provider-side
+ * config errors (401/403 — that provider is broken, not the request).
+ * 400 means WE built a bad payload: fail immediately, don't burn the chain.
+ */
+async function generateChatResponse(messages) {
+    if (!providers.length) throw new Error('No AI providers configured');
+    const now = Date.now();
+    let eligible = providers.filter(p => now >= health.get(p.name).cooldownUntil);
+    if (!eligible.length) eligible = providers; // everyone cooling down: best-effort anyway
+
+    const attempts = [];
+    for (const p of eligible) {
+        const started = Date.now();
+        try {
+            const { text, usage } = await callProvider(p, messages);
+            log.info(`[ai] provider=${p.name} model=${p.model} latency=${Date.now() - started}ms` +
+                (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''));
+            return { text, provider: p.name };
+        } catch (e) {
+            attempts.push(`${p.name}: ${e.message.slice(0, 120)}`);
+            if (e.status === 400) {
+                log.error(`[ai] provider ${p.name} rejected payload (our bug, no failover):`, e.message);
+                throw e;
+            }
+            if (e.status === 401 || e.status === 403) {
+                setCooldown(p.name, 10 * 60 * 1000, `auth_error_${e.status}`);
+            } else if (e.status === 429) {
+                setCooldown(p.name, e.retryAfterMs || config.providerCooldownMs, 'rate_limited');
+            } else {
+                // 5xx / timeout / network
+                setCooldown(p.name, Math.min(config.providerCooldownMs, 30000), e.name === 'TimeoutError' ? 'timeout' : `error_${e.status || e.code || 'network'}`);
+            }
+        }
+    }
+    throw new AllProvidersFailedError(attempts);
+}
+
+module.exports = { generateChatResponse, healthSnapshot, AllProvidersFailedError, _normalize: normalize };

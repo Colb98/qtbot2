@@ -193,6 +193,44 @@ from a worker.
 
 ---
 
+## 7b. AI chat subsystem — [ai-service/](ai-service/) + [src/services/aiChat.js](src/services/aiChat.js)
+
+Conversational LLM chat as an **isolated second process** (`qtbot-ai`). The bot
+stays the single Discord identity and the sole authority; the AI side is text
+in → text out over localhost HTTP, with **no** access to Discord objects, state,
+or privileged functions. If `qtbot-ai` is down, only AI chat breaks.
+
+```
+messageCreate → aiChat.maybeHandle(msg)        [src/services/aiChat.js]
+    trigger: AI channel (AI_CHANNEL_IDS) OR @mention/reply to bot
+    auth:    member has one of AI_ALLOWED_ROLE_IDS (checked HERE, never by the LLM)
+    limits:  per-user cooldown + global in-flight cap
+        │ POST /chat {userId, displayName, channelId, guildId, content}
+        ▼
+qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
+    index.js      HTTP server, SOUL.md system prompt (Phase 1: stateless, no sessions yet)
+    providers.js  OpenAI-compat router: cloudflare → groq → openrouter,
+                  429/5xx/timeout → cooldown + failover; 400 = our bug, no failover
+    config.js     env-driven: AI_PROVIDER_ORDER, per-provider keys/models/base-URLs
+```
+
+- **Env keys** (all in the same `.env`): `AI_ENABLED`, `AI_CHANNEL_IDS`, `AI_ALLOWED_ROLE_IDS`,
+  `AI_SERVICE_URL`/`AI_SERVICE_PORT`, `AI_REQUEST_TIMEOUT_MS`, `AI_USER_COOLDOWN_MS`,
+  `AI_MAX_CONCURRENT`, `AI_MAX_RESPONSE_TOKENS`, `AI_PROVIDER_TIMEOUT_MS`,
+  `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, plus per provider:
+  `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
+  `OPENROUTER_API_KEY`+`OPENROUTER_MODEL` (optional `*_BASE_URL` overrides).
+- **Deploy:** `pm2 start ai-service/index.js --name qtbot-ai --cwd /root/qtbot` then `pm2 save`.
+  Kill switch: `AI_ENABLED=false` (bot ignores triggers) and/or stop `qtbot-ai`.
+- **Test:** `node scripts/smoke_ai_service.js` — offline, fakes providers, verifies failover/normalize/health.
+- **Boundary rule (do not break):** authorization, rate limiting and any future
+  tool execution live on the bot side. The AI service must never gain Discord
+  credentials or read/write `data.json`. AI state (future sessions/memory) stays
+  under `ai-service/`'s own storage.
+- Phases 3+ (sessions, compaction, memory) per the integration plan are not yet implemented.
+
+---
+
 ## 8. Deploy & versioning (project conventions — see also memory)
 
 - **Deploy:** push code to the VPS (`root@149.28.132.82:~/qtbot`) via git; runtime data files stay server-side only. (`deploy.bat` only scp's `index.js` and is not the full path.)

@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '3.8.0';
+const CURRENT_VERSION = '3.9.0';
 
 const CHANGELOG = {
+    '3.9.0': {
+        date: '2026-08-10',
+        title: 'Chat với AI 🤖',
+        changes: [
+            '🤖 **Bot biết nói chuyện!** Thành viên có role AI có thể chat với bot: nhắn trong kênh AI riêng, hoặc **@mention / reply** bot ở kênh khác.',
+            '🔒 Chỉ thành viên được cấp role mới dùng được — AI **không** có quyền admin, không đụng được vào tiền/role/game.',
+            '⚙️ AI chạy tách riêng: nếu AI "sập não" thì mọi tính năng game/kinh tế vẫn chạy bình thường.'
+        ]
+    },
     '3.8.1': {
         date: '2026-07-19',
         title: 'Ổn định vận hành sau khi VPS khởi động lại',
