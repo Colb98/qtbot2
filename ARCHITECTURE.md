@@ -216,8 +216,10 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     SOUL.md       personality (git-tracked); RULES.md = behavioral rules
                   (git-tracked — edit + redeploy to change how the bot answers,
                   e.g. the always-search-when-unsure policy)
-    advice.js     member-set standing advice via `!ai rule <text>` / `!ai rules`
-                  / `!ai rule xoa <n>` (authorized users) — per-guild, persisted
+    advice.js     member-set standing advice via `!ai rule <text>` / `!ai rule
+                  xoa <n>` — editing requires superadmin or a grant via
+                  `!ai allow @user` (grants live in data.json bot-side);
+                  `!ai rules` viewable by all AI users — per-guild, persisted
                   in ai-service/data/advice-<gid>.json, capped (20 × 300 chars),
                   injected into every prompt; conversation guidance only, grants
                   no capabilities
