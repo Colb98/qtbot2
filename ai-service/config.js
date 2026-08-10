@@ -22,6 +22,10 @@ const config = {
     sessionMaxMessages: int('AI_SESSION_MAX_MESSAGES', 30),
     sessionMaxTokens: int('AI_SESSION_MAX_TOKENS', 3000),
     sessionQueueDepth: int('AI_SESSION_QUEUE_DEPTH', 3),
+    compactionEnabled: process.env.AI_COMPACTION_ENABLED !== 'false',
+    compactThresholdTokens: int('AI_COMPACT_THRESHOLD_TOKENS', 2000),
+    compactKeepRecent: int('AI_COMPACT_KEEP_RECENT', 10),
+    summaryMaxTokens: int('AI_SUMMARY_MAX_TOKENS', 500),
     providerOrder: (process.env.AI_PROVIDER_ORDER || 'groq,cloudflare,openrouter,grok')
         .split(',').map(s => s.trim()).filter(Boolean),
 };

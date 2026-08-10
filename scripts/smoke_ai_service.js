@@ -47,6 +47,12 @@ const msgFor = (channelId, content, name = 'Tester') =>
     });
 
     // Must be set before ai-service modules load (dotenv won't override these).
+    // Compaction thresholds are tiny so it triggers within a few (huge, echoed)
+    // exchanges; session caps are huge so the emergency trim never interferes.
+    process.env.AI_COMPACT_THRESHOLD_TOKENS = '150';
+    process.env.AI_COMPACT_KEEP_RECENT = '2';
+    process.env.AI_SESSION_MAX_TOKENS = '100000';
+    process.env.AI_SESSION_MAX_MESSAGES = '200';
     process.env.AI_SERVICE_PORT = '3999';
     process.env.AI_PROVIDER_ORDER = 'cloudflare,groq,openrouter';
     process.env.CLOUDFLARE_ACCOUNT_ID = 'fake';
@@ -163,7 +169,26 @@ const msgFor = (channelId, content, name = 'Tester') =>
     assert.ok(c11.text.includes('grok-4.5'), `grok default model should apply, got: ${c11.text.slice(0, 80)}`);
     console.log('ok 11 — grok (xAI) provider works with default model');
 
-    console.log('PASS: all Phase 1–3 + admin smoke checks green');
+    // 12. Compaction: after several exchanges the old messages are folded into
+    // a rolling summary (carried in the system message) and only the recent
+    // tail stays verbatim. The echo provider makes this inspectable: parse the
+    // reply to see exactly what context the model received.
+    await chat(msgFor('chanG', 'nói về guild war nhé'));
+    await chat(msgFor('chanG', 'tin nhắn thứ hai'));
+    await chat(msgFor('chanG', 'tin nhắn thứ ba'));
+    await new Promise((r) => setTimeout(r, 400)); // let queued compaction run
+    const c12 = await (await chat(msgFor('chanG', 'còn nhớ gì không?'))).json();
+    const payload = JSON.parse(c12.text);
+    assert.strictEqual(payload.messages[0].role, 'system');
+    assert.ok(payload.messages[0].content.includes('Tóm tắt phần trước'),
+        'system message should carry the rolling summary');
+    assert.ok(payload.messages[0].content.includes('nói về guild war'),
+        'old content should survive inside the summary');
+    assert.strictEqual(payload.messages.length, 4,
+        `context should be system + ${process.env.AI_COMPACT_KEEP_RECENT} kept + 1 new, got ${payload.messages.length}`);
+    console.log('ok 12 — compaction folds old messages into summary, keeps recent tail');
+
+    console.log('PASS: all Phase 1–4 + admin smoke checks green');
     process.exit(0);
 })().catch((e) => {
     console.error('FAIL:', e.message);

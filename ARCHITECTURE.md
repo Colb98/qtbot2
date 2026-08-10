@@ -212,10 +212,17 @@ messageCreate → aiChat.maybeHandle(msg)        [src/services/aiChat.js]
 qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     index.js      HTTP server; prompt = SOUL + channel history + new message,
                   user turns stored/sent as "DisplayName: content" (multi-speaker)
-    sessions.js   per-channel sessions `ch:<guildId>:<channelId>`, capped at
-                  AI_SESSION_MAX_MESSAGES/~TOKENS (oldest dropped — Phase 4 will
-                  compact here instead), debounce-flushed to ai-service/data/
-                  (gitignored, server-side runtime state; failed generations never enter history)
+    sessions.js   per-channel sessions `ch:<guildId>:<channelId>` shaped
+                  {summary, messages}: rolling summary + recent verbatim tail;
+                  debounce-flushed to ai-service/data/ (gitignored, server-side
+                  runtime state; failed generations never enter history).
+                  AI_SESSION_MAX_MESSAGES/~TOKENS are only the emergency trim.
+    compaction.js when the tail passes AI_COMPACT_THRESHOLD_TOKENS, folds all but
+                  AI_COMPACT_KEEP_RECENT messages into the structured rolling
+                  summary (participants/topics/decisions/unresolved/jokes, Vietnamese)
+                  via the provider router. Runs as a follow-up task on the session's
+                  queue — never delays a reply, never races a generation. Kill
+                  switch: AI_COMPACTION_ENABLED=false.
     queue.js      per-session FIFO (depth AI_SESSION_QUEUE_DEPTH, overflow → 429);
                   different sessions run concurrently
     providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI),
@@ -235,7 +242,9 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   `AI_SERVICE_URL`/`AI_SERVICE_PORT`, `AI_REQUEST_TIMEOUT_MS`, `AI_USER_COOLDOWN_MS`,
   `AI_MAX_CONCURRENT`, `AI_MAX_RESPONSE_TOKENS`, `AI_PROVIDER_TIMEOUT_MS`,
   `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, `AI_SESSION_MAX_MESSAGES`,
-  `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, plus per provider:
+  `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
+  `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
+  plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
   `OPENROUTER_API_KEY`+`OPENROUTER_MODEL`, `XAI_API_KEY`+`XAI_MODEL` (grok — XAI_ prefix on
   purpose, don't confuse with GROQ_) (optional `*_BASE_URL` overrides).
@@ -246,8 +255,8 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   tool execution live on the bot side. The AI service must never gain Discord
   credentials or read/write `data.json`. AI state (future sessions/memory) stays
   under `ai-service/`'s own storage.
-- Phases 4+ (compaction, long-term memory) per the integration plan are not yet implemented;
-  the plug-in point for compaction is the trim loop in [ai-service/sessions.js](ai-service/sessions.js).
+- Phase 5+ (long-term memory: server/user/channel memory files with selective
+  writes and scoped retrieval) per the integration plan is not yet implemented.
 
 ---
 

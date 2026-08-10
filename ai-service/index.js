@@ -12,6 +12,7 @@ const {
 const { generateChatResponse, healthSnapshot, rebuild } = require('./providers');
 const sessions = require('./sessions');
 const { enqueue, QueueFullError } = require('./queue');
+const { maybeScheduleCompaction } = require('./compaction');
 
 // Channel sessions are shared, multi-speaker conversations: user turns are
 // prefixed with the speaker's display name so the model can track who's who.
@@ -46,8 +47,9 @@ const sessionKeyOf = (b) => `ch:${b.guildId}:${b.channelId}`;
 async function runChat(sessionKey, name, userText) {
     const started = Date.now();
     const history = sessions.getHistory(sessionKey);
+    const summary = sessions.getSummary(sessionKey);
     const messages = [
-        { role: 'system', content: SYSTEM },
+        { role: 'system', content: SYSTEM + (summary ? `\n\n## Tóm tắt phần trước của cuộc trò chuyện\n${summary}` : '') },
         ...history.map((m) => m.role === 'user'
             ? { role: 'user', content: `${m.name}: ${m.content}` }
             : { role: 'assistant', content: m.content }),
@@ -58,6 +60,7 @@ async function runChat(sessionKey, name, userText) {
     // session exactly as it was, so a retry isn't a duplicate.
     sessions.append(sessionKey, { role: 'user', name, content: userText });
     sessions.append(sessionKey, { role: 'assistant', content: text });
+    maybeScheduleCompaction(sessionKey); // runs after us on this session's queue
     log.info(`[ai] done session=${sessionKey} provider=${provider} history=${history.length} total=${Date.now() - started}ms`);
     return { text, provider };
 }

@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.11.0';
+const CURRENT_VERSION = '3.12.0';
 
 const CHANGELOG = {
+    '3.12.0': {
+        date: '2026-08-10',
+        title: 'AI nhớ chuyện dài hơn',
+        changes: [
+            '🧠 **Chat dài không còn bị quên đầu đuôi** — khi cuộc trò chuyện dài ra, bot tự gói phần cũ thành bản tóm tắt (giữ chủ đề, quyết định, việc dang dở, joke nội bộ) thay vì quên hẳn. Tin nhắn gần nhất vẫn được nhớ nguyên văn.',
+            '⚡ Việc tóm tắt chạy ngầm sau khi bot trả lời — không làm chậm câu trả lời nào.'
+        ]
+    },
     '3.11.0': {
         date: '2026-08-10',
         title: 'Bảng điều khiển AI cho admin',

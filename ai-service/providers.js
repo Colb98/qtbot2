@@ -52,7 +52,7 @@ class AllProvidersFailedError extends Error {
     }
 }
 
-async function callProvider(p, messages) {
+async function callProvider(p, messages, maxTokens) {
     const res = await fetch(p.url, {
         method: 'POST',
         headers: {
@@ -62,7 +62,7 @@ async function callProvider(p, messages) {
         body: JSON.stringify({
             model: p.model,
             messages,
-            max_tokens: config.maxResponseTokens,
+            max_tokens: maxTokens,
             temperature: config.temperature,
         }),
         signal: AbortSignal.timeout(config.providerTimeoutMs),
@@ -86,8 +86,9 @@ async function callProvider(p, messages) {
  * config errors (401/403 — that provider is broken, not the request).
  * 400 means WE built a bad payload: fail immediately, don't burn the chain.
  */
-async function generateChatResponse(messages) {
+async function generateChatResponse(messages, opts = {}) {
     if (!providers.length) throw new Error('No AI providers configured');
+    const maxTokens = opts.maxTokens || config.maxResponseTokens;
     const now = Date.now();
     let eligible = providers.filter(p => now >= health.get(p.name).cooldownUntil);
     if (!eligible.length) eligible = providers; // everyone cooling down: best-effort anyway
@@ -96,7 +97,7 @@ async function generateChatResponse(messages) {
     for (const p of eligible) {
         const started = Date.now();
         try {
-            const { text, usage } = await callProvider(p, messages);
+            const { text, usage } = await callProvider(p, messages, maxTokens);
             const h = health.get(p.name);
             h.cooldownUntil = 0; h.lastFailure = null; // a success clears cooldown state
             log.info(`[ai] provider=${p.name} model=${p.model} latency=${Date.now() - started}ms` +
