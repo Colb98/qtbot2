@@ -56,6 +56,8 @@ const msgFor = (channelId, content, name = 'Tester') =>
     process.env.GROQ_BASE_URL = `http://127.0.0.1:${groqPort}/v1/chat/completions`;
     process.env.OPENROUTER_API_KEY = 'fake';
     process.env.OPENROUTER_BASE_URL = `http://127.0.0.1:${orPort}/v1/chat/completions`;
+    process.env.XAI_API_KEY = 'fake';
+    process.env.XAI_BASE_URL = `http://127.0.0.1:${orPort}/v1/chat/completions`; // same echo server
 
     require('../ai-service/index.js');
     await new Promise((r) => setTimeout(r, 300)); // let the service bind
@@ -150,6 +152,16 @@ const msgFor = (channelId, content, name = 'Tester') =>
     });
     assert.strictEqual(bad2.status, 400);
     console.log('ok 10 — admin config validation rejects bad input');
+
+    // 11. Grok (xAI) provider routes and uses its default model.
+    await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerOrder: ['grok'] }),
+    });
+    const c11 = await (await chat(msgFor('chanF', 'thử grok'))).json();
+    assert.strictEqual(c11.provider, 'grok');
+    assert.ok(c11.text.includes('grok-4.5'), `grok default model should apply, got: ${c11.text.slice(0, 80)}`);
+    console.log('ok 11 — grok (xAI) provider works with default model');
 
     console.log('PASS: all Phase 1–3 + admin smoke checks green');
     process.exit(0);

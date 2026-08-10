@@ -218,7 +218,7 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   (gitignored, server-side runtime state; failed generations never enter history)
     queue.js      per-session FIFO (depth AI_SESSION_QUEUE_DEPTH, overflow → 429);
                   different sessions run concurrently
-    providers.js  OpenAI-compat router: groq → cloudflare → openrouter,
+    providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI),
                   429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
                   Disable a provider by removing it from AI_PROVIDER_ORDER.
     config.js     env-driven: AI_PROVIDER_ORDER, per-provider keys/models/base-URLs;
@@ -237,7 +237,8 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, `AI_SESSION_MAX_MESSAGES`,
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
-  `OPENROUTER_API_KEY`+`OPENROUTER_MODEL` (optional `*_BASE_URL` overrides).
+  `OPENROUTER_API_KEY`+`OPENROUTER_MODEL`, `XAI_API_KEY`+`XAI_MODEL` (grok — XAI_ prefix on
+  purpose, don't confuse with GROQ_) (optional `*_BASE_URL` overrides).
 - **Deploy:** `pm2 start ai-service/index.js --name qtbot-ai --cwd /root/qtbot` then `pm2 save`.
   Kill switch: `AI_ENABLED=false` (bot ignores triggers) and/or stop `qtbot-ai`.
 - **Test:** `node scripts/smoke_ai_service.js` — offline, fakes providers, verifies failover/normalize/health.

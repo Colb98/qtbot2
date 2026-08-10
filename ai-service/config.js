@@ -22,18 +22,21 @@ const config = {
     sessionMaxMessages: int('AI_SESSION_MAX_MESSAGES', 30),
     sessionMaxTokens: int('AI_SESSION_MAX_TOKENS', 3000),
     sessionQueueDepth: int('AI_SESSION_QUEUE_DEPTH', 3),
-    providerOrder: (process.env.AI_PROVIDER_ORDER || 'groq,cloudflare,openrouter')
+    providerOrder: (process.env.AI_PROVIDER_ORDER || 'groq,cloudflare,openrouter,grok')
         .split(',').map(s => s.trim()).filter(Boolean),
 };
 
-const KNOWN_PROVIDERS = ['groq', 'cloudflare', 'openrouter'];
+const KNOWN_PROVIDERS = ['groq', 'cloudflare', 'openrouter', 'grok'];
 
 const DEFAULT_MODELS = {
     cloudflare: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
     groq: 'llama-3.3-70b-versatile',
     openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
+    grok: 'grok-4.5',
 };
-const ENV_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_MODEL', groq: 'GROQ_MODEL', openrouter: 'OPENROUTER_MODEL' };
+// grok (xAI) deliberately uses XAI_* keys — GROK_API_KEY next to GROQ_API_KEY
+// would be a typo waiting to happen.
+const ENV_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_MODEL', groq: 'GROQ_MODEL', openrouter: 'OPENROUTER_MODEL', grok: 'XAI_MODEL' };
 
 // Runtime overrides set from the admin dashboard; persisted so they survive
 // restarts. Precedence: override > env > hardcoded default.
@@ -87,6 +90,13 @@ function credsFor(name) {
         return {
             url: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1/chat/completions',
             key: process.env.OPENROUTER_API_KEY,
+        };
+    }
+    if (name === 'grok') {
+        if (!process.env.XAI_API_KEY) return null;
+        return {
+            url: process.env.XAI_BASE_URL || 'https://api.x.ai/v1/chat/completions',
+            key: process.env.XAI_API_KEY,
         };
     }
     return null;
