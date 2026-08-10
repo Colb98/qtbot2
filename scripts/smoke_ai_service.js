@@ -28,8 +28,8 @@ const readBody = (req) => new Promise((r) => {
 const chat = (body) => fetch('http://127.0.0.1:3999/chat', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
-const msgFor = (channelId, content, name = 'Tester') =>
-    ({ guildId: 'g1', channelId, userId: 'u1', displayName: name, content });
+const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
+    ({ guildId: 'g1', channelId, userId, displayName: name, content });
 
 (async () => {
     const cfPort = await fakeProvider((req, res) => { res.writeHead(500); res.end('{"error":"boom"}'); });
@@ -39,6 +39,19 @@ const msgFor = (channelId, content, name = 'Tester') =>
         const last = body.messages[body.messages.length - 1].content;
         if (last.includes('FORCE_FAIL')) { res.writeHead(500); return res.end('{}'); }
         if (last.includes('SLOW')) await new Promise((r) => setTimeout(r, 300));
+        // Memory-update prompts get a fixed rewrite — including a user who never
+        // spoke (u999), which the service must refuse to write.
+        if (body.messages[0].content.includes('GHI NHỚ DÀI HẠN')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: JSON.stringify({
+                    server: 'Server hay bàn guild war',
+                    channel: 'Kênh test nói về game',
+                    users: { u1: 'Tester hay hỏi về guild war', u999: 'kẻ lạ không được ghi' },
+                }) } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             choices: [{ message: { content: JSON.stringify({ model: body.model, messages: body.messages }) } }],
@@ -188,7 +201,28 @@ const msgFor = (channelId, content, name = 'Tester') =>
         `context should be system + ${process.env.AI_COMPACT_KEEP_RECENT} kept + 1 new, got ${payload.messages.length}`);
     console.log('ok 12 — compaction folds old messages into summary, keeps recent tail');
 
-    console.log('PASS: all Phase 1–4 + admin smoke checks green');
+    // 13. Memory promotion: compaction wrote scoped memory files; the
+    // non-speaker (u999) file must have been refused.
+    await new Promise((r) => setTimeout(r, 300)); // let the mem:g1 queue drain
+    const memDir = path.join(DATA_DIR, 'memory');
+    assert.ok(fs.readFileSync(path.join(memDir, 'server-g1.md'), 'utf8').includes('guild war'));
+    assert.ok(fs.readFileSync(path.join(memDir, 'channel-chanG.md'), 'utf8').includes('Kênh test'));
+    assert.ok(fs.readFileSync(path.join(memDir, 'user-u1.md'), 'utf8').includes('Tester hay hỏi'));
+    assert.ok(!fs.existsSync(path.join(memDir, 'user-u999.md')), 'non-speaker memory must be refused');
+    console.log('ok 13 — memory promoted on compaction, non-speaker write refused');
+
+    // 14. Scoped retrieval + isolation: u1 sees own memory; u2 sees server
+    // memory but never u1's file; chanB (never compacted) has no channel memory.
+    const c14a = JSON.parse((await (await chat(msgFor('chanG', 'nhớ gì về tôi?'))).json()).text);
+    assert.ok(c14a.messages[0].content.includes('Ghi nhớ về server'));
+    assert.ok(c14a.messages[0].content.includes('Tester hay hỏi'), 'u1 should get own memory');
+    const c14b = JSON.parse((await (await chat(msgFor('chanB', 'chào', 'Khách', 'u2'))).json()).text);
+    assert.ok(c14b.messages[0].content.includes('Ghi nhớ về server'), 'server memory is shared');
+    assert.ok(!c14b.messages[0].content.includes('Tester hay hỏi'), 'u1 memory leaked to u2');
+    assert.ok(!c14b.messages[0].content.includes('Ghi nhớ về kênh này'), 'chanB has no channel memory');
+    console.log('ok 14 — retrieval scoped to server + channel + speaker; no cross-user leak');
+
+    console.log('PASS: all Phase 1–5 + admin smoke checks green');
     process.exit(0);
 })().catch((e) => {
     console.error('FAIL:', e.message);

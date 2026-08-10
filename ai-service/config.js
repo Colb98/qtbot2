@@ -26,6 +26,10 @@ const config = {
     compactThresholdTokens: int('AI_COMPACT_THRESHOLD_TOKENS', 2000),
     compactKeepRecent: int('AI_COMPACT_KEEP_RECENT', 10),
     summaryMaxTokens: int('AI_SUMMARY_MAX_TOKENS', 500),
+    memoryEnabled: process.env.AI_MEMORY_ENABLED !== 'false',
+    memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
+    memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)
+    memoryMaxTokens: int('AI_MEMORY_MAX_TOKENS', 700),             // LLM output budget for rewrites
     providerOrder: (process.env.AI_PROVIDER_ORDER || 'groq,cloudflare,openrouter,grok')
         .split(',').map(s => s.trim()).filter(Boolean),
 };

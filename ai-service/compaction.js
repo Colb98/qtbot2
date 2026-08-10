@@ -6,6 +6,7 @@ const log = require('../logger');
 const { config } = require('./config');
 const { generateChatResponse } = require('./providers');
 const sessions = require('./sessions');
+const memory = require('./memory');
 const { enqueue, QueueFullError } = require('./queue');
 
 // Structured schema: freeform summaries drop odd-shaped details; forcing fixed
@@ -47,6 +48,10 @@ async function compactSession(sessionKey) {
     if (sessions.applyCompaction(sessionKey, summary)) {
         log.info(`[ai] compacted session=${sessionKey} folded=${old.length} kept=${keep.length} ` +
             `summaryChars=${summary.length} took=${Date.now() - started}ms`);
+        // Two-tier design: durable facts get promoted to long-term memory from
+        // exactly the messages the summary is about to blur out.
+        const [, guildId, channelId] = sessionKey.split(':');
+        memory.scheduleUpdate(guildId, channelId, old);
     }
 }
 

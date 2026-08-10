@@ -223,6 +223,17 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   via the provider router. Runs as a follow-up task on the session's
                   queue — never delays a reply, never races a generation. Kill
                   switch: AI_COMPACTION_ENABLED=false.
+    memory.js     long-term memory in ai-service/data/memory/ — server-<gid>.md,
+                  channel-<cid>.md, user-<uid>.md (hand-editable markdown).
+                  Written at compaction time from the folded messages (facts get
+                  promoted before the summary blurs them): one LLM call REWRITES
+                  the affected files whole under hard char caps (memory cannot
+                  grow unbounded). The model may only write files of users who
+                  spoke in the chunk. Retrieval per message: server + this channel
+                  + the speaker ONLY — other users' memory never enters the prompt.
+                  Updates serialize per guild; failures skip harmlessly.
+                  Kill switch: AI_MEMORY_ENABLED=false. `!ai reset` does NOT
+                  clear memory — delete the file on the VPS to forget someone.
     queue.js      per-session FIFO (depth AI_SESSION_QUEUE_DEPTH, overflow → 429);
                   different sessions run concurrently
     providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI),
@@ -244,7 +255,8 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, `AI_SESSION_MAX_MESSAGES`,
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
   `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
-  plus per provider:
+  `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
+  `AI_MEMORY_MAX_TOKENS`, plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
   `OPENROUTER_API_KEY`+`OPENROUTER_MODEL`, `XAI_API_KEY`+`XAI_MODEL` (grok — XAI_ prefix on
   purpose, don't confuse with GROQ_) (optional `*_BASE_URL` overrides).
@@ -255,8 +267,9 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   tool execution live on the bot side. The AI service must never gain Discord
   credentials or read/write `data.json`. AI state (future sessions/memory) stays
   under `ai-service/`'s own storage.
-- Phase 5+ (long-term memory: server/user/channel memory files with selective
-  writes and scoped retrieval) per the integration plan is not yet implemented.
+- Remaining from the integration plan: Phase 6 hardening (metrics counters,
+  restart recovery drills) — rate limits, timeouts, health/cooldowns, kill
+  switches, structured logs and graceful shutdown already exist.
 
 ---
 

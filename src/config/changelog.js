@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '3.12.0';
+const CURRENT_VERSION = '3.13.0';
 
 const CHANGELOG = {
+    '3.13.0': {
+        date: '2026-08-10',
+        title: 'AI có trí nhớ dài hạn',
+        changes: [
+            '📔 **Bot giờ nhớ lâu dài** — những điều ổn định và đáng nhớ (sở thích, biệt danh, joke nội bộ, sự kiện dài hạn) được ghi lại và nhớ qua cả restart, kể cả khi cuộc trò chuyện đã trôi xa.',
+            '🔐 **Trí nhớ có phạm vi rõ ràng** — ghi nhớ về bạn chỉ xuất hiện khi chính bạn chat; người khác không "mượn" được trí nhớ về bạn.',
+            '🗑️ `!ai reset` chỉ xoá đoạn chat đang dở, KHÔNG xoá trí nhớ dài hạn.'
+        ]
+    },
     '3.12.0': {
         date: '2026-08-10',
         title: 'AI nhớ chuyện dài hơn',

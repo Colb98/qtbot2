@@ -13,6 +13,7 @@ const { generateChatResponse, healthSnapshot, rebuild } = require('./providers')
 const sessions = require('./sessions');
 const { enqueue, QueueFullError } = require('./queue');
 const { maybeScheduleCompaction } = require('./compaction');
+const memory = require('./memory');
 
 // Channel sessions are shared, multi-speaker conversations: user turns are
 // prefixed with the speaker's display name so the model can track who's who.
@@ -44,12 +45,19 @@ function send(res, status, obj) {
 
 const sessionKeyOf = (b) => `ch:${b.guildId}:${b.channelId}`;
 
-async function runChat(sessionKey, name, userText) {
+async function runChat(sessionKey, { guildId, channelId, userId, name, userText }) {
     const started = Date.now();
     const history = sessions.getHistory(sessionKey);
     const summary = sessions.getSummary(sessionKey);
+    // Scoped memory only (§11): server + this channel + the current speaker.
+    const mem = memory.getContext(guildId, channelId, userId);
+    let system = SYSTEM;
+    if (mem.server) system += `\n\n## Ghi nhớ về server\n${mem.server}`;
+    if (mem.channel) system += `\n\n## Ghi nhớ về kênh này\n${mem.channel}`;
+    if (mem.user) system += `\n\n## Ghi nhớ về ${name}\n${mem.user}`;
+    if (summary) system += `\n\n## Tóm tắt phần trước của cuộc trò chuyện\n${summary}`;
     const messages = [
-        { role: 'system', content: SYSTEM + (summary ? `\n\n## Tóm tắt phần trước của cuộc trò chuyện\n${summary}` : '') },
+        { role: 'system', content: system },
         ...history.map((m) => m.role === 'user'
             ? { role: 'user', content: `${m.name}: ${m.content}` }
             : { role: 'assistant', content: m.content }),
@@ -58,7 +66,7 @@ async function runChat(sessionKey, name, userText) {
     const { text, provider } = await generateChatResponse(messages);
     // Only successful exchanges enter history — a failed generation leaves the
     // session exactly as it was, so a retry isn't a duplicate.
-    sessions.append(sessionKey, { role: 'user', name, content: userText });
+    sessions.append(sessionKey, { role: 'user', name, userId, content: userText });
     sessions.append(sessionKey, { role: 'assistant', content: text });
     maybeScheduleCompaction(sessionKey); // runs after us on this session's queue
     log.info(`[ai] done session=${sessionKey} provider=${provider} history=${history.length} total=${Date.now() - started}ms`);
@@ -76,7 +84,9 @@ async function handleChat(req, res) {
     log.info(`[ai] request user=${userId} session=${sessionKey} chars=${content.length}`);
     let task;
     try {
-        task = enqueue(sessionKey, () => runChat(sessionKey, name, content.slice(0, 4000)), config.sessionQueueDepth);
+        task = enqueue(sessionKey, () => runChat(sessionKey, {
+            guildId, channelId, userId, name, userText: content.slice(0, 4000),
+        }), config.sessionQueueDepth);
     } catch (e) {
         if (e instanceof QueueFullError) return send(res, 429, { error: 'session busy' });
         throw e;
