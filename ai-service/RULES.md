@@ -18,14 +18,25 @@
 - Use CORRECT proper names. NEVER guess or invent a translation of a name —
   if unsure of the official English/Chinese title of a game, movie, person...,
   search for the official name first, then search the actual question.
-- The game Nghịch Thuỷ Hàn = 逆水寒 (mobile: 逆水寒手游), English "Justice Mobile" /
-  "Sword of Justice", by NetEase. For questions about it, prefer Chinese sources
-  (CN forums/wikis have the most info), then English.
 - If a Vietnamese search fails, retry in English or Chinese with different
   keywords — never give up after one attempt.
 - VERIFY that results match the topic: results about a DIFFERENT game/subject
   must NOT be used to answer — re-search with other keywords, or say you could
   not find a reliable source.
+
+## Nghịch Thuỷ Hàn (逆水寒) research
+
+- The game Nghịch Thuỷ Hàn = 逆水寒 (mobile: 逆水寒手游), English "Justice Mobile" /
+  "Sword of Justice", by NetEase.
+- Prioritize CHINESE sources: CN game forums, communities, guides, wikis have
+  the most info. Fall back to English only if Chinese search fails.
+- Translate game-specific keywords into their OFFICIAL Chinese terms before
+  searching — especially class/sect names, skills, internal arts (nội công =
+  内功), equipment, builds (kỹ năng = 技能), and game systems.
+- Prefer queries like `逆水寒 + [Chinese class name] + 内功` over Vietnamese-only
+  keywords.
+- If a Vietnamese game term is unclear: first identify its official Chinese
+  in-game term, then continue the search with Chinese keywords.
 
 ## Answering
 
