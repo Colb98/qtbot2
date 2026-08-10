@@ -39,6 +39,15 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         const last = body.messages[body.messages.length - 1].content;
         if (last.includes('FORCE_FAIL')) { res.writeHead(500); return res.end('{}'); }
         if (last.includes('SLOW')) await new Promise((r) => setTimeout(r, 300));
+        // A user message containing DÙNG_SEARCH makes the "model" request a web
+        // search; once results come back (marked block) it echoes as usual.
+        if (last.includes('DÙNG_SEARCH') && !last.includes('Kết quả tìm kiếm')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '[[search: giá vàng hôm nay]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         // Memory-update prompts get a fixed rewrite — including a user who never
         // spoke (u999), which the service must refuse to write.
         if (body.messages[0].content.includes('GHI NHỚ DÀI HẠN')) {
@@ -56,6 +65,13 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         res.end(JSON.stringify({
             choices: [{ message: { content: JSON.stringify({ model: body.model, messages: body.messages }) } }],
             usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }));
+    });
+
+    const searchPort = await fakeProvider((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            results: [{ title: 'Giá vàng SJC', url: 'https://example.com/gold', content: 'Giá vàng hôm nay 88 triệu/lượng' }],
         }));
     });
 
@@ -77,6 +93,8 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     process.env.OPENROUTER_BASE_URL = `http://127.0.0.1:${orPort}/v1/chat/completions`;
     process.env.XAI_API_KEY = 'fake';
     process.env.XAI_BASE_URL = `http://127.0.0.1:${orPort}/v1/chat/completions`; // same echo server
+    process.env.TAVILY_API_KEY = 'fake';
+    process.env.TAVILY_BASE_URL = `http://127.0.0.1:${searchPort}/search`;
 
     require('../ai-service/index.js');
     await new Promise((r) => setTimeout(r, 300)); // let the service bind
@@ -221,6 +239,17 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(!c14b.messages[0].content.includes('Tester hay hỏi'), 'u1 memory leaked to u2');
     assert.ok(!c14b.messages[0].content.includes('Ghi nhớ về kênh này'), 'chanB has no channel memory');
     console.log('ok 14 — retrieval scoped to server + channel + speaker; no cross-user leak');
+
+    // 15. Web search tool loop: model emits [[search: ...]] → service runs the
+    // search → regenerates with results as labeled untrusted context → reply
+    // carries the queries in meta. Final answer (echo) proves the results and
+    // the original question were both in the second generation's context.
+    const c15 = await (await chat(msgFor('chanH', 'DÙNG_SEARCH giá vàng bao nhiêu?'))).json();
+    assert.deepStrictEqual(c15.searchQueries, ['giá vàng hôm nay']);
+    assert.ok(c15.text.includes('Kết quả tìm kiếm'), 'results block should reach the model');
+    assert.ok(c15.text.includes('Giá vàng SJC'), 'search result content should reach the model');
+    assert.ok(c15.text.includes('DÙNG_SEARCH giá vàng bao nhiêu?'), 'original question should stay in context');
+    console.log('ok 15 — web search tool loop grounds the answer, queries reported');
 
     console.log('PASS: all Phase 1–5 + admin smoke checks green');
     process.exit(0);

@@ -108,8 +108,10 @@ async function processMessage(msg) {
         });
         if (res.status === 429) { msg.react('⏳').catch(() => {}); return; } // session busy
         if (!res.ok) throw new Error(`ai-service HTTP ${res.status}`);
-        const { text } = await res.json();
-        const chunks = chunkText(text);
+        const { text, searchQueries } = await res.json();
+        const note = searchQueries?.length
+            ? `-# 🔎 tìm web: ${searchQueries.map((q) => `"${q}"`).join(' · ')}\n` : '';
+        const chunks = chunkText(note + text);
         await msg.reply({ content: chunks.shift(), allowedMentions: { repliedUser: false } });
         for (const c of chunks) await msg.channel.send(c);
     } catch (e) {

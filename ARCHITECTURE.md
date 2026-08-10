@@ -223,6 +223,13 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   via the provider router. Runs as a follow-up task on the session's
                   queue — never delays a reply, never races a generation. Kill
                   switch: AI_COMPACTION_ENABLED=false.
+    search.js     the only LLM tool (web search), per the §4 capability rules:
+                  the model can only REQUEST a search by replying "[[search: q]]"
+                  (works on every provider — no native function-calling needed);
+                  deterministic code validates the query, runs Tavily (or Brave)
+                  with timeout + caps (per-message, daily), feeds results back as
+                  labeled untrusted text, regenerates. Replies show "🔎 tìm web".
+                  Enabled iff TAVILY_API_KEY or BRAVE_API_KEY is set.
     memory.js     long-term memory in ai-service/data/memory/ — server-<gid>.md,
                   channel-<cid>.md, user-<uid>.md (hand-editable markdown).
                   Written at compaction time from the folded messages (facts get
@@ -256,7 +263,9 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
   `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
   `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
-  `AI_MEMORY_MAX_TOKENS`, plus per provider:
+  `AI_MEMORY_MAX_TOKENS`, `AI_SEARCH_ENABLED`, `TAVILY_API_KEY`/`BRAVE_API_KEY`,
+  `AI_SEARCH_MAX_RESULTS`, `AI_SEARCH_TIMEOUT_MS`, `AI_SEARCH_MAX_PER_MESSAGE`,
+  `AI_SEARCH_DAILY_LIMIT`, plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
   `OPENROUTER_API_KEY`+`OPENROUTER_MODEL`, `XAI_API_KEY`+`XAI_MODEL` (grok — XAI_ prefix on
   purpose, don't confuse with GROQ_) (optional `*_BASE_URL` overrides).

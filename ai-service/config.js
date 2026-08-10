@@ -26,6 +26,12 @@ const config = {
     compactThresholdTokens: int('AI_COMPACT_THRESHOLD_TOKENS', 2000),
     compactKeepRecent: int('AI_COMPACT_KEEP_RECENT', 10),
     summaryMaxTokens: int('AI_SUMMARY_MAX_TOKENS', 500),
+    searchEnabled: process.env.AI_SEARCH_ENABLED !== 'false'
+        && !!(process.env.TAVILY_API_KEY || process.env.BRAVE_API_KEY),
+    searchMaxResults: int('AI_SEARCH_MAX_RESULTS', 4),
+    searchTimeoutMs: int('AI_SEARCH_TIMEOUT_MS', 10000),
+    searchMaxPerMessage: int('AI_SEARCH_MAX_PER_MESSAGE', 2),
+    searchDailyLimit: int('AI_SEARCH_DAILY_LIMIT', 200),
     memoryEnabled: process.env.AI_MEMORY_ENABLED !== 'false',
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)

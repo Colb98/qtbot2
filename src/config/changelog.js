@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.13.0';
+const CURRENT_VERSION = '3.14.0';
 
 const CHANGELOG = {
+    '3.14.0': {
+        date: '2026-08-10',
+        title: 'AI biết tra cứu web',
+        changes: [
+            '🔎 **AI giờ tự tra web khi cần** — hỏi tin tức, giá cả, sự kiện mới... bot sẽ tự tìm kiếm rồi trả lời kèm nguồn. Tin nhắn có dòng "🔎 tìm web" nhỏ cho biết bot đã tra cứu gì.',
+            '🛡️ Tra cứu chỉ đọc, có giới hạn số lần — AI vẫn không đụng được vào tiền, role hay game.'
+        ]
+    },
     '3.13.0': {
         date: '2026-08-10',
         title: 'AI có trí nhớ dài hạn',

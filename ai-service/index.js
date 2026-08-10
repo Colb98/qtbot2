@@ -14,12 +14,18 @@ const sessions = require('./sessions');
 const { enqueue, QueueFullError } = require('./queue');
 const { maybeScheduleCompaction } = require('./compaction');
 const memory = require('./memory');
+const search = require('./search');
 
 // Channel sessions are shared, multi-speaker conversations: user turns are
 // prefixed with the speaker's display name so the model can track who's who.
 const SYSTEM = loadSoul() +
     '\n\nTin nhắn của người dùng có dạng "Tên: nội dung" để bạn biết ai đang nói. ' +
-    'KHÔNG thêm tiền tố tên (kiểu "QT:") vào câu trả lời của bạn.';
+    'KHÔNG thêm tiền tố tên (kiểu "QT:") vào câu trả lời của bạn.' +
+    (config.searchEnabled
+        ? '\n\n## Tìm kiếm web\nKhi cần thông tin mới hoặc thời sự (tin tức, giá cả, kết quả, sự kiện gần đây...), ' +
+          'trả lời CHỈ bằng đúng một dòng: [[search: <câu truy vấn ngắn>]] — hệ thống sẽ đưa kết quả để bạn trả lời tiếp. ' +
+          'Chỉ dùng khi thật sự cần. Khi trả lời dựa trên kết quả tìm kiếm, nêu nguồn (URL) nếu hữu ích.'
+        : '');
 
 function readJsonBody(req, limit = 64 * 1024) {
     return new Promise((resolve, reject) => {
@@ -63,14 +69,33 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
             : { role: 'assistant', content: m.content }),
         { role: 'user', content: `${name}: ${userText}` },
     ];
-    const { text, provider } = await generateChatResponse(messages);
+    let { text, provider } = await generateChatResponse(messages);
+
+    // Tool loop: the model asks for a search via [[search: ...]]; we run it and
+    // regenerate with the results. Capped per message; intermediate steps stay
+    // out of the session — only the user's message and the final answer persist.
+    const searchQueries = [];
+    while (config.searchEnabled) {
+        const query = search.extractQuery(text);
+        // Same-query repeats are loop bait (a model can echo the prior tool
+        // step from its context) — one run per distinct query per message.
+        if (!query || searchQueries.includes(query) || searchQueries.length >= config.searchMaxPerMessage) break;
+        searchQueries.push(query);
+        const results = await search.run(query);
+        messages.push({ role: 'assistant', content: `[[search: ${query}]]` });
+        messages.push({ role: 'user', content: results });
+        ({ text, provider } = await generateChatResponse(messages));
+    }
+    text = search.stripMarkers(text) || 'Mình tìm chưa ra thông tin, thử lại sau nhé.';
+
     // Only successful exchanges enter history — a failed generation leaves the
     // session exactly as it was, so a retry isn't a duplicate.
     sessions.append(sessionKey, { role: 'user', name, userId, content: userText });
     sessions.append(sessionKey, { role: 'assistant', content: text });
     maybeScheduleCompaction(sessionKey); // runs after us on this session's queue
-    log.info(`[ai] done session=${sessionKey} provider=${provider} history=${history.length} total=${Date.now() - started}ms`);
-    return { text, provider };
+    log.info(`[ai] done session=${sessionKey} provider=${provider} history=${history.length} ` +
+        `searches=${searchQueries.length} total=${Date.now() - started}ms`);
+    return { text, provider, searchQueries };
 }
 
 async function handleChat(req, res) {
