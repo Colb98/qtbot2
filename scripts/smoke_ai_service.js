@@ -386,7 +386,7 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         `think turns must be ephemeral: expected system + 2 history + 1 new, got ${c18b.messages.length}`);
     // The echoed reply *text* embeds the whole context (that's the echo), so
     // check turns, not substrings: no persisted turn may BE a think/note turn.
-    assert.ok(!c18b.messages.some((m) => m.content.startsWith('[Phân tích nội bộ]') || m.content.startsWith('[Bản nháp trên')),
+    assert.ok(!c18b.messages.some((m) => m.content.startsWith('[Phân tích nội bộ]') || m.content.startsWith('[Bản nháp NGAY TRÊN')),
         'think turn leaked into session history');
     console.log('ok 18 — research path: hidden think grounds the answer, stays out of the session');
 

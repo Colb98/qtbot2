@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.20.2';
+const CURRENT_VERSION = '3.20.3';
 
 const CHANGELOG = {
+    '3.20.3': {
+        date: '2026-08-11',
+        title: 'Hết tua lại băng cũ',
+        changes: [
+            '🔁 **Bot không lặp lại câu trả lời cũ nữa** — khi bị hỏi dồn cùng một chủ đề, bot từng lười: nghĩ ra ý mới rồi lại... dán nguyên câu trả lời trước đó. Giờ mỗi câu hỏi dùng đúng bản nháp mới nghĩ ra, cãi tay đôi có tiến triển hẳn hoi.'
+        ]
+    },
     '3.20.2': {
         date: '2026-08-11',
         title: 'Nghĩ hay thì nói y vậy luôn',

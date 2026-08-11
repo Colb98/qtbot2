@@ -134,12 +134,16 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
                 ? 'Đây là tình huống cà khịa/xã giao — punchline chính LÀ câu trả lời.'
                 : 'Giữ đúng giọng lồi lõm trong SOUL — task first, sass second. ' +
                   'Vẫn có thể dùng [[search: ...]] nếu cần.';
+            // "NGAY TRÊN … ĐỪNG chép lại câu trước": on repeated bait the model
+            // anchors on its committed previous reply over the bracketed note
+            // and recycles it — re-aim the verbatim license at THIS draft only.
             messages.push({ role: 'assistant', content: `[Phân tích nội bộ]\n${thinkText}` });
             messages.push({
                 role: 'user',
-                content: '[Bản nháp trên là của CHÍNH BẠN — người dùng KHÔNG thấy. ' +
-                    `Giờ trả lời ${name}: câu/punchline nào trong nháp đã hay thì dùng NGUYÊN VĂN — ` +
-                    `không diễn giải lại, không làm mềm; chỉ bổ sung phần còn thiếu. ${closing}]`,
+                content: `[Bản nháp NGAY TRÊN là của CHÍNH BẠN, viết cho câu hỏi HIỆN TẠI của ${name} — ` +
+                    'người dùng KHÔNG thấy. ĐỪNG chép lại câu trả lời trước đó của bạn trong lịch sử — ' +
+                    'lý lẽ/tình huống đã khác rồi. Câu/punchline nào trong bản nháp MỚI đã hay thì dùng ' +
+                    `NGUYÊN VĂN — không diễn giải lại, không làm mềm; chỉ bổ sung phần còn thiếu. ${closing}]`,
             });
         }
     }
