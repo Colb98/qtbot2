@@ -28,7 +28,7 @@ function emptyDay() {
         perUser: {}, providers: {},
         searches: 0, pagesRead: 0, compactions: 0, memoryWrites: 0,
         classifyImmediate: 0, classifySocial: 0, classifyThink: 0, classifyResearch: 0,
-        thinkSteps: 0,
+        thinkSteps: 0, verifyFails: 0,
     };
 }
 

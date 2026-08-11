@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.21.0';
+const CURRENT_VERSION = '3.22.0';
 
 const CHANGELOG = {
+    '3.22.0': {
+        date: '2026-08-11',
+        title: 'Tách não phân tích khỏi mồm cà khịa',
+        changes: [
+            '🧪 **Bộ phân tích riêng, không nhiễm giọng** — với câu hỏi khó, bot giờ phân tích bằng ghi chú kỹ thuật khô khan (không phải câu thoại), nên câu trả lời cuối không còn bị "dính" văn phân tích — đúng ý hơn mà vẫn đúng giọng.',
+            '✅ **Câu cà khịa có trạm kiểm soát** — trả lời xã giao vẫn một phát ăn ngay, nhưng có bộ kiểm tra ĐẠT/RỚT (sai fact, lạc đề, nguy hiểm mới rớt — mặn nhạt không tính); rớt thì viết lại đúng chỗ sai, không ai "đánh bóng" lại câu thoại nữa.'
+        ]
+    },
     '3.21.0': {
         date: '2026-08-11',
         title: 'Cà khịa một phát ăn ngay',

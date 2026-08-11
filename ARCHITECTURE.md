@@ -218,21 +218,22 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     index.js      HTTP server; prompt = SOUL + RULES + member advice + memory +
                   summary + ambient channel context + history + new message;
                   user turns stored/sent as "DisplayName: content" (multi-speaker)
-    reasoning.js  adaptive reasoning: a tiny classifier (max ~8 tokens) routes
-                  each message to NOW (banter — answer directly), SOCIAL
-                  (refusals/boundary/drama, ~150 tokens), THINK
-                  (logic/comparison from context, ~250) or RESEARCH
-                  (needs facts/web, ~400). SOCIAL is single-pass: its template
-                  writes the FINAL reply and index.js ships it verbatim (no
-                  second generation, no search loop) — a rewrite pass only
-                  paraphrased the punch away or recycled an older reply; falls
-                  back to the normal path if the draft call fails. THINK and
-                  RESEARCH run a hidden "think" generation whose notes are
-                  pushed as ephemeral turns that ground the answer (and any
-                  searches it plans) but never enter the session or reach
-                  Discord; both templates end with a mandatory voice step
-                  (draft the opening line in the SOUL persona) and the framing
-                  note grants verbatim license scoped to the CURRENT draft. Heuristic fast-path: messages
+    reasoning.js  adaptive reasoning, personality applied exactly ONCE (at
+                  reply time). A tiny classifier (max ~8 tokens) routes each
+                  message: NOW (banter — answer directly), SOCIAL, THINK or
+                  RESEARCH. SOCIAL = one persona pass whose output IS the final
+                  reply, gated by verify() — a PASS/FAIL checker (never a
+                  rewriter; polish passes flatten replies): PASS ships the
+                  draft verbatim (no second generation, no search loop), FAIL
+                  regenerates once with the checker's concrete reason; style /
+                  tone / sass are explicitly NOT failure reasons. THINK (~250
+                  tokens) and RESEARCH (~400) run analyzeTask(): a persona-FREE
+                  structured analysis (intent / facts / constraints / avoid /
+                  conclusion — English, telegraphic, forbidden from drafting a
+                  reply) on a TASK_SYSTEM head (RULES + facts, no SOUL, no
+                  member advice), so the final generation can't anchor on its
+                  wording; its notes are pushed as ephemeral turns that never
+                  enter the session or reach Discord. Heuristic fast-path: messages
                   shorter than AI_REASONING_MIN_CHARS skip the classifier
                   entirely. Both extra calls are daily-capped
                   (AI_REASONING_DAILY_LIMIT) and FAIL OPEN — any classifier or
@@ -341,7 +342,8 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,
   `AI_REASONING_CONTEXT_TURNS`, `AI_REASONING_CLASSIFIER_MAX_TOKENS`,
   `AI_REASONING_THINK_MAX_TOKENS` (research), `AI_REASONING_ANALYZE_MAX_TOKENS`,
-  `AI_REASONING_SOCIAL_MAX_TOKENS`, `AI_REASONING_DAILY_LIMIT`, `AI_TRACE_ENABLED`,
+  `AI_REASONING_SOCIAL_MAX_TOKENS`, `AI_REASONING_DAILY_LIMIT`, `AI_VERIFY_ENABLED`,
+  `AI_VERIFY_MAX_TOKENS`, `AI_TRACE_ENABLED`,
   `AI_TRACE_MAX`, `AI_TRACE_DETAIL_MAX_CHARS`, `AI_METRICS_ENABLED`,
   `AI_METRICS_RETENTION_DAYS`, `AI_SEARCH_ENABLED`, `SERPER_API_KEY`/`TAVILY_API_KEY`
   (cascade in that order), `AI_SEARCH_MAX_RESULTS`, `AI_SEARCH_MIN_RESULTS`,

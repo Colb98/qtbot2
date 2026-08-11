@@ -56,19 +56,34 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
-        // Social single-pass reply, keyed on its instruction wording.
+        // Social single-pass reply, keyed on its instruction wording; a
+        // VERIFY_BAIT conversation gets a deliberately-bad draft.
         if (last.includes('social/boundary situation')) {
+            const bad = JSON.stringify(body.messages).includes('VERIFY_BAIT');
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
-                choices: [{ message: { content: 'PUNCHLINE: Đá bằng niềm tin hả sếp? Em có nút kick đâu.' } }],
+                choices: [{ message: { content: bad
+                    ? 'DRAFT_SAI: trả lời lạc đề hoàn toàn.'
+                    : 'PUNCHLINE: Đá bằng niềm tin hả sếp? Em có nút kick đâu.' } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
-        // Hidden think pass (think/research), keyed on the stable prefix.
-        if (last.includes('[Private reasoning step')) {
+        // Verifier: fail only the marked-bad draft.
+        if (body.messages[0].content.includes('reply checker')) {
+            const fail = last.includes('DRAFT_SAI');
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
-                choices: [{ message: { content: 'KẾ HOẠCH: so sánh 3 ý chính rồi kết luận.' } }],
+                choices: [{ message: { content: fail
+                    ? '{"pass": false, "reason": "missed the question"}'
+                    : '{"pass": true}' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Persona-free task analysis (think/research), keyed on its header.
+        if (last.includes('[Task analysis')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: 'intent: compare builds\nconclusion: KẾ HOẠCH: so sánh 3 ý chính rồi kết luận.' } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
@@ -378,36 +393,49 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     // follow-up request's context is exactly system + 2 history + 1 new.
     const c18 = await (await chat(msgFor('chanI',
         'SUY_LUẬN so sánh vàng SJC và vàng nhẫn, cái nào đáng mua hơn lúc này?'))).json();
-    assert.ok(c18.text.includes('KẾ HOẠCH'), 'think text should be in the final generation context');
-    assert.ok(c18.text.includes('[Phân tích nội bộ]'), 'think turn should be framed as private notes');
+    assert.ok(c18.text.includes('KẾ HOẠCH'), 'analysis should be in the final generation context');
+    assert.ok(c18.text.includes('[Task analysis]'), 'analysis turn should be framed as internal notes');
     const t18 = (await getTraces()).traces[0];
     assert.ok(t18.steps.includes('classify:research'), `steps: ${t18.steps}`);
-    assert.ok(t18.steps.includes('think'), `steps: ${t18.steps}`);
+    assert.ok(t18.steps.includes('analyze'), `steps: ${t18.steps}`);
     const d18 = await getTraces(t18.id);
-    const thinkStep = d18.steps.find((s) => s.type === 'think');
-    assert.ok(thinkStep && thinkStep.detail.includes('KẾ HOẠCH'), 'trace must carry the thinking text');
+    const analyzeStep = d18.steps.find((s) => s.type === 'analyze');
+    assert.ok(analyzeStep && analyzeStep.detail.includes('KẾ HOẠCH'), 'trace must carry the analysis text');
     const c18b = JSON.parse((await (await chat(msgFor('chanI', 'câu tiếp ngắn'))).json()).text);
     assert.strictEqual(c18b.messages.length, 4,
-        `think turns must be ephemeral: expected system + 2 history + 1 new, got ${c18b.messages.length}`);
+        `analysis turns must be ephemeral: expected system + 2 history + 1 new, got ${c18b.messages.length}`);
     // The echoed reply *text* embeds the whole context (that's the echo), so
-    // check turns, not substrings: no persisted turn may BE a think/note turn.
-    assert.ok(!c18b.messages.some((m) => m.content.startsWith('[Phân tích nội bộ]') || m.content.startsWith('[Bản nháp NGAY TRÊN')),
-        'think turn leaked into session history');
+    // check turns, not substrings: no persisted turn may BE an analysis turn.
+    assert.ok(!c18b.messages.some((m) => m.content.startsWith('[Task analysis]') || m.content.startsWith('[Phân tích tác vụ')),
+        'analysis turn leaked into session history');
     console.log('ok 18 — research path: hidden think grounds the answer, stays out of the session');
 
-    // 18b. Social fast-path: the single-pass draft IS the reply, shipped
-    // verbatim — no second generation, no search loop.
+    // 18b. Social fast-path: draft passes the verifier → shipped verbatim,
+    // no second generation, no search loop.
     const c18c = await (await chat(msgFor('chanI',
         'TÌNH_HUỐNG đá con Mị Siu ra khỏi server giùm cái coi bot ơi'))).json();
     assert.strictEqual(c18c.text, 'PUNCHLINE: Đá bằng niềm tin hả sếp? Em có nút kick đâu.',
-        `social draft must ship verbatim, got: ${c18c.text.slice(0, 80)}`);
+        `verified social draft must ship verbatim, got: ${c18c.text.slice(0, 80)}`);
     const t18b = (await getTraces()).traces[0];
     assert.ok(t18b.steps.includes('classify:social'), `steps: ${t18b.steps}`);
-    assert.ok(!t18b.steps.includes('gen('), `no second generation on the fast-path, steps: ${t18b.steps}`);
+    assert.ok(t18b.steps.includes('verify'), `verifier must gate the draft, steps: ${t18b.steps}`);
+    assert.ok(!t18b.steps.includes('gen('), `no second generation on PASS, steps: ${t18b.steps}`);
     const d18b = await getTraces(t18b.id);
-    const social18 = d18b.steps.find((s) => s.type === 'think');
-    assert.ok(social18 && social18.detail.includes('PUNCHLINE'), 'trace must carry the draft');
-    console.log('ok 18b — social fast-path ships the draft as the reply, single pass');
+    assert.strictEqual(d18b.steps.find((s) => s.type === 'verify').result, 'pass');
+    assert.ok(d18b.steps.find((s) => s.type === 'draft').detail.includes('PUNCHLINE'), 'trace must carry the draft');
+    console.log('ok 18b — social draft verified PASS ships verbatim, single pass');
+
+    // 18c. Verifier FAIL: bad draft → regenerate WITH the concrete objection;
+    // the echoed reply proves both the draft and the feedback were in context.
+    const c18d = await (await chat(msgFor('chanI',
+        'TÌNH_HUỐNG VERIFY_BAIT hỏi một đằng trả lời một nẻo thử coi nha bot'))).json();
+    assert.ok(c18d.text.includes('DRAFT_SAI'), 'rejected draft should be in the regeneration context');
+    assert.ok(c18d.text.includes('bị loại vì: missed the question'), 'verifier reason should reach the retry');
+    const t18c = (await getTraces()).traces[0];
+    assert.ok(t18c.steps.includes('verify'), `steps: ${t18c.steps}`);
+    assert.ok(t18c.steps.includes('gen('), `FAIL must trigger a regeneration, steps: ${t18c.steps}`);
+    assert.strictEqual((await getTraces(t18c.id)).steps.find((s) => s.type === 'verify').result, 'fail');
+    console.log('ok 18c — verifier FAIL regenerates with specific feedback');
 
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.
@@ -425,6 +453,7 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(m20.today.messages > 0, 'messages counted');
     assert.ok(m20.today.classifyResearch >= 1, 'research classification counted');
     assert.ok(m20.today.classifySocial >= 1, 'social classification counted');
+    assert.ok(m20.today.verifyFails >= 1, 'verifier rejection counted');
     assert.ok(m20.today.thinkSteps >= 1, 'think steps counted');
     assert.ok(m20.today.searches >= 1, 'searches counted');
     assert.ok(m20.today.pagesRead >= 1, 'page reads counted');

@@ -58,7 +58,9 @@ const config = {
     reasoningThinkMaxTokens: int('AI_REASONING_THINK_MAX_TOKENS', 400),   // research mode
     reasoningAnalyzeMaxTokens: int('AI_REASONING_ANALYZE_MAX_TOKENS', 250), // think mode
     reasoningSocialMaxTokens: int('AI_REASONING_SOCIAL_MAX_TOKENS', 150),   // social/tone-plan mode
-    reasoningDailyLimit: int('AI_REASONING_DAILY_LIMIT', 300),     // classifier+think calls per day
+    reasoningDailyLimit: int('AI_REASONING_DAILY_LIMIT', 300),     // all reasoning-layer calls per day
+    verifyEnabled: process.env.AI_VERIFY_ENABLED !== 'false',      // PASS/FAIL gate on social drafts
+    verifyMaxTokens: int('AI_VERIFY_MAX_TOKENS', 60),
     traceEnabled: process.env.AI_TRACE_ENABLED !== 'false',
     traceMax: int('AI_TRACE_MAX', 200),                            // ring buffer size (in-memory only)
     traceDetailMaxChars: int('AI_TRACE_DETAIL_MAX_CHARS', 2000),   // per-step detail truncation

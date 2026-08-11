@@ -1,14 +1,20 @@
-// Brief reasoning flow: a routing classifier decides whether a question needs
-// a hidden "think" pass before answering, or an immediate reply. Both extra
-// LLM calls are small, daily-capped, and fail-open — any failure degrades to
-// today's behavior (answer immediately), never to a failed request.
+// Adaptive reasoning with personality applied exactly ONCE, at reply time:
+// - classify():    tiny router → immediate | social | think | research
+// - socialReply(): single persona pass whose output IS the final reply
+// - verify():      PASS/FAIL gate on social drafts — a checker, never a
+//                  rewriter (a second "polish" pass is what flattens replies)
+// - analyzeTask(): persona-FREE structured analysis for think/research —
+//                  English, telegraphic, forbidden from drafting the reply,
+//                  so the final generation cannot anchor on its wording.
+// Every extra LLM call here is daily-capped and FAILS OPEN: any error
+// degrades to answering directly, never to a failed request.
 const log = require('../logger');
 const { config } = require('./config');
 const { generateChatResponse } = require('./providers');
 const metrics = require('./metrics');
 const trace = require('./trace');
 
-// In-memory daily counter for classifier+think calls — free-tier backstop,
+// In-memory daily counter for all reasoning-layer calls — free-tier backstop,
 // resets on restart by design (same pattern as search.js).
 let daily = { day: '', count: 0 };
 function underDailyLimit() {
@@ -17,11 +23,6 @@ function underDailyLimit() {
     return daily.count < config.reasoningDailyLimit;
 }
 
-// Adaptive routing: not every question deserves the same thinking. The
-// classifier picks one of four modes; each non-NOW mode gets its own think
-// template and token budget, and EVERY template ends with a mandatory voice
-// step so the final reply keeps Tiểu Bot's sassy tone instead of inheriting a
-// bureaucratic outline.
 const CLASSIFIER_SYSTEM =
     'You are a routing classifier for a Discord chatbot. Classify the LAST message by the ' +
     'kind of reasoning it needs before answering. Reply with EXACTLY one word:\n' +
@@ -33,39 +34,45 @@ const CLASSIFIER_SYSTEM =
     'RESEARCH — needs facts you may not have: news, prices, game builds/meta/guides, ' +
     'versions, events, real people.';
 
-// The exact bracket prefix is load-bearing: the smoke test's fake provider
-// keys on it to recognize a think turn ('[Private reasoning step'), and on
-// 'tone plan' to recognize the social template. Keep in sync with the test.
-const THINK_PREFIX =
-    '[Private reasoning step — the user will NEVER see this text. Do not greet, do not ' +
-    'write the final reply.] ';
-const VOICE_STEP =
-    'Finally: draft 1-2 opening lines / punchlines in Tiểu Bot\'s sassy Gen Z "lồi lõm" ' +
-    'voice (see SOUL) — concrete and situation-specific, NOT generic politeness.';
+// Social single-pass: this call produces the FINAL reply (shipped verbatim by
+// index.js after the verifier). The smoke test keys on 'social/boundary
+// situation' — keep in sync.
+const SOCIAL_INSTRUCTION =
+    '[Instruction — the user does NOT see this turn.] This is a social/boundary ' +
+    'situation (refusal, drama, roast, a request aimed at you), not a research task. ' +
+    'Write your FINAL reply to the CURRENT message now, in Tiểu Bot\'s sassy Gen Z ' +
+    '"lồi lõm" voice (see SOUL): Vietnamese, short, punchline-first, concrete to THIS ' +
+    'situation — do not repeat your earlier replies. If a boundary applies (no admin ' +
+    'powers, refuse scams/illegal stuff), state it with sass, not robot politeness. ' +
+    'Output ONLY the reply text — no analysis, no numbering, no preamble.';
 
-const THINK_TEMPLATES = {
-    // Social is special: this single call produces the FINAL reply, shipped
-    // verbatim by index.js with no second generation — a rewrite pass only
-    // ever paraphrased the punch away or recycled an older reply.
-    social: '[Instruction — the user does NOT see this turn.] This is a social/boundary ' +
-        'situation (refusal, drama, roast, a request aimed at you), not a research task. ' +
-        'Write your FINAL reply to the CURRENT message now, in Tiểu Bot\'s sassy Gen Z ' +
-        '"lồi lõm" voice (see SOUL): Vietnamese, short, punchline-first, concrete to THIS ' +
-        'situation — do not repeat your earlier replies. If a boundary applies (no admin ' +
-        'powers, refuse scams/illegal stuff), state it with sass, not robot politeness. ' +
-        'Output ONLY the reply text — no analysis, no numbering, no preamble.',
-    think: THINK_PREFIX +
-        'Think step by step, briefly (max ~150 words, Vietnamese): 1) What is really being ' +
-        'asked? 2) Reason it out from the conversation, memory and rules — compare, ' +
-        'calculate, weigh options. 3) Outline the answer. 4) ' + VOICE_STEP,
-    research: THINK_PREFIX +
-        'Think step by step, briefly (max ~200 words, Vietnamese): ' +
-        '1) What is really being asked? 2) What do you already know from the conversation, ' +
-        'memory and rules? 3) What is uncertain or might need a web search ([[search]] is ' +
-        'available in your NEXT reply, not this one)? If searching: write the EXACT query you ' +
-        'will use and its language, following the search rules (official Chinese terms for CN ' +
-        'games, text pages — you cannot watch videos). 4) Outline the answer. 5) ' + VOICE_STEP,
+// Persona-free scratchpad. English + telegraphic on purpose: structurally and
+// linguistically as far as possible from the bot's final Vietnamese voice, so
+// nothing in it is copyable into a reply. The smoke test keys on
+// '[Task analysis' — keep in sync.
+const ANALYZE_HEADER =
+    '[Task analysis — NOT a reply. Do NOT draft the response. Do NOT imitate the ' +
+    'bot\'s personality. Do NOT write anything addressed to the user.] ' +
+    'Analyze only what is necessary to answer correctly. Return concise telegraphic ' +
+    'lines in ENGLISH:\n' +
+    'intent: what the user actually needs\n' +
+    'facts: what is known from the conversation, memory and rules\n' +
+    'constraints: rules that bound the answer\n' +
+    'avoid: likely mistakes\n' +
+    'conclusion: what a correct answer must contain';
+const ANALYZE_TEMPLATES = {
+    think: ANALYZE_HEADER,
+    research: ANALYZE_HEADER + '\n' +
+        'search_query: if web facts are needed — the EXACT query and its language per the ' +
+        'search rules (official Chinese terms for CN games, text pages, no videos); else "none"',
 };
+
+const VERIFY_SYSTEM =
+    'You are a reply checker for a Discord bot. Judge the DRAFT against the user message. ' +
+    'FAIL only for: a factual error, ignoring or missing the actual question, or unsafe ' +
+    'content (agreeing to scams/illegal acts/admin actions). Style, tone, sass, slang and ' +
+    'bluntness are NEVER reasons to fail. Reply with EXACTLY one line of JSON: ' +
+    '{"pass": true} or {"pass": false, "reason": "<short reason>"}.';
 
 const clipTurn = (s, n) => String(s || '').replace(/\s+/g, ' ').slice(0, n);
 
@@ -112,29 +119,66 @@ async function classify({ history, summary, userText, name, trace: t }) {
     }
 }
 
-// → { text, provider } | null. Null on any failure — the caller just answers
-// directly (or, for social, falls back to the normal generation path).
-// Template and token budget adapt to the classified mode; the step itself
-// (provider, model, tokens, the thinking text) is recorded by providers.js
-// under stepType 'think'.
-async function think({ messages, mode, trace: t }) {
-    const instruction = THINK_TEMPLATES[mode];
-    if (!instruction || !underDailyLimit()) return null;
-    const budget = mode === 'social' ? config.reasoningSocialMaxTokens
-        : mode === 'think' ? config.reasoningAnalyzeMaxTokens
-        : config.reasoningThinkMaxTokens;
+// → { text, provider } | null. The one pass that knows the persona AND writes
+// the reply. Null → index.js falls back to the normal generation path.
+async function socialReply({ messages, trace: t }) {
+    if (!underDailyLimit()) return null;
     daily.count++;
     try {
         const { text, provider } = await generateChatResponse(
-            [...messages, { role: 'user', content: instruction }],
-            { maxTokens: budget, trace: t, stepType: 'think' },
+            [...messages, { role: 'user', content: SOCIAL_INSTRUCTION }],
+            { maxTokens: config.reasoningSocialMaxTokens, trace: t, stepType: 'draft' },
         );
         metrics.inc('thinkSteps');
         return { text, provider };
     } catch (e) {
-        log.warn('[ai] think step failed, answering without it:', e.message);
+        log.warn('[ai] social draft failed, using normal path:', e.message);
         return null;
     }
 }
 
-module.exports = { classify, think, THINK_TEMPLATES };
+// → { pass, reason }. A gate, not an editor: it may reject a draft (with a
+// concrete reason for the retry) but never touches the wording. Fails open —
+// an unverifiable draft ships rather than blocking the reply.
+async function verify({ userText, draftText, trace: t }) {
+    if (!config.verifyEnabled || !underDailyLimit()) return { pass: true, reason: null };
+    const s = trace.step(t, 'verify');
+    daily.count++;
+    try {
+        const { text } = await generateChatResponse([
+            { role: 'system', content: VERIFY_SYSTEM },
+            { role: 'user', content: `User message: ${clipTurn(userText, 500)}\n\nDRAFT reply: ${draftText}` },
+        ], { maxTokens: config.verifyMaxTokens, temperature: 0 });
+        const m = /\{[\s\S]*\}/.exec(text);
+        const parsed = m ? JSON.parse(m[0]) : { pass: true };
+        const pass = parsed.pass !== false;
+        trace.endStep(t, s, { ok: true, result: pass ? 'pass' : 'fail', detail: text });
+        if (!pass) metrics.inc('verifyFails');
+        return { pass, reason: typeof parsed.reason === 'string' ? parsed.reason.slice(0, 200) : null };
+    } catch (e) {
+        trace.endStep(t, s, { ok: false, result: 'error-pass', detail: e.message });
+        return { pass: true, reason: null };
+    }
+}
+
+// → analysisText | null. Persona-free by construction: index.js hands it
+// messages built on TASK_SYSTEM (rules + facts, no SOUL, no member advice).
+async function analyzeTask({ messages, mode, trace: t }) {
+    const instruction = ANALYZE_TEMPLATES[mode];
+    if (!instruction || !underDailyLimit()) return null;
+    const budget = mode === 'think' ? config.reasoningAnalyzeMaxTokens : config.reasoningThinkMaxTokens;
+    daily.count++;
+    try {
+        const { text } = await generateChatResponse(
+            [...messages, { role: 'user', content: instruction }],
+            { maxTokens: budget, trace: t, stepType: 'analyze' },
+        );
+        metrics.inc('thinkSteps');
+        return text;
+    } catch (e) {
+        log.warn('[ai] task analysis failed, answering without it:', e.message);
+        return null;
+    }
+}
+
+module.exports = { classify, socialReply, verify, analyzeTask };
