@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.22.0';
+const CURRENT_VERSION = '3.22.1';
 
 const CHANGELOG = {
+    '3.22.1': {
+        date: '2026-08-11',
+        title: 'Trị bệnh model hay nghĩ thành lời',
+        changes: [
+            '🧹 **Chống lộ "suy nghĩ trong đầu" của model** — mấy model kiểu Qwen hay tự lẩm bẩm `<think>` trước khi trả lời, làm bộ định tuyến tưởng nhầm câu nào cũng cần phân tích. Giờ phần lẩm bẩm bị lọc sạch (không bao giờ lọt ra Discord), và cuộc gọi phân loại tự tắt chế độ nghĩ với model Qwen.'
+        ]
+    },
     '3.22.0': {
         date: '2026-08-11',
         title: 'Tách não phân tích khỏi mồm cà khịa',

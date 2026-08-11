@@ -47,8 +47,16 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         const last = body.messages[body.messages.length - 1].content;
         // Reasoning classifier: mode picked by marker in the question;
         // FORCE_CLASSIFY_FAIL simulates a broken classifier (must fail open).
+        // A qwen-named model "thinks" unless the /no_think soft-switch arrived.
         if (body.messages[0].content.includes('routing classifier')) {
             if (last.includes('FORCE_CLASSIFY_FAIL')) { res.writeHead(500); return res.end('{}'); }
+            if (/qwen/i.test(body.model) && !last.includes('/no_think')) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({
+                    choices: [{ message: { content: '<think>\nOkay, the user' } }],
+                    usage: { prompt_tokens: 1, completion_tokens: 8 },
+                }));
+            }
             const label = last.includes('SUY_LUẬN') ? 'RESEARCH' : last.includes('TÌNH_HUỐNG') ? 'SOCIAL' : 'NOW';
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
@@ -88,6 +96,22 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             }));
         }
         if (last.includes('FORCE_FAIL')) { res.writeHead(500); return res.end('{}'); }
+        // normalize() drills: closed think block with leading whitespace, and
+        // a truncated (unclosed) one that must strip to nothing.
+        if (last.includes('THINK_LEAK')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '\n<think>lảm nhảm nội bộ</think>OK_SẠCH' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        if (last.includes('THINK_TRUNC')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '\n<think>bị cắt giữa chừng' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         if (last.includes('SLOW')) await new Promise((r) => setTimeout(r, 300));
         // A user message containing DÙNG_SEARCH makes the "model" request a web
         // search; on the result list it selects page 1 to read; once page
@@ -539,6 +563,33 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         `expected filtered+sorted ids, got ${JSON.stringify(m24)}`);
     assert.strictEqual((await fetch('http://127.0.0.1:3999/admin/models?provider=bogus')).status, 400);
     console.log('ok 24 — /admin/models lists real provider models, filtered and prefix-stripped');
+
+    // 25. Reasoning-tag hygiene: closed <think> blocks (even with leading
+    // whitespace) are stripped from replies; a truncated unclosed one strips
+    // to nothing → empty completion → failover/502, never think-text on Discord.
+    const c25 = await (await chat(msgFor('chanM', 'THINK_LEAK nè'))).json();
+    assert.strictEqual(c25.text, 'OK_SẠCH', `think block must be stripped, got: ${c25.text.slice(0, 60)}`);
+    const r25 = await chat(msgFor('chanM', 'THINK_TRUNC nè'));
+    assert.strictEqual(r25.status, 502, 'truncated think must become empty completion, not a leaked reply');
+    console.log('ok 25 — <think> blocks never reach Discord (stripped or failed over)');
+
+    // 26. Qwen soft-switch: with a qwen model serving, the classifier call
+    // carries /no_think — without it the fake "thinks" and the label is lost.
+    await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ models: { gemini: 'qwen-test-27b' } }),
+    });
+    const c26 = await (await chat(msgFor('chanM',
+        'SUY_LUẬN so sánh hai build này giúp em với nha, cái nào ngon hơn?'))).json();
+    const t26 = (await getTraces()).traces[0];
+    assert.ok(t26.steps.includes('classify:research'),
+        `classifier must get /no_think under qwen and still label correctly, steps: ${t26.steps}`);
+    assert.ok(c26.text.includes('KẾ HOẠCH'), 'analysis should still ground the answer under qwen');
+    await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ models: { gemini: '' } }),
+    });
+    console.log('ok 26 — /no_think reaches qwen-served classifier calls only');
 
     console.log('PASS: all Phase 1–6 + reasoning + traces + admin smoke checks green');
     process.exit(0);

@@ -39,12 +39,17 @@ function healthSnapshot() {
     return out;
 }
 
-// Open models sometimes emit reasoning tags or stray whitespace.
+// Open models sometimes emit reasoning tags or stray whitespace. Strip hard:
+// closed <think> blocks anywhere, and everything from an unclosed <think> on
+// (a truncated output is reasoning, never answer). A fully-eaten completion
+// becomes '' → 'empty completion' upstream → normal failover, instead of
+// think-text leaking into parsers or Discord replies.
 function normalize(text) {
-    return String(text || '')
-        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-        .replace(/^<think>[\s\S]*/i, '') // unclosed think block: model never got to the answer
-        .trim();
+    let s = String(text || '').trim()
+        .replace(/<think>[\s\S]*?<\/think>/gi, '');
+    const open = s.search(/<think>/i);
+    if (open !== -1) s = s.slice(0, open);
+    return s.trim();
 }
 
 class AllProvidersFailedError extends Error {
@@ -99,11 +104,23 @@ async function generateChatResponse(messages, opts = {}) {
     // usage is missing on some providers — fall back to the chars/4 estimate.
     const estimate = (list) => Math.ceil(list.reduce((n, m) => n + m.content.length, 0) / 4);
 
+    // Qwen soft-switch: tiny-budget calls (opts.noThink — the classifier) must
+    // not burn their tokens thinking. Prompt-level and per-model, decided here
+    // because only this loop knows which model actually serves the call — the
+    // other providers never see the directive.
+    const msgsFor = (p) => {
+        if (!opts.noThink || !/qwen/i.test(p.model)) return messages;
+        const out = [...messages];
+        const last = out[out.length - 1];
+        out[out.length - 1] = { ...last, content: `${last.content}\n/no_think` };
+        return out;
+    };
+
     const attempts = [];
     for (const p of eligible) {
         const started = Date.now();
         try {
-            const { text, usage } = await callProvider(p, messages, maxTokens, temperature);
+            const { text, usage } = await callProvider(p, msgsFor(p), maxTokens, temperature);
             const h = health.get(p.name);
             h.cooldownUntil = 0; h.lastFailure = null; // a success clears cooldown state
             const latencyMs = Date.now() - started;

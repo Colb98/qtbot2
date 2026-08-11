@@ -312,6 +312,11 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI) → gemini,
                   429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
                   Disable a provider by removing it from AI_PROVIDER_ORDER.
+                  Reasoning-model hygiene: <think> blocks are stripped hard
+                  (closed anywhere, unclosed = truncated → whole tail dropped;
+                  empty result → failover), and classifier calls (opts.noThink)
+                  get a /no_think soft-switch appended when the serving model
+                  is a Qwen — tiny-budget calls must not burn tokens thinking.
     config.js     env-driven: AI_PROVIDER_ORDER, per-provider keys/models/base-URLs;
                   admin overrides (order + models) in ai-service/data/overrides.json
                   win over env, applied live via providers.rebuild()

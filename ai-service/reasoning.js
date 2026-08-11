@@ -104,7 +104,7 @@ async function classify({ history, summary, userText, name, trace: t }) {
         const { text } = await generateChatResponse([
             { role: 'system', content: CLASSIFIER_SYSTEM },
             { role: 'user', content },
-        ], { maxTokens: config.reasoningClassifierMaxTokens, temperature: 0 });
+        ], { maxTokens: config.reasoningClassifierMaxTokens, temperature: 0, noThink: true });
         const m = /\b(RESEARCH|SOCIAL|THINK|NOW)\b/i.exec(text);
         const mode = m ? MODES[m[1].toUpperCase()] : 'immediate'; // garbage → immediate
         trace.endStep(t, s, { ok: true, result: mode, reason: 'classified', detail: text });
