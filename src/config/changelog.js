@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.18.1';
+const CURRENT_VERSION = '3.19.0';
 
 const CHANGELOG = {
+    '3.19.0': {
+        date: '2026-08-11',
+        title: 'AI biết đọc không khí trong kênh',
+        changes: [
+            '👀 **AI thấy được chuyện đang diễn ra trong kênh** — khi được gọi, bot đọc thêm ~10 tin nhắn gần nhất trong kênh (kể cả của người khác và thông báo game) để hiểu tình huống: hỏi "vụ đó sao rồi?" hay "tao vừa trúng gì?" giờ bot biết "vụ đó" là vụ nào. Ngữ cảnh này chỉ dùng tại chỗ, không lưu.'
+        ]
+    },
     '3.18.1': {
         date: '2026-08-11',
         title: 'AI hết né việc bằng link video',

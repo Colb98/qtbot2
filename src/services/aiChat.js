@@ -12,6 +12,10 @@ const ALLOWED_ROLE_IDS = (process.env.AI_ALLOWED_ROLE_IDS || '').split(',').map(
 const REQUEST_TIMEOUT_MS = parseInt(process.env.AI_REQUEST_TIMEOUT_MS, 10) || 60000;
 const USER_COOLDOWN_MS = parseInt(process.env.AI_USER_COOLDOWN_MS, 10) || 5000;
 const MAX_CONCURRENT = parseInt(process.env.AI_MAX_CONCURRENT, 10) || 3;
+// Nearest channel messages sent along as ambient context; 0 disables (the
+// `|| 10` idiom would eat an explicit 0, hence the isFinite check).
+const CONTEXT_MESSAGES = Number.isFinite(parseInt(process.env.AI_CONTEXT_MESSAGES, 10))
+    ? parseInt(process.env.AI_CONTEXT_MESSAGES, 10) : 10;
 
 if (ENABLED && !ALLOWED_ROLE_IDS.length) {
     log.warn('[aiChat] AI_ENABLED but AI_ALLOWED_ROLE_IDS is empty — nobody can use AI chat');
@@ -87,6 +91,29 @@ function maybeHandle(msg) {
     return true;
 }
 
+// Ambient context: the nearest channel messages BEFORE the trigger, oldest
+// first — including other members' and other bots' messages (game results are
+// context too), so the AI can read the room. The service dedups anything
+// already in its session history and never persists these. Best-effort: a
+// fetch failure just means no ambient context.
+async function collectRecent(msg) {
+    if (CONTEXT_MESSAGES <= 0) return [];
+    try {
+        const fetched = await msg.channel.messages.fetch({ limit: Math.min(CONTEXT_MESSAGES, 25), before: msg.id });
+        return [...fetched.values()]
+            .reverse() // Discord returns newest first
+            .map((m) => ({
+                name: m.member?.displayName || m.author.displayName || m.author.username,
+                // cleanContent resolves mentions to names; drop our own "-# 🔎" note lines.
+                content: m.cleanContent.replace(/^-# .*$/gm, '').trim().slice(0, 300),
+            }))
+            .filter((r) => r.content);
+    } catch (e) {
+        log.warn('[aiChat] could not fetch channel context:', e.message);
+        return [];
+    }
+}
+
 async function processMessage(msg) {
     const content = stripBotMention(msg);
     if (!content) return;
@@ -105,6 +132,7 @@ async function processMessage(msg) {
                 userId: msg.author.id,
                 displayName: msg.member?.displayName || msg.author.username,
                 content,
+                recent: await collectRecent(msg),
             }),
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });

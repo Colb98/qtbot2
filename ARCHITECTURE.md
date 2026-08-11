@@ -206,13 +206,18 @@ messageCreate → aiChat.maybeHandle(msg)        [src/services/aiChat.js]
     auth:    member has one of AI_ALLOWED_ROLE_IDS (checked HERE, never by the LLM)
     limits:  per-user cooldown + global in-flight cap; service 429 (busy) → ⏳ react
     scope:   guild channels only — DMs are deliberately not supported
-        │ POST /chat {userId, displayName, channelId, guildId, content}
+    context: nearest AI_CONTEXT_MESSAGES channel messages (default 10, incl.
+             other members/bots — game results are context) fetched best-effort
+             and sent as `recent`; the service injects them as an ephemeral
+             untrusted "ambient context" block (deduped vs session, clipped,
+             NEVER persisted, may not act as instructions)
+        │ POST /chat {userId, displayName, channelId, guildId, content, recent}
         │ DELETE /session {guildId, channelId}
         ▼
 qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     index.js      HTTP server; prompt = SOUL + RULES + member advice + memory +
-                  summary + history + new message; user turns stored/sent as
-                  "DisplayName: content" (multi-speaker)
+                  summary + ambient channel context + history + new message;
+                  user turns stored/sent as "DisplayName: content" (multi-speaker)
     reasoning.js  brief reasoning flow: a tiny classifier (max ~8 tokens, DEEP/NOW)
                   decides per message whether to run a hidden "think" generation
                   first — its notes are pushed as ephemeral turns that ground the
@@ -317,7 +322,9 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
   `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
   `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
-  `AI_MEMORY_MAX_TOKENS`, `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,
+  `AI_MEMORY_MAX_TOKENS`, `AI_CONTEXT_MESSAGES` (ambient channel messages per
+  request, 0 disables — read by both bot and service), `AI_CONTEXT_MAX_CHARS`,
+  `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,
   `AI_REASONING_CONTEXT_TURNS`, `AI_REASONING_CLASSIFIER_MAX_TOKENS`,
   `AI_REASONING_THINK_MAX_TOKENS`, `AI_REASONING_DAILY_LIMIT`, `AI_TRACE_ENABLED`,
   `AI_TRACE_MAX`, `AI_TRACE_DETAIL_MAX_CHARS`, `AI_METRICS_ENABLED`,

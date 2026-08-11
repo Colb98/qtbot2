@@ -444,6 +444,35 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.strictEqual(r22.status, 200, 'chat must work after corrupt-file boot');
     console.log('ok 22 — truncated data files do not brick the service');
 
+    // 23. Ambient channel context: nearest channel messages reach the system
+    // prompt as a labeled untrusted block, entries already in the session are
+    // deduped, and the block is never persisted to the session.
+    await chat(msgFor('chanK', 'xin chào kênh K'));
+    const r23 = await chat({
+        ...msgFor('chanK', 'mọi người đang nói gì vậy?'),
+        recent: [
+            { name: 'Người lạ', content: 'hôm nay đi ăn lẩu không?' },
+            { name: 'GameBot', content: '🎰 Kết quả xổ số: 8-8-8' },
+            { name: 'Tester', content: 'xin chào kênh K' }, // already in session → dedup
+        ],
+    });
+    const c23 = JSON.parse((await r23.json()).text);
+    const sys23 = c23.messages[0].content;
+    const ambientBlock = sys23.slice(sys23.indexOf('ambient context'));
+    assert.ok(sys23.includes('Latest messages in this channel'), 'ambient block should be in the system prompt');
+    assert.ok(ambientBlock.includes('Người lạ: hôm nay đi ăn lẩu không?'), 'ambient messages should reach the model');
+    assert.ok(ambientBlock.includes('GameBot: 🎰 Kết quả xổ số: 8-8-8'), 'bot announcements are context too');
+    assert.ok(!ambientBlock.includes('xin chào kênh K'), 'session turns must be deduped from ambient context');
+    require('../ai-service/sessions').flushSync();
+    // The echoed *reply* legitimately contains the system prompt (echo provider),
+    // so check turns: ambient must never be appended as a session message.
+    const disk23 = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'sessions.json'), 'utf8'));
+    const sessK = disk23['ch:g1:chanK'];
+    assert.strictEqual(sessK.messages.length, 4, 'only the 2 real exchanges persist');
+    assert.ok(sessK.messages.filter((m) => m.role === 'user').every((m) => !m.content.includes('đi ăn lẩu')),
+        'ambient context must never persist as session turns');
+    console.log('ok 23 — ambient channel context injected, deduped, never persisted');
+
     console.log('PASS: all Phase 1–6 + reasoning + traces + admin smoke checks green');
     process.exit(0);
 })().catch((e) => {
