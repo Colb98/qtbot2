@@ -1,8 +1,10 @@
-// Offline smoke test for ai-service (Phases 1–3). Fakes all three providers:
+// Offline smoke test for ai-service (Phases 1–6). Fakes all three providers:
 //   cloudflare → always 500, groq → always 429, openrouter → ECHOES the exact
 //   messages array it received (so we can assert what history was sent).
 // Covers: 3-provider failover, cooldowns, session history & isolation, reset,
-// per-session queue depth, all-providers-fail 502, disk persistence.
+// per-session queue depth, all-providers-fail 502, disk persistence, search
+// loop, reasoning flow (classify + hidden think), metrics, request traces,
+// and restart-recovery drills (clean restart + truncated data files).
 //   node scripts/smoke_ai_service.js
 const http = require('http');
 const fs = require('fs');
@@ -37,6 +39,24 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     const orPort = await fakeProvider(async (req, res) => {
         const body = await readBody(req);
         const last = body.messages[body.messages.length - 1].content;
+        // Reasoning classifier: DEEP only when the question carries the marker;
+        // FORCE_CLASSIFY_FAIL simulates a broken classifier (must fail open).
+        if (body.messages[0].content.includes('routing classifier')) {
+            if (last.includes('FORCE_CLASSIFY_FAIL')) { res.writeHead(500); return res.end('{}'); }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: last.includes('SUY_LUẬN') ? 'DEEP' : 'NOW' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Hidden think pass: keyed on the (stable) instruction prefix.
+        if (last.includes('[Private reasoning step')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: 'KẾ HOẠCH: so sánh 3 ý chính rồi kết luận.' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         if (last.includes('FORCE_FAIL')) { res.writeHead(500); return res.end('{}'); }
         if (last.includes('SLOW')) await new Promise((r) => setTimeout(r, 300));
         // A user message containing DÙNG_SEARCH makes the "model" request a web
@@ -315,7 +335,108 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.strictEqual(advBad.status, 400, 'oversized advice must be rejected');
     console.log('ok 16 — RULES.md + member advice in prompt; add/remove/caps work');
 
-    console.log('PASS: all Phase 1–5 + admin smoke checks green');
+    const getTraces = async (id) =>
+        (await fetch('http://127.0.0.1:3999/admin/traces' + (id ? `?id=${encodeURIComponent(id)}` : ''))).json();
+    const getMetrics = async () => (await fetch('http://127.0.0.1:3999/admin/metrics')).json();
+
+    // 17. Reasoning fast-path: a short message never reaches the classifier —
+    // trace shows classify skipped-short and no think step.
+    await chat(msgFor('chanI', 'ngắn thôi'));
+    const t17 = (await getTraces()).traces[0];
+    assert.ok(t17.steps.includes('classify:immediate'), `steps: ${t17.steps}`);
+    assert.ok(!t17.steps.includes('think'), 'short message must not trigger a think step');
+    const d17 = await getTraces(t17.id);
+    assert.strictEqual(d17.steps[0].reason, 'skipped-short');
+    assert.strictEqual(d17.status, 'ok');
+    console.log('ok 17 — short messages skip the classifier, trace records skipped-short');
+
+    // 18. Deep path: classifier says DEEP → hidden think pass grounds the final
+    // generation (echo proves it was in context) but never persists — the
+    // follow-up request's context is exactly system + 2 history + 1 new.
+    const c18 = await (await chat(msgFor('chanI',
+        'SUY_LUẬN so sánh vàng SJC và vàng nhẫn, cái nào đáng mua hơn lúc này?'))).json();
+    assert.ok(c18.text.includes('KẾ HOẠCH'), 'think text should be in the final generation context');
+    assert.ok(c18.text.includes('[Phân tích nội bộ]'), 'think turn should be framed as private notes');
+    const t18 = (await getTraces()).traces[0];
+    assert.ok(t18.steps.includes('classify:deep'), `steps: ${t18.steps}`);
+    assert.ok(t18.steps.includes('think'), `steps: ${t18.steps}`);
+    const d18 = await getTraces(t18.id);
+    const thinkStep = d18.steps.find((s) => s.type === 'think');
+    assert.ok(thinkStep && thinkStep.detail.includes('KẾ HOẠCH'), 'trace must carry the thinking text');
+    const c18b = JSON.parse((await (await chat(msgFor('chanI', 'câu tiếp ngắn'))).json()).text);
+    assert.strictEqual(c18b.messages.length, 4,
+        `think turns must be ephemeral: expected system + 2 history + 1 new, got ${c18b.messages.length}`);
+    // The echoed reply *text* embeds the whole context (that's the echo), so
+    // check turns, not substrings: no persisted turn may BE a think/note turn.
+    assert.ok(!c18b.messages.some((m) => m.content.startsWith('[Phân tích nội bộ]') || m.content.startsWith('[Ghi chú riêng')),
+        'think turn leaked into session history');
+    console.log('ok 18 — deep path: hidden think grounds the answer, stays out of the session');
+
+    // 19. Fail-open: a broken classifier must degrade to an immediate answer,
+    // never a failed request.
+    const r19 = await chat(msgFor('chanI',
+        'FORCE_CLASSIFY_FAIL câu hỏi này đủ dài để vượt ngưỡng gọi classifier nhé'));
+    assert.strictEqual(r19.status, 200, 'classifier failure must not fail the chat');
+    const d19 = await getTraces((await getTraces()).traces[0].id);
+    const cls19 = d19.steps.find((s) => s.type === 'classify');
+    assert.strictEqual(cls19.ok, false);
+    assert.strictEqual(cls19.result, 'error-fallback');
+    console.log('ok 19 — classifier failure fails open to an immediate answer');
+
+    // 20. Metrics counters + atomic persistence.
+    const m20 = await getMetrics();
+    assert.ok(m20.today.messages > 0, 'messages counted');
+    assert.ok(m20.today.classifyDeep >= 1, 'deep classification counted');
+    assert.ok(m20.today.thinkSteps >= 1, 'think steps counted');
+    assert.ok(m20.today.searches >= 1, 'searches counted');
+    assert.ok(m20.today.pagesRead >= 1, 'page reads counted');
+    assert.ok(m20.today.compactions >= 1, 'compactions counted');
+    assert.ok(m20.today.perUser.u1 > 0, 'per-user counts');
+    assert.ok(Object.keys(m20.today.providers).length > 0, 'per-provider counters exist');
+    require('../ai-service/metrics').flushSync();
+    const metricsDisk = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'metrics.json'), 'utf8'));
+    assert.ok(Object.keys(metricsDisk.days).length >= 1, 'metrics persisted');
+    assert.ok(!fs.existsSync(path.join(DATA_DIR, 'metrics.json.tmp')), 'atomic write leaves no tmp file');
+    console.log('ok 20 — metrics counted and persisted atomically');
+
+    // 21. Restart recovery drill: sessions + metrics survive a clean restart,
+    // traces are volatile by design (in-memory ring only).
+    const preMessages = m20.today.messages;
+    const restartService = async (corrupt) => {
+        const svc = require('../ai-service/index.js');
+        require('../ai-service/sessions').flushSync();
+        require('../ai-service/metrics').flushSync();
+        svc.server.closeAllConnections();
+        await new Promise((r) => svc.server.close(r));
+        for (const key of Object.keys(require.cache)) {
+            if (key.includes(`${path.sep}ai-service${path.sep}`)) delete require.cache[key];
+        }
+        if (corrupt) corrupt();
+        require('../ai-service/index.js');
+        await new Promise((r) => setTimeout(r, 300));
+    };
+    await restartService();
+    const c21 = JSON.parse((await (await chat(msgFor('chanA', 'sau restart nhé'))).json()).text);
+    assert.ok(JSON.stringify(c21.messages).includes('sau reset'), 'chanA history must survive restart');
+    const m21 = await getMetrics();
+    assert.ok(m21.today.messages >= preMessages, 'metrics must survive restart');
+    const t21 = (await getTraces()).traces;
+    assert.strictEqual(t21.length, 1, `traces are volatile by design; expected only the post-restart request, got ${t21.length}`);
+    console.log('ok 21 — restart drill: sessions + metrics restored, traces reset as designed');
+
+    // 22. Truncated-file drill: a crash mid-write must not brick the boot —
+    // the service starts fresh instead of crashing on corrupt JSON.
+    await restartService(() => {
+        fs.writeFileSync(path.join(DATA_DIR, 'sessions.json'), '{"truncated');
+        fs.writeFileSync(path.join(DATA_DIR, 'metrics.json'), '{"truncated');
+    });
+    const h22 = await fetch('http://127.0.0.1:3999/health');
+    assert.strictEqual(h22.status, 200, 'service must boot with corrupt data files');
+    const r22 = await chat(msgFor('chanA', 'vẫn sống chứ?'));
+    assert.strictEqual(r22.status, 200, 'chat must work after corrupt-file boot');
+    console.log('ok 22 — truncated data files do not brick the service');
+
+    console.log('PASS: all Phase 1–6 + reasoning + traces + admin smoke checks green');
     process.exit(0);
 })().catch((e) => {
     console.error('FAIL:', e.message);

@@ -8,6 +8,7 @@ const { generateChatResponse } = require('./providers');
 const sessions = require('./sessions');
 const memory = require('./memory');
 const { enqueue, QueueFullError } = require('./queue');
+const metrics = require('./metrics');
 
 // Structured schema: freeform summaries drop odd-shaped details; forcing fixed
 // sections makes the model check each category (§9 of the integration plan).
@@ -46,6 +47,7 @@ async function compactSession(sessionKey) {
     ], { maxTokens: config.summaryMaxTokens });
 
     if (sessions.applyCompaction(sessionKey, summary)) {
+        metrics.inc('compactions');
         log.info(`[ai] compacted session=${sessionKey} folded=${old.length} kept=${keep.length} ` +
             `summaryChars=${summary.length} took=${Date.now() - started}ms`);
         // Two-tier design: durable facts get promoted to long-term memory from

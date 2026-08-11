@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.17.0';
+const CURRENT_VERSION = '3.18.0';
 
 const CHANGELOG = {
+    '3.18.0': {
+        date: '2026-08-11',
+        title: 'AI biết suy nghĩ trước khi trả lời',
+        changes: [
+            '🧠 **AI tự suy luận với câu hỏi khó** — bot tự nhận biết câu nào cần phân tích sâu (so sánh, build, toán, chiến thuật...), lập dàn ý ngầm rồi mới trả lời; câu dễ vẫn trả lời ngay như cũ nên không chậm đi.',
+            '📊 **Trang quản trị AI nâng cấp** — thêm thống kê theo ngày (số tin, latency, tra web, token...) và nhật ký từng lượt hỏi: xem được từng bước bot nghĩ gì, tra web gì, đọc trang nào, mất bao lâu.'
+        ]
+    },
     '3.17.0': {
         date: '2026-08-10',
         title: 'AI tra cứu sâu hơn hẳn',

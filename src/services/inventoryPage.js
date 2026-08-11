@@ -49,7 +49,7 @@ module.exports = `<!DOCTYPE html>
 <body>
 <header>
   <h1>qtbot — quản lý kho đồ</h1>
-  <span class="muted">· <a href="/">metrics</a> · <a href="/admin">kinh tế</a> · <a href="/status">VPS status</a> · <a href="/words">từ điển nối từ</a></span>
+  <span class="muted">· <a href="/">metrics</a> · <a href="/admin">kinh tế</a> · <a href="/ai">AI</a> · <a href="/status">VPS status</a> · <a href="/words">từ điển nối từ</a></span>
 </header>
 
 <div class="err-banner" id="errBanner">Chưa đăng nhập. Mở <a href="/admin">trang quản trị</a> để đăng nhập, rồi quay lại đây.</div>

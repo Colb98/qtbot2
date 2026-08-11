@@ -16,6 +16,9 @@ const { enqueue, QueueFullError } = require('./queue');
 const { maybeScheduleCompaction } = require('./compaction');
 const memory = require('./memory');
 const search = require('./search');
+const metrics = require('./metrics');
+const trace = require('./trace');
+const reasoning = require('./reasoning');
 
 // Channel sessions are shared, multi-speaker conversations: user turns are
 // prefixed with the speaker's display name so the model can track who's who.
@@ -59,6 +62,19 @@ const sessionKeyOf = (b) => `ch:${b.guildId}:${b.channelId}`;
 
 async function runChat(sessionKey, { guildId, channelId, userId, name, userText }) {
     const started = Date.now();
+    const t = trace.start({ sessionKey, guildId, channelId, userId, name, userChars: userText.length });
+    metrics.inc('messages');
+    metrics.incUser(userId);
+    try {
+        return await runChatSteps(t, sessionKey, { guildId, channelId, userId, name, userText, started });
+    } catch (e) {
+        trace.finish(t, { status: 'error', error: e.message });
+        metrics.requestDone(Date.now() - started, false);
+        throw e;
+    }
+}
+
+async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, userText, started }) {
     const history = sessions.getHistory(sessionKey);
     const summary = sessions.getSummary(sessionKey);
     // Scoped memory only (§11): server + this channel + the current speaker.
@@ -77,7 +93,26 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
             : { role: 'assistant', content: m.content }),
         { role: 'user', content: `${name}: ${userText}` },
     ];
-    let { text, provider } = await generateChatResponse(messages);
+
+    // Reasoning flow: a tiny classifier routes hard questions through a hidden
+    // "think" pass whose notes ground the answer (and any searches it plans);
+    // easy questions answer immediately. Both classify and think fail open.
+    const { mode } = await reasoning.classify({ history, summary, userText, name, trace: t });
+    if (mode === 'deep') {
+        const thinkText = await reasoning.think({ messages, trace: t });
+        if (thinkText) {
+            // Ephemeral like the search turns: grounds every generation below
+            // but never enters the session, so it can never reach Discord.
+            messages.push({ role: 'assistant', content: `[Phân tích nội bộ]\n${thinkText}` });
+            messages.push({
+                role: 'user',
+                content: '[Ghi chú riêng của chính bạn ở trên — người dùng KHÔNG thấy. ' +
+                    `Giờ viết câu trả lời cuối cùng cho ${name}. Vẫn có thể dùng [[search: ...]] nếu cần.]`,
+            });
+        }
+    }
+
+    let { text, provider } = await generateChatResponse(messages, { trace: t });
 
     // Tool loop: the model asks for a search via [[search: ...]], receives a
     // numbered result list, then may select pages to read via [[read: 1,3]].
@@ -93,11 +128,13 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
         // step from its context) — one run per distinct query per message.
         if (query && !searchQueries.includes(query) && searchQueries.length < config.searchMaxPerMessage) {
             searchQueries.push(query);
-            const { block, results } = await search.run(query);
+            const s = trace.step(t, 'search', { query });
+            const { block, results, used } = await search.run(query);
+            trace.endStep(t, s, { ok: results.length > 0, backends: used, results: results.length, detail: block });
             lastResults = results;
             messages.push({ role: 'assistant', content: `[[search: ${query}]]` });
             messages.push({ role: 'user', content: block });
-            ({ text, provider } = await generateChatResponse(messages));
+            ({ text, provider } = await generateChatResponse(messages, { trace: t }));
             continue;
         }
         const idx = config.fetchEnabled && lastResults.length ? search.extractRead(text) : null;
@@ -108,10 +145,12 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
             if (readsDone.includes(key) || readsDone.length >= config.searchMaxPerMessage) break;
             readsDone.push(key);
             pagesRead += idx.length;
-            const block = await search.readPages(searchQueries[searchQueries.length - 1], lastResults, idx);
+            const s = trace.step(t, 'read', { pages: idx });
+            const { block, fetched, total } = await search.readPages(searchQueries[searchQueries.length - 1], lastResults, idx);
+            trace.endStep(t, s, { ok: fetched > 0, fetched, total, detail: block });
             messages.push({ role: 'assistant', content: `[[read: ${idx.join(',')}]]` });
             messages.push({ role: 'user', content: block });
-            ({ text, provider } = await generateChatResponse(messages));
+            ({ text, provider } = await generateChatResponse(messages, { trace: t }));
             continue;
         }
         break;
@@ -123,8 +162,12 @@ async function runChat(sessionKey, { guildId, channelId, userId, name, userText 
     sessions.append(sessionKey, { role: 'user', name, userId, content: userText });
     sessions.append(sessionKey, { role: 'assistant', content: text });
     maybeScheduleCompaction(sessionKey); // runs after us on this session's queue
-    log.info(`[ai] done session=${sessionKey} provider=${provider} history=${history.length} ` +
-        `searches=${searchQueries.length} pagesRead=${pagesRead} total=${Date.now() - started}ms`);
+    const s = trace.step(t, 'reply', { chars: text.length });
+    trace.endStep(t, s, { ok: true });
+    trace.finish(t, { status: 'ok', replyChars: text.length });
+    metrics.requestDone(Date.now() - started, true);
+    log.info(`[ai] done session=${sessionKey} provider=${provider} mode=${mode} history=${history.length} ` +
+        `searches=${searchQueries.length} pagesRead=${pagesRead} total=${Date.now() - started}ms trace=${t ? t.id : '-'}`);
     return { text, provider, searchQueries, pagesRead };
 }
 
@@ -206,6 +249,15 @@ async function handleAdminConfig(req, res) {
     send(res, 200, adminSnapshot());
 }
 
+// GET /admin/traces → compact list; ?id=<id> → one full trace with all steps.
+function handleTraces(req, res) {
+    const id = new URL(req.url, 'http://x').searchParams.get('id');
+    if (!id) return send(res, 200, { traces: trace.list() });
+    const t = trace.get(id);
+    if (!t) return send(res, 404, { error: 'trace not found' });
+    return send(res, 200, t);
+}
+
 async function handleAdvice(req, res) {
     if (req.method === 'GET') {
         const guildId = new URL(req.url, 'http://x').searchParams.get('guildId');
@@ -231,6 +283,8 @@ const server = http.createServer((req, res) => {
         route === 'DELETE /session' ? handleSessionReset(req, res) :
         route === 'GET /advice' || route === 'POST /advice' || route === 'DELETE /advice' ? handleAdvice(req, res) :
         route === 'GET /admin/config' || route === 'PUT /admin/config' ? handleAdminConfig(req, res) :
+        route === 'GET /admin/metrics' ? Promise.resolve(send(res, 200, metrics.snapshot())) :
+        route === 'GET /admin/traces' ? Promise.resolve(handleTraces(req, res)) :
         route === 'GET /health' ? Promise.resolve(send(res, 200, { ok: true, providers: healthSnapshot() })) :
         Promise.resolve(send(res, 404, { error: 'not found' }));
     task.catch((e) => {
@@ -247,7 +301,11 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => {
         log.info(`[ai] received ${sig}, flushing sessions and shutting down`);
         sessions.flushSync();
+        metrics.flushSync();
         server.close(() => process.exit(0));
         setTimeout(() => process.exit(0), 3000).unref();
     });
 }
+
+// For the smoke test's restart drill; the service normally runs standalone.
+module.exports = { server };

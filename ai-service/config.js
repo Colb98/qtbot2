@@ -3,6 +3,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 
 const fs = require('fs');
 const path = require('path');
+const { writeAtomic } = require('./persist');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const OVERRIDES_FILE = path.join(DATA_DIR, 'overrides.json');
@@ -42,6 +43,17 @@ const config = {
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)
     memoryMaxTokens: int('AI_MEMORY_MAX_TOKENS', 700),             // LLM output budget for rewrites
+    reasoningEnabled: process.env.AI_REASONING_ENABLED !== 'false',
+    reasoningMinChars: int('AI_REASONING_MIN_CHARS', 40),          // shorter → immediate, no classifier call
+    reasoningContextTurns: int('AI_REASONING_CONTEXT_TURNS', 4),   // recent turns shown to the classifier
+    reasoningClassifierMaxTokens: int('AI_REASONING_CLASSIFIER_MAX_TOKENS', 8),
+    reasoningThinkMaxTokens: int('AI_REASONING_THINK_MAX_TOKENS', 400),
+    reasoningDailyLimit: int('AI_REASONING_DAILY_LIMIT', 300),     // classifier+think calls per day
+    traceEnabled: process.env.AI_TRACE_ENABLED !== 'false',
+    traceMax: int('AI_TRACE_MAX', 200),                            // ring buffer size (in-memory only)
+    traceDetailMaxChars: int('AI_TRACE_DETAIL_MAX_CHARS', 2000),   // per-step detail truncation
+    metricsEnabled: process.env.AI_METRICS_ENABLED !== 'false',
+    metricsRetentionDays: int('AI_METRICS_RETENTION_DAYS', 30),
     providerOrder: (process.env.AI_PROVIDER_ORDER || 'groq,cloudflare,openrouter,grok,gemini')
         .split(',').map(s => s.trim()).filter(Boolean),
 };
@@ -76,8 +88,7 @@ function getOverrides() {
 
 function saveOverrides(next) {
     overrides = next;
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(OVERRIDES_FILE, JSON.stringify(overrides, null, 2));
+    writeAtomic(OVERRIDES_FILE, JSON.stringify(overrides, null, 2));
 }
 
 // The model that wins without any override (what the dashboard shows as placeholder).

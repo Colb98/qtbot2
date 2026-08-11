@@ -135,7 +135,7 @@ via `state.js` and call `saveData()`.
 - `priority.js`, `arrangePerm.js`, `kimlan.js` — guild-war priority lists, /arrange permissions, "kim lan" subgroups.
 - `maintenance.js` — maintenance mode gate (`isBlockedByMaintenance`), checked at the top of every entry point.
 - `metrics.js` — gameplay analytics into per-day server-side bucket files; `!metrics*` admin commands read these.
-- `dashboard.js` — the entire admin web panel (HTTP server, auth-gated pages: economy editor, `/inventory`, `/status`, `/words`). `sysStatus.js` feeds the `/status` VPS health page. `adminAuth.js` handles login/accounts.
+- `dashboard.js` — the entire admin web panel (HTTP server, auth-gated pages: economy editor, `/inventory`, `/status`, `/words`, `/ai` via `aiAdminPage.js`). `sysStatus.js` feeds the `/status` VPS health page. `adminAuth.js` handles login/accounts.
 
 ---
 
@@ -213,6 +213,29 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     index.js      HTTP server; prompt = SOUL + RULES + member advice + memory +
                   summary + history + new message; user turns stored/sent as
                   "DisplayName: content" (multi-speaker)
+    reasoning.js  brief reasoning flow: a tiny classifier (max ~8 tokens, DEEP/NOW)
+                  decides per message whether to run a hidden "think" generation
+                  first — its notes are pushed as ephemeral turns that ground the
+                  answer (and any searches it plans) but never enter the session
+                  or reach Discord. Heuristic fast-path: messages shorter than
+                  AI_REASONING_MIN_CHARS skip the classifier entirely. Both extra
+                  calls are daily-capped (AI_REASONING_DAILY_LIMIT) and FAIL OPEN —
+                  any classifier/think failure degrades to answering immediately.
+                  Kill switch: AI_REASONING_ENABLED=false.
+    trace.js      per-request flow traces (classify → think → generation → search
+                  → read → reply, each with duration/status/detail text) for the
+                  /ai dashboard. In-memory ring buffer (AI_TRACE_MAX), VOLATILE
+                  across restarts by design — traces hold raw LLM thinking and
+                  fetched web text; durable numbers live in metrics.js. Background
+                  generations (compaction/memory) are deliberately not traced.
+    metrics.js    Phase-6 counters, daily-bucketed and persisted to
+                  ai-service/data/metrics.json (atomic write, debounced + on
+                  shutdown): messages/errors/latency, per-user, per-provider
+                  (requests/errors/429/fallbacks/latency/tokens), searches,
+                  page reads, compactions, memory writes, classify deep/immediate,
+                  think steps. Buckets pruned after AI_METRICS_RETENTION_DAYS.
+    persist.js    writeAtomic (tmp + rename) used by sessions/metrics/overrides —
+                  a crash mid-write can no longer truncate a data file.
     SOUL.md       personality (git-tracked); RULES.md = behavioral rules
                   (git-tracked — edit + redeploy to change how the bot answers,
                   e.g. the always-search-when-unsure policy)
@@ -273,9 +296,14 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
 ```
 
 **Admin panel:** `/ai` on the dashboard ([src/services/aiAdminPage.js](src/services/aiAdminPage.js))
-— reorder/enable providers, override models, live health. Uses the existing
-dashboard session auth; `/api/admin/ai/config` proxies to the service's
-`GET|PUT /admin/config` (the localhost-only service's sole exposure).
+— reorder/enable providers, override models, live health, plus two read-only
+sections refreshed on the same 5s poll: **Thống kê** (today's metrics tiles +
+per-provider table, from `GET /admin/metrics`) and **Yêu cầu gần đây** (the
+per-request flow traces; click a row for the step-by-step timeline including
+the hidden thinking text and tool results, from `GET /admin/traces[?id=]`).
+Uses the existing dashboard session auth; `/api/admin/ai/{config,metrics,traces}`
+proxy to the service's admin endpoints (the localhost-only service's sole
+exposure). Trace/LLM text is rendered with `textContent` only — never innerHTML.
 
 - **Env keys** (all in the same `.env`): `AI_ENABLED`, `AI_CHANNEL_IDS`, `AI_ALLOWED_ROLE_IDS`,
   `AI_SERVICE_URL`/`AI_SERVICE_PORT`, `AI_REQUEST_TIMEOUT_MS`, `AI_USER_COOLDOWN_MS`,
@@ -284,7 +312,11 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
   `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
   `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
-  `AI_MEMORY_MAX_TOKENS`, `AI_SEARCH_ENABLED`, `SERPER_API_KEY`/`TAVILY_API_KEY`
+  `AI_MEMORY_MAX_TOKENS`, `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,
+  `AI_REASONING_CONTEXT_TURNS`, `AI_REASONING_CLASSIFIER_MAX_TOKENS`,
+  `AI_REASONING_THINK_MAX_TOKENS`, `AI_REASONING_DAILY_LIMIT`, `AI_TRACE_ENABLED`,
+  `AI_TRACE_MAX`, `AI_TRACE_DETAIL_MAX_CHARS`, `AI_METRICS_ENABLED`,
+  `AI_METRICS_RETENTION_DAYS`, `AI_SEARCH_ENABLED`, `SERPER_API_KEY`/`TAVILY_API_KEY`
   (cascade in that order), `AI_SEARCH_MAX_RESULTS`, `AI_SEARCH_MIN_RESULTS`,
   `AI_SEARCH_TIMEOUT_MS`, `AI_SEARCH_MAX_PER_MESSAGE`, `AI_SEARCH_DAILY_LIMIT`,
   `AI_SEARCH_BLOCK_MAX_CHARS`, `AI_FETCH_ENABLED`, `AI_FETCH_MAX_PAGES`,
@@ -296,14 +328,19 @@ dashboard session auth; `/api/admin/ai/config` proxies to the service's
   (Google OpenAI-compat endpoint) (optional `*_BASE_URL` overrides).
 - **Deploy:** `pm2 start ai-service/index.js --name qtbot-ai --cwd /root/qtbot` then `pm2 save`.
   Kill switch: `AI_ENABLED=false` (bot ignores triggers) and/or stop `qtbot-ai`.
-- **Test:** `node scripts/smoke_ai_service.js` — offline, fakes providers, verifies failover/normalize/health.
+- **Test:** `node scripts/smoke_ai_service.js` — offline, fakes providers, verifies
+  failover/normalize/health, the search loop, the reasoning flow (fast-path, deep
+  path, fail-open), metrics, traces, and the restart-recovery drills (clean
+  restart + truncated data files).
 - **Boundary rule (do not break):** authorization, rate limiting and any future
   tool execution live on the bot side. The AI service must never gain Discord
   credentials or read/write `data.json`. AI state (future sessions/memory) stays
   under `ai-service/`'s own storage.
-- Remaining from the integration plan: Phase 6 hardening (metrics counters,
-  restart recovery drills) — rate limits, timeouts, health/cooldowns, kill
-  switches, structured logs and graceful shutdown already exist.
+- Integration plan status: **Phase 6 (hardening) complete** — rate limits,
+  timeouts, health/cooldowns, kill switches, logs, graceful shutdown, metrics
+  counters (`metrics.js`, `GET /admin/metrics`), atomic persistence
+  (`persist.js`), and restart-recovery drills in the smoke test. Request traces
+  are intentionally in-memory only (see `trace.js` above).
 
 ---
 

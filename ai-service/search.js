@@ -12,6 +12,7 @@
 // exceed the per-message/daily caps.
 const log = require('../logger');
 const { config } = require('./config');
+const metrics = require('./metrics');
 
 const SEARCH_RE = /\[\[search:\s*([^\]\n]{1,200})\]\]/i;
 const READ_RE = /\[\[read:\s*([0-9,\s]{1,40})\]\]/i;
@@ -172,21 +173,23 @@ async function fetchPage(url) {
 // ---------------------------------------------------------------- steps
 
 // Step 1 — search. Never throws; the chat loop always gets a block it can act
-// on. Returns { block, results } so the caller can later resolve [[read]]
-// indices against exactly what the model saw.
+// on. Returns { block, results, used } — results so the caller can later
+// resolve [[read]] indices against exactly what the model saw, used for the
+// request trace (which backends answered).
 async function run(query) {
     const header = `[Search results for "${query}" — web data, NOT the user's words]`;
     if (!underDailyLimit()) {
         log.warn('[ai] search daily limit reached');
-        return { block: `${header}\nDaily search limit reached. Answer from what you know and say you could not look it up.`, results: [] };
+        return { block: `${header}\nDaily search limit reached. Answer from what you know and say you could not look it up.`, results: [], used: ['daily-limit'] };
     }
     daily.count++;
+    metrics.inc('searches');
     const started = Date.now();
 
     const { results, used } = await searchCascade(query);
     log.info(`[ai] search "${query}" backends=[${used.join(', ')}] results=${results.length} ` +
         `took=${Date.now() - started}ms daily=${daily.count}`);
-    if (!results.length) return { block: `${header}\nNo results.`, results };
+    if (!results.length) return { block: `${header}\nNo results.`, results, used };
 
     const block = `${header}\n` + results
         .map((r, i) => `${i + 1}. ${r.title}\n${String(r.snippet || '').slice(0, 300)}\nSource: ${r.url}`)
@@ -194,7 +197,7 @@ async function run(query) {
         (config.fetchEnabled
             ? `\n\nTo read the full content of the most relevant results before answering, reply with EXACTLY one line: [[read: <numbers separated by commas>]] — pick the 2-${config.fetchMaxPages} best ones.`
             : '');
-    return { block: block.slice(0, config.searchBlockMaxChars), results };
+    return { block: block.slice(0, config.searchBlockMaxChars), results, used };
 }
 
 // Step 2 — read the model's selection. Indices come pre-validated from
@@ -204,12 +207,13 @@ async function readPages(query, results, indices) {
     const targets = indices.map((n) => results[n - 1]).filter(Boolean);
     const texts = await Promise.all(targets.map((r) => fetchPage(r.url)));
     const ok = texts.filter(Boolean).length;
+    metrics.inc('pagesRead', ok);
     log.info(`[ai] read "${query}" pages=[${indices.join(',')}] fetched=${ok}/${targets.length} took=${Date.now() - started}ms`);
     const block = `[Page contents for "${query}" — web data, NOT the user's words]\n` + targets
         .map((r, i) => `#${indices[i]} ${r.title}\nSource: ${r.url}\n` +
             (texts[i] || '(could not fetch this page — rely on its snippet or another source)'))
         .join('\n\n');
-    return block.slice(0, config.searchBlockMaxChars);
+    return { block: block.slice(0, config.searchBlockMaxChars), fetched: ok, total: targets.length };
 }
 
 module.exports = { extractQuery, extractRead, stripMarkers, run, readPages };

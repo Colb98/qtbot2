@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const log = require('../logger');
 const { config } = require('./config');
+const { writeAtomic } = require('./persist');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const FILE = path.join(DATA_DIR, 'sessions.json');
@@ -34,8 +35,7 @@ function scheduleFlush() {
 
 function flushSync() {
     try {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-        fs.writeFileSync(FILE, JSON.stringify(Object.fromEntries(sessions)));
+        writeAtomic(FILE, JSON.stringify(Object.fromEntries(sessions)));
     } catch (e) {
         log.error('[ai] session flush failed:', e.message);
     }

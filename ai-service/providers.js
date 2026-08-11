@@ -1,5 +1,7 @@
 const log = require('../logger');
 const { config, loadProviders } = require('./config');
+const metrics = require('./metrics');
+const trace = require('./trace');
 
 let providers = loadProviders(log);
 
@@ -52,7 +54,7 @@ class AllProvidersFailedError extends Error {
     }
 }
 
-async function callProvider(p, messages, maxTokens) {
+async function callProvider(p, messages, maxTokens, temperature) {
     const res = await fetch(p.url, {
         method: 'POST',
         headers: {
@@ -63,7 +65,7 @@ async function callProvider(p, messages, maxTokens) {
             model: p.model,
             messages,
             max_tokens: maxTokens,
-            temperature: config.temperature,
+            temperature,
         }),
         signal: AbortSignal.timeout(config.providerTimeoutMs),
     });
@@ -89,24 +91,39 @@ async function callProvider(p, messages, maxTokens) {
 async function generateChatResponse(messages, opts = {}) {
     if (!providers.length) throw new Error('No AI providers configured');
     const maxTokens = opts.maxTokens || config.maxResponseTokens;
+    const temperature = opts.temperature ?? config.temperature;
     const now = Date.now();
     let eligible = providers.filter(p => now >= health.get(p.name).cooldownUntil);
     if (!eligible.length) eligible = providers; // everyone cooling down: best-effort anyway
+
+    // usage is missing on some providers — fall back to the chars/4 estimate.
+    const estimate = (list) => Math.ceil(list.reduce((n, m) => n + m.content.length, 0) / 4);
 
     const attempts = [];
     for (const p of eligible) {
         const started = Date.now();
         try {
-            const { text, usage } = await callProvider(p, messages, maxTokens);
+            const { text, usage } = await callProvider(p, messages, maxTokens, temperature);
             const h = health.get(p.name);
             h.cooldownUntil = 0; h.lastFailure = null; // a success clears cooldown state
-            log.info(`[ai] provider=${p.name} model=${p.model} latency=${Date.now() - started}ms` +
+            const latencyMs = Date.now() - started;
+            const tokensIn = usage?.prompt_tokens ?? estimate(messages);
+            const tokensOut = usage?.completion_tokens ?? Math.ceil(text.length / 4);
+            metrics.provider(p.name, { ok: true, latencyMs, fallback: attempts.length > 0, tokensIn, tokensOut });
+            if (opts.trace) {
+                const s = trace.step(opts.trace, opts.stepType || 'generation', { provider: p.name, model: p.model });
+                s.startedAt = started;
+                trace.endStep(opts.trace, s, { ok: true, tokensIn, tokensOut, attempts: attempts.length ? [...attempts] : undefined, detail: text });
+            }
+            log.info(`[ai] provider=${p.name} model=${p.model} latency=${latencyMs}ms` +
                 (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''));
             return { text, provider: p.name };
         } catch (e) {
             attempts.push(`${p.name}: ${e.message.slice(0, 120)}`);
+            metrics.provider(p.name, { ok: false, rateLimited: e.status === 429 });
             if (e.status === 400) {
                 log.error(`[ai] provider ${p.name} rejected payload (our bug, no failover):`, e.message);
+                recordFailedStep(opts, attempts);
                 throw e;
             }
             if (e.status === 401 || e.status === 403) {
@@ -119,7 +136,14 @@ async function generateChatResponse(messages, opts = {}) {
             }
         }
     }
+    recordFailedStep(opts, attempts);
     throw new AllProvidersFailedError(attempts);
+}
+
+function recordFailedStep(opts, attempts) {
+    if (!opts.trace) return;
+    const s = trace.step(opts.trace, opts.stepType || 'generation');
+    trace.endStep(opts.trace, s, { ok: false, attempts: [...attempts], detail: attempts.join('; ') });
 }
 
 module.exports = { generateChatResponse, healthSnapshot, rebuild, AllProvidersFailedError, _normalize: normalize };

@@ -14,6 +14,7 @@ const log = require('../logger');
 const { config } = require('./config');
 const { generateChatResponse } = require('./providers');
 const { enqueue, QueueFullError } = require('./queue');
+const metrics = require('./metrics');
 
 const MEM_DIR = path.join(__dirname, 'data', 'memory');
 
@@ -105,6 +106,7 @@ async function updateFromTranscript(guildId, channelId, messages) {
             wrote.push(`user:${id}`);
         }
     }
+    if (wrote.length) metrics.inc('memoryWrites');
     log.info(`[ai] memory write guild=${guildId} channel=${channelId} scopes=[${wrote.join(', ')}]`);
 }
 

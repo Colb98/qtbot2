@@ -865,7 +865,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <div id="appView" class="hidden">
   <header>
     <h1>qtbot — kinh tế</h1>
-    <span class="muted">· <a href="/">metrics dashboard</a> · <a href="/inventory">kho đồ</a> · <a href="/status">VPS status</a> · <a href="/words">từ điển nối từ</a></span>
+    <span class="muted">· <a href="/">metrics dashboard</a> · <a href="/inventory">kho đồ</a> · <a href="/ai">AI</a> · <a href="/status">VPS status</a> · <a href="/words">từ điển nối từ</a></span>
     <span style="flex:1"></span>
     <span class="muted">Đăng nhập: <b id="meUser">—</b> (<span id="meRole">—</span>)</span>
     <button id="logoutBtn">Đăng xuất</button>
@@ -1139,7 +1139,7 @@ const STATUS_HTML = `<!DOCTYPE html>
 <body>
 <header>
   <h1>qtbot — VPS status</h1>
-  <span class="muted">· <a href="/">metrics</a> · <a href="/inventory">kho đồ</a> · <a href="/admin">kinh tế</a> · <a href="/words">từ điển nối từ</a></span>
+  <span class="muted">· <a href="/">metrics</a> · <a href="/inventory">kho đồ</a> · <a href="/admin">kinh tế</a> · <a href="/ai">AI</a> · <a href="/words">từ điển nối từ</a></span>
   <span style="flex:1"></span>
   <span class="pill" id="host">—</span>
   <span class="muted">cập nhật: <span id="updated">—</span></span>
@@ -1320,7 +1320,7 @@ const WORDS_HTML = `<!DOCTYPE html>
 <body>
 <header>
   <h1>qtbot — từ điển Nối Từ (!noitu)</h1>
-  <span class="muted">· <a href="/">metrics</a> · <a href="/inventory">kho đồ</a> · <a href="/admin">kinh tế</a> · <a href="/status">VPS status</a></span>
+  <span class="muted">· <a href="/">metrics</a> · <a href="/inventory">kho đồ</a> · <a href="/admin">kinh tế</a> · <a href="/ai">AI</a> · <a href="/status">VPS status</a></span>
   <span style="flex:1"></span>
   <span class="muted">Từ điển: <b id="dictSize">—</b> từ</span>
   <button id="reloadBtn">↻ Tải lại</button>
@@ -1715,6 +1715,17 @@ async function handleAdmin(req, res, pathname, query) {
                 return sendJson(res, r.status, await r.json());
             } catch (e) {
                 if (/invalid JSON|payload too large/.test(e.message)) throw e;
+                return sendJson(res, 502, { error: 'Không kết nối được qtbot-ai.' });
+            }
+        }
+        // Read-only proxies for the /ai page's metrics + request-trace sections.
+        if ((pathname === '/api/admin/ai/metrics' || pathname === '/api/admin/ai/traces') && method === 'GET') {
+            const upstream = pathname === '/api/admin/ai/metrics' ? '/admin/metrics' : '/admin/traces';
+            const qs = query && query.id ? `?id=${encodeURIComponent(query.id)}` : '';
+            try {
+                const r = await fetch(`${AI_SERVICE_URL}${upstream}${qs}`, { signal: AbortSignal.timeout(5000) });
+                return sendJson(res, r.status, await r.json());
+            } catch (e) {
                 return sendJson(res, 502, { error: 'Không kết nối được qtbot-ai.' });
             }
         }
