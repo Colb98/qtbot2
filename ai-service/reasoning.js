@@ -32,7 +32,9 @@ const THINK_INSTRUCTION =
     'write the final reply.] Think step by step, briefly (max ~200 words, Vietnamese): ' +
     '1) What is really being asked? 2) What do you already know from the conversation, ' +
     'memory and rules? 3) What is uncertain or might need a web search ([[search]] is ' +
-    'available in your NEXT reply, not this one)? 4) Outline the answer.';
+    'available in your NEXT reply, not this one)? If searching: write the EXACT query you ' +
+    'will use and its language, following the search rules (official Chinese terms for CN ' +
+    'games, text pages — you cannot watch videos). 4) Outline the answer.';
 
 const clipTurn = (s, n) => String(s || '').replace(/\s+/g, ' ').slice(0, n);
 

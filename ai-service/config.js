@@ -35,6 +35,12 @@ const config = {
     searchMaxPerMessage: int('AI_SEARCH_MAX_PER_MESSAGE', 2),
     searchDailyLimit: int('AI_SEARCH_DAILY_LIMIT', 200),
     searchBlockMaxChars: int('AI_SEARCH_BLOCK_MAX_CHARS', 15000), // hard cap per tool block
+    // Video/social platforms: page fetchers cannot extract transcripts, so
+    // these results are dead weight for [[read]] — filtered out of the numbered
+    // list. Entries with a '/' match host+path prefix (bilibili articles stay).
+    searchBlockDomains: (process.env.AI_SEARCH_BLOCK_DOMAINS ||
+        'youtube.com,youtu.be,tiktok.com,douyin.com,facebook.com,instagram.com,kuaishou.com,bilibili.com/video')
+        .split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
     fetchEnabled: process.env.AI_FETCH_ENABLED !== 'false',
     fetchMaxPages: int('AI_FETCH_MAX_PAGES', 4),          // max pages per [[read]] selection
     fetchTimeoutMs: int('AI_FETCH_TIMEOUT_MS', 8000),

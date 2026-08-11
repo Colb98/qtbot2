@@ -96,10 +96,15 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         }));
     });
 
+    // Tavily fake leads with a video result — the domain filter must divert it
+    // so the readable numbered list starts at the text page.
     const searchPort = await fakeProvider((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-            results: [{ title: 'Giá vàng SJC', url: 'https://example.com/gold', content: 'Giá vàng hôm nay 88 triệu/lượng' }],
+            results: [
+                { title: 'Video giá vàng', url: 'https://www.tiktok.com/@x/video/123', content: 'xem video nhé' },
+                { title: 'Giá vàng SJC', url: 'https://example.com/gold', content: 'Giá vàng hôm nay 88 triệu/lượng' },
+            ],
         }));
     });
     // Serper (primary backend) returns nothing → cascade must fall through to
@@ -309,7 +314,10 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(c15.text.includes('[Page contents'), 'page contents block should reach the model');
     assert.ok(c15.text.includes('BÀI VIẾT ĐẦY ĐỦ'), 'selected page content should reach the model');
     assert.ok(c15.text.includes('DÙNG_SEARCH giá vàng bao nhiêu?'), 'original question should stay in context');
-    console.log('ok 15 — search → select → read-pages loop grounds the answer');
+    assert.ok(!c15.text.includes('Source: https://www.tiktok.com'),
+        'video results must never appear in the numbered/readable list');
+    assert.ok(c15.text.includes('video result(s) hidden'), 'hidden-video note should reach the model');
+    console.log('ok 15 — search → select → read-pages loop grounds the answer; video results filtered');
 
     // 16. RULES.md + member advice: both must reach the system prompt; advice
     // is capped and removable.

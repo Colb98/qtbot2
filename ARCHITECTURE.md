@@ -271,6 +271,11 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   [[read]] takes indices into the results it just received,
                   validated and capped at AI_FETCH_MAX_PAGES here. Both steps
                   are deduped and capped per message (loop-bait guard).
+                  Video/social results (AI_SEARCH_BLOCK_DOMAINS) are diverted
+                  before numbering — fetchers can't read videos, so the model
+                  can never [[read]] one; a video-only search tells the model
+                  to re-query with text-oriented (Chinese) keywords instead of
+                  deferring the user to YouTube.
                   Replies show "🔎 tìm web". Enabled iff SERPER_API_KEY or
                   TAVILY_API_KEY is set. Page-read kill
                   switch: AI_FETCH_ENABLED=false.
@@ -319,7 +324,9 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `AI_METRICS_RETENTION_DAYS`, `AI_SEARCH_ENABLED`, `SERPER_API_KEY`/`TAVILY_API_KEY`
   (cascade in that order), `AI_SEARCH_MAX_RESULTS`, `AI_SEARCH_MIN_RESULTS`,
   `AI_SEARCH_TIMEOUT_MS`, `AI_SEARCH_MAX_PER_MESSAGE`, `AI_SEARCH_DAILY_LIMIT`,
-  `AI_SEARCH_BLOCK_MAX_CHARS`, `AI_FETCH_ENABLED`, `AI_FETCH_MAX_PAGES`,
+  `AI_SEARCH_BLOCK_MAX_CHARS`, `AI_SEARCH_BLOCK_DOMAINS` (video/social domains
+  filtered from results — fetchers can't read videos; `host/path` entries match
+  path prefixes), `AI_FETCH_ENABLED`, `AI_FETCH_MAX_PAGES`,
   `AI_FETCH_TIMEOUT_MS`, `AI_FETCH_MAX_CHARS`, `JINA_API_KEY` (optional, higher
   reader limits), `FIRECRAWL_API_KEY` (optional, last-resort fetcher), plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,

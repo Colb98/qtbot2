@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.18.0';
+const CURRENT_VERSION = '3.18.1';
 
 const CHANGELOG = {
+    '3.18.1': {
+        date: '2026-08-11',
+        title: 'AI hết né việc bằng link video',
+        changes: [
+            '🎯 **Kết quả video bị loại khỏi tra cứu** — bot không xem được video nên TikTok/YouTube/Douyin... giờ bị lọc thẳng khỏi danh sách đọc; nếu tìm ra toàn video, bot tự tìm lại bằng từ khoá tiếng Trung dạng bài viết (攻略/wiki/forum) thay vì khuyên sếp "lên YouTube xem thêm".'
+        ]
+    },
     '3.18.0': {
         date: '2026-08-11',
         title: 'AI biết suy nghĩ trước khi trả lời',

@@ -85,28 +85,47 @@ const BACKENDS = [
     { name: 'tavily', fn: tavily, configured: () => !!process.env.TAVILY_API_KEY },
 ];
 
-// Walk the cascade until one backend returns enough results; pool everything
-// seen (deduped by URL) so a final "not enough anywhere" still answers with
-// the union of what the backends gave us.
+// The model cannot watch videos, and the page fetchers only get the page shell
+// from video platforms — such results must never be offered for [[read]].
+// An unparseable URL is unreadable too, so it counts as blocked.
+function isBlockedResult(url) {
+    try {
+        const u = new URL(url);
+        const host = u.hostname.toLowerCase();
+        const hostPath = host + u.pathname.toLowerCase();
+        return config.searchBlockDomains.some((d) =>
+            d.includes('/') ? hostPath.includes(d) : host === d || host.endsWith(`.${d}`));
+    } catch (_) {
+        return true;
+    }
+}
+
+// Walk the cascade until one backend returns enough TEXT results; pool
+// everything seen (deduped by URL) so a final "not enough anywhere" still
+// answers with the union of what the backends gave us. Video results are
+// diverted into their own list — counted and named, never numbered.
 async function searchCascade(query) {
     const pool = [];
+    const videos = [];
     const seen = new Set();
     const used = [];
     for (const b of BACKENDS.filter((b) => b.configured())) {
         try {
             const results = await b.fn(query);
-            used.push(`${b.name}=${results.length}`);
+            let dropped = 0;
             for (const r of results) {
                 if (!r.url || seen.has(r.url)) continue;
                 seen.add(r.url);
+                if (isBlockedResult(r.url)) { dropped++; videos.push(r); continue; }
                 pool.push(r);
             }
-            if (results.length >= config.searchMinResults) break; // sufficient
+            used.push(`${b.name}=${results.length}${dropped ? `(-${dropped} video)` : ''}`);
+            if (pool.length >= config.searchMinResults) break; // sufficient text results
         } catch (e) {
             used.push(`${b.name}:${e.message}`);
         }
     }
-    return { results: pool.slice(0, config.searchMaxResults), used };
+    return { results: pool.slice(0, config.searchMaxResults), videos, used };
 }
 
 // ---------------------------------------------------------------- page fetch
@@ -186,14 +205,25 @@ async function run(query) {
     metrics.inc('searches');
     const started = Date.now();
 
-    const { results, used } = await searchCascade(query);
+    const { results, videos, used } = await searchCascade(query);
     log.info(`[ai] search "${query}" backends=[${used.join(', ')}] results=${results.length} ` +
-        `took=${Date.now() - started}ms daily=${daily.count}`);
-    if (!results.length) return { block: `${header}\nNo results.`, results, used };
+        `videos=${videos.length} took=${Date.now() - started}ms daily=${daily.count}`);
+    if (!results.length) {
+        // Video-only outcome: tell the model to re-query (it has another search),
+        // not to hand the user a "watch it on YouTube" non-answer.
+        const note = videos.length
+            ? `\nOnly VIDEO results found (${videos.slice(0, 3).map((v) => v.title).join(' | ')}). ` +
+              'You cannot watch videos and their pages cannot be read. Search ONE more time with ' +
+              'different text-oriented keywords (for CN games: official Chinese terms + 攻略/wiki/论坛) — ' +
+              'do NOT recommend videos to the user.'
+            : '\nNo results.';
+        return { block: `${header}${note}`, results, used };
+    }
 
     const block = `${header}\n` + results
         .map((r, i) => `${i + 1}. ${r.title}\n${String(r.snippet || '').slice(0, 300)}\nSource: ${r.url}`)
         .join('\n\n') +
+        (videos.length ? `\n\n(${videos.length} video result(s) hidden — videos cannot be read)` : '') +
         (config.fetchEnabled
             ? `\n\nTo read the full content of the most relevant results before answering, reply with EXACTLY one line: [[read: <numbers separated by commas>]] — pick the 2-${config.fetchMaxPages} best ones.`
             : '');
