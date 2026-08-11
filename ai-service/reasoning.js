@@ -104,7 +104,7 @@ async function classify({ history, summary, userText, name, trace: t }) {
         const { text } = await generateChatResponse([
             { role: 'system', content: CLASSIFIER_SYSTEM },
             { role: 'user', content },
-        ], { maxTokens: config.reasoningClassifierMaxTokens, temperature: 0, noThink: true });
+        ], { maxTokens: config.reasoningClassifierMaxTokens, temperature: 0, noThink: true, timeoutMs: config.reasoningTimeoutMs });
         const m = /\b(RESEARCH|SOCIAL|THINK|NOW)\b/i.exec(text);
         const mode = m ? MODES[m[1].toUpperCase()] : 'immediate'; // garbage → immediate
         trace.endStep(t, s, { ok: true, result: mode, reason: 'classified', detail: text });
@@ -148,7 +148,7 @@ async function verify({ userText, draftText, trace: t }) {
         const { text } = await generateChatResponse([
             { role: 'system', content: VERIFY_SYSTEM },
             { role: 'user', content: `User message: ${clipTurn(userText, 500)}\n\nDRAFT reply: ${draftText}` },
-        ], { maxTokens: config.verifyMaxTokens, temperature: 0 });
+        ], { maxTokens: config.verifyMaxTokens, temperature: 0, timeoutMs: config.reasoningTimeoutMs });
         const m = /\{[\s\S]*\}/.exec(text);
         const parsed = m ? JSON.parse(m[0]) : { pass: true };
         const pass = parsed.pass !== false;

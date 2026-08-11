@@ -155,8 +155,13 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
         }
     }
 
+    const overBudget = (fraction = 1) => Date.now() - started > config.chatBudgetMs * fraction;
+
     if (!shipped) {
-        if (mode === 'think' || mode === 'research') {
+        // Analysis is only worth doing while there's still budget to act on
+        // it (half the window) — a slow classify chain shouldn't push the
+        // whole pipeline past the bot's timeout.
+        if ((mode === 'think' || mode === 'research') && !overBudget(0.5)) {
             // The analysis engine gets rules + facts but NO persona and NO
             // member advice — its notes cannot read like a reply, so the
             // generation below cannot anchor on their wording.
@@ -184,8 +189,10 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     // numbered result list, then may select pages to read via [[read: 1,3]].
     // Both steps are capped per message; intermediate steps stay out of the
     // session — only the user's message and the final answer persist. Skipped
-    // when a verified social draft shipped (that reply is already final).
-    while (!shipped && config.searchEnabled) {
+    // when a verified social draft shipped (that reply is already final), and
+    // no new round starts past the time budget — a reply that arrives after
+    // the bot's timeout is a reply nobody sees.
+    while (!shipped && config.searchEnabled && !overBudget()) {
         const query = search.extractQuery(text);
         // Same-query repeats are loop bait (a model can echo the prior tool
         // step from its context) — one run per distinct query per message.

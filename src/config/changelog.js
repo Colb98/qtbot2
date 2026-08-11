@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.22.1';
+const CURRENT_VERSION = '3.22.2';
 
 const CHANGELOG = {
+    '3.22.2': {
+        date: '2026-08-11',
+        title: 'Trả lời trước khi hết giờ',
+        changes: [
+            '⏱️ **Hết cảnh nghiên cứu xong thì... không ai nghe** — trước đây khi nhà cung cấp AI chậm/chập chờn, bot có thể mất hơn 60 giây (nghĩ + tra web + đọc trang) rồi trả lời vào hư không vì phía Discord đã bỏ cuộc, hiện "AI đang tạm nghỉ" dù thực ra đã trả lời xong. Giờ mỗi câu hỏi có ngân sách thời gian: sắp hết giờ thì thôi tra thêm, trả lời luôn bằng những gì đã có; mấy cuộc gọi phân loại tí hon cũng hết kiên nhẫn nhanh hơn với nhà cung cấp đang bệnh.'
+        ]
+    },
     '3.22.1': {
         date: '2026-08-11',
         title: 'Trị bệnh model hay nghĩ thành lời',

@@ -59,7 +59,7 @@ class AllProvidersFailedError extends Error {
     }
 }
 
-async function callProvider(p, messages, maxTokens, temperature) {
+async function callProvider(p, messages, maxTokens, temperature, timeoutMs) {
     const res = await fetch(p.url, {
         method: 'POST',
         headers: {
@@ -72,7 +72,7 @@ async function callProvider(p, messages, maxTokens, temperature) {
             max_tokens: maxTokens,
             temperature,
         }),
-        signal: AbortSignal.timeout(config.providerTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -97,6 +97,7 @@ async function generateChatResponse(messages, opts = {}) {
     if (!providers.length) throw new Error('No AI providers configured');
     const maxTokens = opts.maxTokens || config.maxResponseTokens;
     const temperature = opts.temperature ?? config.temperature;
+    const timeoutMs = opts.timeoutMs || config.providerTimeoutMs;
     const now = Date.now();
     let eligible = providers.filter(p => now >= health.get(p.name).cooldownUntil);
     if (!eligible.length) eligible = providers; // everyone cooling down: best-effort anyway
@@ -120,7 +121,7 @@ async function generateChatResponse(messages, opts = {}) {
     for (const p of eligible) {
         const started = Date.now();
         try {
-            const { text, usage } = await callProvider(p, msgsFor(p), maxTokens, temperature);
+            const { text, usage } = await callProvider(p, msgsFor(p), maxTokens, temperature, timeoutMs);
             const h = health.get(p.name);
             h.cooldownUntil = 0; h.lastFailure = null; // a success clears cooldown state
             const latencyMs = Date.now() - started;

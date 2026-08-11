@@ -338,6 +338,11 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
 - **Env keys** (all in the same `.env`): `AI_ENABLED`, `AI_CHANNEL_IDS`, `AI_ALLOWED_ROLE_IDS`,
   `AI_SERVICE_URL`/`AI_SERVICE_PORT`, `AI_REQUEST_TIMEOUT_MS`, `AI_USER_COOLDOWN_MS`,
   `AI_MAX_CONCURRENT`, `AI_MAX_RESPONSE_TOKENS`, `AI_PROVIDER_TIMEOUT_MS`,
+  `AI_CHAT_BUDGET_MS` (soft per-request budget: past it no new search/read round
+  starts and analysis is skipped — must stay under the bot's
+  AI_REQUEST_TIMEOUT_MS or replies finish after the bot stopped listening),
+  `AI_REASONING_TIMEOUT_MS` (short provider timeout for tiny classify/verify
+  calls — sick providers fail over fast),
   `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, `AI_SESSION_MAX_MESSAGES`,
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
   `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,

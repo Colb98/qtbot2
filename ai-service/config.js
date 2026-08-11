@@ -18,6 +18,14 @@ const config = {
     host: '127.0.0.1', // never expose publicly: auth happens in the bot process
     maxResponseTokens: int('AI_MAX_RESPONSE_TOKENS', 800),
     providerTimeoutMs: int('AI_PROVIDER_TIMEOUT_MS', 30000),
+    // Soft wall-clock budget per /chat request: past it, no new search/read
+    // rounds start and analysis is skipped — the reply must reach the bot
+    // before ITS timeout (AI_REQUEST_TIMEOUT_MS), or nobody sees it.
+    chatBudgetMs: int('AI_CHAT_BUDGET_MS', 90000),
+    // Tiny reasoning calls (classify/verify, <100 tokens) get a short provider
+    // timeout: if 8 tokens take longer than this, the provider is sick —
+    // fail over fast instead of burning the full providerTimeoutMs.
+    reasoningTimeoutMs: int('AI_REASONING_TIMEOUT_MS', 10000),
     providerCooldownMs: int('AI_PROVIDER_COOLDOWN_MS', 60000),
     temperature: Number(process.env.AI_TEMPERATURE) || 0.7,
     sessionMaxMessages: int('AI_SESSION_MAX_MESSAGES', 30),

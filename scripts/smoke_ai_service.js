@@ -50,6 +50,7 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         // A qwen-named model "thinks" unless the /no_think soft-switch arrived.
         if (body.messages[0].content.includes('routing classifier')) {
             if (last.includes('FORCE_CLASSIFY_FAIL')) { res.writeHead(500); return res.end('{}'); }
+            if (last.includes('SLOW_CLASSIFY')) await new Promise((r) => setTimeout(r, 300));
             if (/qwen/i.test(body.model) && !last.includes('/no_think')) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({
@@ -590,6 +591,25 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         body: JSON.stringify({ models: { gemini: '' } }),
     });
     console.log('ok 26 — /no_think reaches qwen-served classifier calls only');
+
+    // 27. Latency guards, via a restart with a tight budget + short reasoning
+    // timeout (env is read at module load):
+    process.env.AI_CHAT_BUDGET_MS = '1';
+    process.env.AI_REASONING_TIMEOUT_MS = '100';
+    await restartService();
+    // 27a. Over-budget: the model asks for a search but no round may start —
+    // markers stripped, fallback line ships instead of a reply nobody would see.
+    const c27 = await (await chat(msgFor('chanN', 'DÙNG_SEARCH giá vàng bao nhiêu?'))).json();
+    assert.deepStrictEqual(c27.searchQueries, [], 'no search round may start past the budget');
+    assert.strictEqual(c27.text, 'Mình tìm chưa ra thông tin, thử lại sau nhé.',
+        `expected the stripped-marker fallback, got: ${c27.text.slice(0, 60)}`);
+    // 27b. Sick-provider classify: 300ms response vs 100ms reasoning timeout →
+    // fast TimeoutError → fail-open to immediate, chat still succeeds.
+    const r27 = await chat(msgFor('chanN', 'SLOW_CLASSIFY câu này đủ dài để bị đem đi phân loại nè bot'));
+    assert.strictEqual(r27.status, 200, 'slow classifier must fail open, not fail the chat');
+    const d27 = await getTraces((await getTraces()).traces[0].id);
+    assert.strictEqual(d27.steps.find((s) => s.type === 'classify').result, 'error-fallback');
+    console.log('ok 27 — time budget stops search rounds; short reasoning timeout fails over fast');
 
     console.log('PASS: all Phase 1–6 + reasoning + traces + admin smoke checks green');
     process.exit(0);
