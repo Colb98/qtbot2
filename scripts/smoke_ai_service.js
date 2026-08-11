@@ -424,6 +424,8 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(t18.steps.includes('classify:research'), `steps: ${t18.steps}`);
     assert.ok(t18.steps.includes('analyze'), `steps: ${t18.steps}`);
     const d18 = await getTraces(t18.id);
+    assert.ok(d18.steps.find((s) => s.type === 'classify').provider,
+        'classify step must record which provider served it');
     const analyzeStep = d18.steps.find((s) => s.type === 'analyze');
     assert.ok(analyzeStep && analyzeStep.detail.includes('KẾ HOẠCH'), 'trace must carry the analysis text');
     const c18b = JSON.parse((await (await chat(msgFor('chanI', 'câu tiếp ngắn'))).json()).text);

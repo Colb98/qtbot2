@@ -101,19 +101,19 @@ async function classify({ history, summary, userText, name, trace: t }) {
     const s = trace.step(t, 'classify');
     daily.count++;
     try {
-        const { text } = await generateChatResponse([
+        const { text, provider, model, attempts } = await generateChatResponse([
             { role: 'system', content: CLASSIFIER_SYSTEM },
             { role: 'user', content },
         ], { maxTokens: config.reasoningClassifierMaxTokens, temperature: 0, noThink: true, timeoutMs: config.reasoningTimeoutMs });
         const m = /\b(RESEARCH|SOCIAL|THINK|NOW)\b/i.exec(text);
         const mode = m ? MODES[m[1].toUpperCase()] : 'immediate'; // garbage → immediate
-        trace.endStep(t, s, { ok: true, result: mode, reason: 'classified', detail: text });
+        trace.endStep(t, s, { ok: true, result: mode, reason: 'classified', provider, model, attempts, detail: text });
         metrics.inc(`classify${mode[0].toUpperCase()}${mode.slice(1)}`);
         return { mode, reason: 'classified' };
     } catch (e) {
         // Fail-open: a broken classifier must never fail the request.
         log.warn('[ai] classifier failed, answering immediately:', e.message);
-        trace.endStep(t, s, { ok: false, result: 'error-fallback', detail: e.message });
+        trace.endStep(t, s, { ok: false, result: 'error-fallback', attempts: e.attempts, detail: e.message });
         metrics.inc('classifyImmediate');
         return { mode: 'immediate', reason: 'error-fallback' };
     }
@@ -145,18 +145,18 @@ async function verify({ userText, draftText, trace: t }) {
     const s = trace.step(t, 'verify');
     daily.count++;
     try {
-        const { text } = await generateChatResponse([
+        const { text, provider, model, attempts } = await generateChatResponse([
             { role: 'system', content: VERIFY_SYSTEM },
             { role: 'user', content: `User message: ${clipTurn(userText, 500)}\n\nDRAFT reply: ${draftText}` },
         ], { maxTokens: config.verifyMaxTokens, temperature: 0, timeoutMs: config.reasoningTimeoutMs });
         const m = /\{[\s\S]*\}/.exec(text);
         const parsed = m ? JSON.parse(m[0]) : { pass: true };
         const pass = parsed.pass !== false;
-        trace.endStep(t, s, { ok: true, result: pass ? 'pass' : 'fail', detail: text });
+        trace.endStep(t, s, { ok: true, result: pass ? 'pass' : 'fail', provider, model, attempts, detail: text });
         if (!pass) metrics.inc('verifyFails');
         return { pass, reason: typeof parsed.reason === 'string' ? parsed.reason.slice(0, 200) : null };
     } catch (e) {
-        trace.endStep(t, s, { ok: false, result: 'error-pass', detail: e.message });
+        trace.endStep(t, s, { ok: false, result: 'error-pass', attempts: e.attempts, detail: e.message });
         return { pass: true, reason: null };
     }
 }

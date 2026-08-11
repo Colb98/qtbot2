@@ -56,6 +56,7 @@ class AllProvidersFailedError extends Error {
     constructor(attempts) {
         super(`All providers failed: ${attempts.join('; ')}`);
         this.name = 'AllProvidersFailedError';
+        this.attempts = attempts; // per-provider failure notes, for traces
     }
 }
 
@@ -135,7 +136,9 @@ async function generateChatResponse(messages, opts = {}) {
             }
             log.info(`[ai] provider=${p.name} model=${p.model} latency=${latencyMs}ms` +
                 (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''));
-            return { text, provider: p.name };
+            // model/attempts ride along so callers that record their own trace
+            // steps (classify/verify) can explain their latency.
+            return { text, provider: p.name, model: p.model, attempts: attempts.length ? [...attempts] : undefined };
         } catch (e) {
             attempts.push(`${p.name}: ${e.message.slice(0, 120)}`);
             metrics.provider(p.name, { ok: false, rateLimited: e.status === 429 });

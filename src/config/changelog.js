@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.22.2';
+const CURRENT_VERSION = '3.22.3';
 
 const CHANGELOG = {
+    '3.22.3': {
+        date: '2026-08-11',
+        title: 'Soi được ai làm chậm bước phân loại',
+        changes: [
+            '🔍 **Bước phân loại/kiểm tra trong nhật ký /ai giờ khai rõ danh tính** — hiện provider, model và các lần thử thất bại, nên phân loại mất 16 giây là biết ngay tại nhà nào chậm chứ không còn bí ẩn.'
+        ]
+    },
     '3.22.2': {
         date: '2026-08-11',
         title: 'Trả lời trước khi hết giờ',
