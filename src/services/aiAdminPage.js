@@ -139,7 +139,8 @@ function render() {
       '<button class="ordbtn" data-down="' + i + '" ' + (i === rows.length - 1 ? 'disabled' : '') + '>↓</button></td>' +
       '<td><input type="checkbox" data-en="' + i + '" ' + (p.enabled ? 'checked' : '') + ' ' + (p.configured ? '' : 'disabled') + '></td>' +
       '<td class="name">' + p.name + '</td>' +
-      '<td class="model"><input data-model="' + i + '" value="' + p.modelInput.replace(/"/g, '&quot;') + '" placeholder="' + p.fallbackModel + '"></td>' +
+      '<td class="model"><input data-model="' + i + '" list="models-' + p.name + '" value="' + p.modelInput.replace(/"/g, '&quot;') + '" placeholder="' + p.fallbackModel + '">' +
+      '<datalist id="models-' + p.name + '"></datalist></td>' +
       '<td data-status="' + p.name + '">' + healthBadge(p) + '</td>';
     tb.appendChild(tr);
   });
@@ -157,6 +158,30 @@ document.addEventListener('change', (e) => {
 document.addEventListener('input', (e) => {
   const m = e.target.dataset && e.target.dataset.model;
   if (m !== undefined && m !== '') { rows[+m].modelInput = e.target.value; setDirty(true); }
+});
+
+// Model combo-box: on first focus of a model input, fetch the provider's real
+// model list (service proxies GET {base}/models) into its datalist. Free text
+// still works — the list is a helper, not a constraint. Failure = plain input.
+const modelLists = {}; // provider -> [ids]
+document.addEventListener('focusin', async (e) => {
+  const m = e.target.dataset && e.target.dataset.model;
+  if (m === undefined || m === '') return;
+  const name = rows[+m] && rows[+m].name;
+  const dl = name && document.getElementById('models-' + name);
+  if (!dl || dl.children.length) return;
+  try {
+    if (!modelLists[name]) {
+      const res = await fetch('/api/admin/ai/models?provider=' + encodeURIComponent(name));
+      if (!res.ok) return;
+      modelLists[name] = (await res.json()).models || [];
+    }
+    modelLists[name].forEach((id) => {
+      const o = document.createElement('option');
+      o.value = id;
+      dl.appendChild(o);
+    });
+  } catch (_) { /* keep free-text input */ }
 });
 
 function applySnapshot(snap) {

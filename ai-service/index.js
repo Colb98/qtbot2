@@ -289,6 +289,37 @@ async function handleAdminConfig(req, res) {
     send(res, 200, adminSnapshot());
 }
 
+// GET /admin/models?provider=<name> → model ids the provider actually serves,
+// straight from its OpenAI-compat GET {base}/models — so the dashboard picker
+// can only offer names that exist (goodbye error_404 cooldowns). Cached 10 min;
+// obvious non-chat models (embeddings, audio, image...) are filtered out.
+const modelsCache = new Map(); // provider -> { ts, models }
+async function handleModels(req, res) {
+    const name = new URL(req.url, 'http://x').searchParams.get('provider');
+    const creds = name && KNOWN_PROVIDERS.includes(name) ? credsFor(name) : null;
+    if (!creds) return send(res, 400, { error: 'unknown or unconfigured provider' });
+    const cached = modelsCache.get(name);
+    if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return send(res, 200, { models: cached.models });
+    try {
+        const url = creds.url.replace(/\/chat\/completions\/?$/, '/models');
+        const r = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${creds.key}` },
+            signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        const models = [...new Set((data.data || [])
+            .map((m) => String(m.id || '').replace(/^models\//, '')) // gemini prefixes ids
+            .filter((id) => id && !/embed|whisper|tts|audio|image|video|veo|aqa|moderation|guard|rerank/i.test(id)))]
+            .sort();
+        modelsCache.set(name, { ts: Date.now(), models });
+        send(res, 200, { models });
+    } catch (e) {
+        log.warn(`[ai] model list for ${name} failed:`, e.message);
+        send(res, 502, { error: `could not list models: ${e.message}` });
+    }
+}
+
 // GET /admin/traces → compact list; ?id=<id> → one full trace with all steps.
 function handleTraces(req, res) {
     const id = new URL(req.url, 'http://x').searchParams.get('id');
@@ -325,6 +356,7 @@ const server = http.createServer((req, res) => {
         route === 'GET /admin/config' || route === 'PUT /admin/config' ? handleAdminConfig(req, res) :
         route === 'GET /admin/metrics' ? Promise.resolve(send(res, 200, metrics.snapshot())) :
         route === 'GET /admin/traces' ? Promise.resolve(handleTraces(req, res)) :
+        route === 'GET /admin/models' ? handleModels(req, res) :
         route === 'GET /health' ? Promise.resolve(send(res, 200, { ok: true, providers: healthSnapshot() })) :
         Promise.resolve(send(res, 404, { error: 'not found' }));
     task.catch((e) => {

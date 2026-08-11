@@ -313,12 +313,15 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
 ```
 
 **Admin panel:** `/ai` on the dashboard ([src/services/aiAdminPage.js](src/services/aiAdminPage.js))
-— reorder/enable providers, override models, live health, plus two read-only
+— reorder/enable providers, override models (the model field is a combo-box:
+on focus it loads the provider's REAL model list via `GET /admin/models
+?provider=` → OpenAI-compat `{base}/models`, cached 10 min, non-chat models
+filtered; free text still allowed), live health, plus two read-only
 sections refreshed on the same 5s poll: **Thống kê** (today's metrics tiles +
 per-provider table, from `GET /admin/metrics`) and **Yêu cầu gần đây** (the
 per-request flow traces; click a row for the step-by-step timeline including
 the hidden thinking text and tool results, from `GET /admin/traces[?id=]`).
-Uses the existing dashboard session auth; `/api/admin/ai/{config,metrics,traces}`
+Uses the existing dashboard session auth; `/api/admin/ai/{config,metrics,traces,models}`
 proxy to the service's admin endpoints (the localhost-only service's sole
 exposure). Trace/LLM text is rendered with `textContent` only — never innerHTML.
 

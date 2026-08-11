@@ -1718,10 +1718,14 @@ async function handleAdmin(req, res, pathname, query) {
                 return sendJson(res, 502, { error: 'Không kết nối được qtbot-ai.' });
             }
         }
-        // Read-only proxies for the /ai page's metrics + request-trace sections.
-        if ((pathname === '/api/admin/ai/metrics' || pathname === '/api/admin/ai/traces') && method === 'GET') {
-            const upstream = pathname === '/api/admin/ai/metrics' ? '/admin/metrics' : '/admin/traces';
-            const qs = query && query.id ? `?id=${encodeURIComponent(query.id)}` : '';
+        // Read-only proxies for the /ai page's metrics, trace and model-list data.
+        if ((pathname === '/api/admin/ai/metrics' || pathname === '/api/admin/ai/traces' || pathname === '/api/admin/ai/models') && method === 'GET') {
+            const upstream = pathname === '/api/admin/ai/metrics' ? '/admin/metrics'
+                : pathname === '/api/admin/ai/traces' ? '/admin/traces' : '/admin/models';
+            const params = new URLSearchParams();
+            if (query && query.id) params.set('id', query.id);
+            if (query && query.provider) params.set('provider', query.provider);
+            const qs = params.size ? `?${params}` : '';
             try {
                 const r = await fetch(`${AI_SERVICE_URL}${upstream}${qs}`, { signal: AbortSignal.timeout(5000) });
                 return sendJson(res, r.status, await r.json());

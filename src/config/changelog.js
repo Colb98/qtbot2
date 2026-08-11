@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.20.0';
+const CURRENT_VERSION = '3.20.1';
 
 const CHANGELOG = {
+    '3.20.1': {
+        date: '2026-08-11',
+        title: 'Hết gõ nhầm tên model AI',
+        changes: [
+            '📋 **Chọn model từ danh sách thật** — ô model trong trang quản trị /ai giờ là combo-box: bấm vào là hiện đúng những model mà provider đang phục vụ (lấy thẳng từ API của họ), hết cảnh gõ nhầm tên rồi bot "nghỉ — error_404". Vẫn gõ tay được nếu muốn.'
+        ]
+    },
     '3.20.0': {
         date: '2026-08-11',
         title: 'AI suy nghĩ có chọn lọc — và không quên cà khịa',

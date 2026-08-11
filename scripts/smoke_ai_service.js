@@ -37,6 +37,12 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     const cfPort = await fakeProvider((req, res) => { res.writeHead(500); res.end('{"error":"boom"}'); });
     const groqPort = await fakeProvider((req, res) => { res.writeHead(429, { 'retry-after': '30' }); res.end('{}'); });
     const orPort = await fakeProvider(async (req, res) => {
+        // OpenAI-compat model listing — includes a gemini-style "models/" prefix
+        // and an audio model that the service must filter out.
+        if (req.method === 'GET' && req.url.includes('/models')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ data: [{ id: 'models/model-b' }, { id: 'model-a' }, { id: 'whisper-large-v3' }] }));
+        }
         const body = await readBody(req);
         const last = body.messages[body.messages.length - 1].content;
         // Reasoning classifier: mode picked by marker in the question;
@@ -489,6 +495,14 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(sessK.messages.filter((m) => m.role === 'user').every((m) => !m.content.includes('đi ăn lẩu')),
         'ambient context must never persist as session turns');
     console.log('ok 23 — ambient channel context injected, deduped, never persisted');
+
+    // 24. Model listing for the dashboard combo-box: real provider ids only —
+    // "models/" prefix stripped, non-chat models filtered, unknown provider 400.
+    const m24 = await (await fetch('http://127.0.0.1:3999/admin/models?provider=openrouter')).json();
+    assert.deepStrictEqual(m24.models, ['model-a', 'model-b'],
+        `expected filtered+sorted ids, got ${JSON.stringify(m24)}`);
+    assert.strictEqual((await fetch('http://127.0.0.1:3999/admin/models?provider=bogus')).status, 400);
+    console.log('ok 24 — /admin/models lists real provider models, filtered and prefix-stripped');
 
     console.log('PASS: all Phase 1–6 + reasoning + traces + admin smoke checks green');
     process.exit(0);
