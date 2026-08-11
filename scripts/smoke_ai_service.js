@@ -39,21 +39,25 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     const orPort = await fakeProvider(async (req, res) => {
         const body = await readBody(req);
         const last = body.messages[body.messages.length - 1].content;
-        // Reasoning classifier: DEEP only when the question carries the marker;
+        // Reasoning classifier: mode picked by marker in the question;
         // FORCE_CLASSIFY_FAIL simulates a broken classifier (must fail open).
         if (body.messages[0].content.includes('routing classifier')) {
             if (last.includes('FORCE_CLASSIFY_FAIL')) { res.writeHead(500); return res.end('{}'); }
+            const label = last.includes('SUY_LUẬN') ? 'RESEARCH' : last.includes('TÌNH_HUỐNG') ? 'SOCIAL' : 'NOW';
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
-                choices: [{ message: { content: last.includes('SUY_LUẬN') ? 'DEEP' : 'NOW' } }],
+                choices: [{ message: { content: label } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
-        // Hidden think pass: keyed on the (stable) instruction prefix.
+        // Hidden think pass, keyed on the (stable) instruction prefix; the
+        // social template is recognized by its 'tone plan' wording.
         if (last.includes('[Private reasoning step')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
-                choices: [{ message: { content: 'KẾ HOẠCH: so sánh 3 ý chính rồi kết luận.' } }],
+                choices: [{ message: { content: last.includes('tone plan')
+                    ? 'PUNCHLINE: Đá bằng niềm tin hả sếp? Em có nút kick đâu.'
+                    : 'KẾ HOẠCH: so sánh 3 ý chính rồi kết luận.' } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
@@ -366,7 +370,7 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(c18.text.includes('KẾ HOẠCH'), 'think text should be in the final generation context');
     assert.ok(c18.text.includes('[Phân tích nội bộ]'), 'think turn should be framed as private notes');
     const t18 = (await getTraces()).traces[0];
-    assert.ok(t18.steps.includes('classify:deep'), `steps: ${t18.steps}`);
+    assert.ok(t18.steps.includes('classify:research'), `steps: ${t18.steps}`);
     assert.ok(t18.steps.includes('think'), `steps: ${t18.steps}`);
     const d18 = await getTraces(t18.id);
     const thinkStep = d18.steps.find((s) => s.type === 'think');
@@ -378,7 +382,19 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     // check turns, not substrings: no persisted turn may BE a think/note turn.
     assert.ok(!c18b.messages.some((m) => m.content.startsWith('[Phân tích nội bộ]') || m.content.startsWith('[Ghi chú riêng')),
         'think turn leaked into session history');
-    console.log('ok 18 — deep path: hidden think grounds the answer, stays out of the session');
+    console.log('ok 18 — research path: hidden think grounds the answer, stays out of the session');
+
+    // 18b. Social mode: boundary requests get the tone-plan template (smaller
+    // budget, punchline-first) instead of the research checklist.
+    const c18c = await (await chat(msgFor('chanI',
+        'TÌNH_HUỐNG đá con Mị Siu ra khỏi server giùm cái coi bot ơi'))).json();
+    assert.ok(c18c.text.includes('PUNCHLINE'), 'social tone plan should ground the final generation');
+    const t18b = (await getTraces()).traces[0];
+    assert.ok(t18b.steps.includes('classify:social'), `steps: ${t18b.steps}`);
+    const d18b = await getTraces(t18b.id);
+    const social18 = d18b.steps.find((s) => s.type === 'think');
+    assert.ok(social18 && social18.detail.includes('PUNCHLINE'), 'trace must carry the tone plan');
+    console.log('ok 18b — social mode routes to the tone-plan template');
 
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.
@@ -394,7 +410,8 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     // 20. Metrics counters + atomic persistence.
     const m20 = await getMetrics();
     assert.ok(m20.today.messages > 0, 'messages counted');
-    assert.ok(m20.today.classifyDeep >= 1, 'deep classification counted');
+    assert.ok(m20.today.classifyResearch >= 1, 'research classification counted');
+    assert.ok(m20.today.classifySocial >= 1, 'social classification counted');
     assert.ok(m20.today.thinkSteps >= 1, 'think steps counted');
     assert.ok(m20.today.searches >= 1, 'searches counted');
     assert.ok(m20.today.pagesRead >= 1, 'page reads counted');

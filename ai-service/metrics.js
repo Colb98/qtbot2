@@ -27,7 +27,8 @@ function emptyDay() {
         messages: 0, errors: 0, latencyMs: 0, latencyCount: 0,
         perUser: {}, providers: {},
         searches: 0, pagesRead: 0, compactions: 0, memoryWrites: 0,
-        classifyDeep: 0, classifyImmediate: 0, thinkSteps: 0,
+        classifyImmediate: 0, classifySocial: 0, classifyThink: 0, classifyResearch: 0,
+        thinkSteps: 0,
     };
 }
 

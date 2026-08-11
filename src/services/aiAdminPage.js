@@ -206,8 +206,10 @@ function renderMetrics(m) {
   add('Latency TB', d.latencyCount ? fmtMs(Math.round(d.latencyMs / d.latencyCount)) : null);
   add('Tìm web', d.searches || 0);
   add('Trang đã đọc', d.pagesRead || 0);
-  add('Suy luận sâu', d.classifyDeep || 0);
   add('Trả lời ngay', d.classifyImmediate || 0);
+  add('Social', d.classifySocial || 0);
+  add('Phân tích', d.classifyThink || 0);
+  add('Tra cứu sâu', d.classifyResearch || 0);
   add('Bước nghĩ', d.thinkSteps || 0);
   add('Nén hội thoại', d.compactions || 0);
   add('Ghi nhớ', d.memoryWrites || 0);

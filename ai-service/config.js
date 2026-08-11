@@ -55,7 +55,9 @@ const config = {
     reasoningMinChars: int('AI_REASONING_MIN_CHARS', 40),          // shorter → immediate, no classifier call
     reasoningContextTurns: int('AI_REASONING_CONTEXT_TURNS', 4),   // recent turns shown to the classifier
     reasoningClassifierMaxTokens: int('AI_REASONING_CLASSIFIER_MAX_TOKENS', 8),
-    reasoningThinkMaxTokens: int('AI_REASONING_THINK_MAX_TOKENS', 400),
+    reasoningThinkMaxTokens: int('AI_REASONING_THINK_MAX_TOKENS', 400),   // research mode
+    reasoningAnalyzeMaxTokens: int('AI_REASONING_ANALYZE_MAX_TOKENS', 250), // think mode
+    reasoningSocialMaxTokens: int('AI_REASONING_SOCIAL_MAX_TOKENS', 150),   // social/tone-plan mode
     reasoningDailyLimit: int('AI_REASONING_DAILY_LIMIT', 300),     // classifier+think calls per day
     traceEnabled: process.env.AI_TRACE_ENABLED !== 'false',
     traceMax: int('AI_TRACE_MAX', 200),                            // ring buffer size (in-memory only)

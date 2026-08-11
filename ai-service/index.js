@@ -116,12 +116,14 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
         { role: 'user', content: `${name}: ${userText}` },
     ];
 
-    // Reasoning flow: a tiny classifier routes hard questions through a hidden
-    // "think" pass whose notes ground the answer (and any searches it plans);
-    // easy questions answer immediately. Both classify and think fail open.
+    // Adaptive reasoning: a tiny classifier routes each question to a mode —
+    // immediate (banter), social (tone plan), think (analysis) or research —
+    // and the non-immediate modes run a hidden "think" pass whose notes ground
+    // the answer. Every template ends with a voice step so the reply keeps the
+    // SOUL persona. Classify and think both fail open.
     const { mode } = await reasoning.classify({ history, summary, userText, name, trace: t });
-    if (mode === 'deep') {
-        const thinkText = await reasoning.think({ messages, trace: t });
+    if (mode !== 'immediate') {
+        const thinkText = await reasoning.think({ messages, mode, trace: t });
         if (thinkText) {
             // Ephemeral like the search turns: grounds every generation below
             // but never enters the session, so it can never reach Discord.
@@ -129,7 +131,8 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
             messages.push({
                 role: 'user',
                 content: '[Ghi chú riêng của chính bạn ở trên — người dùng KHÔNG thấy. ' +
-                    `Giờ viết câu trả lời cuối cùng cho ${name}. Vẫn có thể dùng [[search: ...]] nếu cần.]`,
+                    `Giờ viết câu trả lời cuối cùng cho ${name}, giữ đúng giọng lồi lõm ` +
+                    'trong SOUL — task first, sass second. Vẫn có thể dùng [[search: ...]] nếu cần.]',
             });
         }
     }

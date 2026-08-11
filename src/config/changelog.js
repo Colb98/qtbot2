@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.19.1';
+const CURRENT_VERSION = '3.20.0';
 
 const CHANGELOG = {
+    '3.20.0': {
+        date: '2026-08-11',
+        title: 'AI suy nghĩ có chọn lọc — và không quên cà khịa',
+        changes: [
+            '🧠 **Suy luận thích ứng theo loại câu hỏi** — chat chít thì trả lời luôn; tình huống "đá nó ra khỏi server đi" thì bot lên kịch bản cà khịa; câu so sánh/tính toán thì phân tích; câu build/meta mới tra cứu sâu. Hết cảnh nghĩ ngợi dài dòng cho chuyện tào lao.',
+            '😤 **Suy nghĩ xong vẫn giữ giọng lồi lõm** — bước nghĩ ngầm giờ bắt buộc chốt sẵn câu mở đầu đúng chất Tiểu Bot, hết kiểu trả lời như văn mẫu sau khi suy luận.'
+        ]
+    },
     '3.19.1': {
         date: '2026-08-11',
         title: 'Tiểu Bot dậy thì',

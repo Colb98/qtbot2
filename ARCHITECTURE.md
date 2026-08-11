@@ -218,14 +218,21 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     index.js      HTTP server; prompt = SOUL + RULES + member advice + memory +
                   summary + ambient channel context + history + new message;
                   user turns stored/sent as "DisplayName: content" (multi-speaker)
-    reasoning.js  brief reasoning flow: a tiny classifier (max ~8 tokens, DEEP/NOW)
-                  decides per message whether to run a hidden "think" generation
-                  first — its notes are pushed as ephemeral turns that ground the
-                  answer (and any searches it plans) but never enter the session
-                  or reach Discord. Heuristic fast-path: messages shorter than
-                  AI_REASONING_MIN_CHARS skip the classifier entirely. Both extra
-                  calls are daily-capped (AI_REASONING_DAILY_LIMIT) and FAIL OPEN —
-                  any classifier/think failure degrades to answering immediately.
+    reasoning.js  adaptive reasoning: a tiny classifier (max ~8 tokens) routes
+                  each message to NOW (banter — answer directly), SOCIAL
+                  (refusals/boundary/drama — brief tone plan, ~150 tokens),
+                  THINK (logic/comparison from context, ~250) or RESEARCH
+                  (needs facts/web, ~400). Non-NOW modes run a hidden "think"
+                  generation with a mode-specific template; its notes are pushed
+                  as ephemeral turns that ground the answer (and any searches it
+                  plans) but never enter the session or reach Discord. EVERY
+                  template ends with a mandatory voice step (draft the opening
+                  line in the SOUL persona) so replies keep the sass instead of
+                  inheriting a flat outline. Heuristic fast-path: messages
+                  shorter than AI_REASONING_MIN_CHARS skip the classifier
+                  entirely. Both extra calls are daily-capped
+                  (AI_REASONING_DAILY_LIMIT) and FAIL OPEN — any classifier or
+                  think failure degrades to answering immediately.
                   Kill switch: AI_REASONING_ENABLED=false.
     trace.js      per-request flow traces (classify → think → generation → search
                   → read → reply, each with duration/status/detail text) for the
@@ -326,7 +333,8 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   request, 0 disables — read by both bot and service), `AI_CONTEXT_MAX_CHARS`,
   `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,
   `AI_REASONING_CONTEXT_TURNS`, `AI_REASONING_CLASSIFIER_MAX_TOKENS`,
-  `AI_REASONING_THINK_MAX_TOKENS`, `AI_REASONING_DAILY_LIMIT`, `AI_TRACE_ENABLED`,
+  `AI_REASONING_THINK_MAX_TOKENS` (research), `AI_REASONING_ANALYZE_MAX_TOKENS`,
+  `AI_REASONING_SOCIAL_MAX_TOKENS`, `AI_REASONING_DAILY_LIMIT`, `AI_TRACE_ENABLED`,
   `AI_TRACE_MAX`, `AI_TRACE_DETAIL_MAX_CHARS`, `AI_METRICS_ENABLED`,
   `AI_METRICS_RETENTION_DAYS`, `AI_SEARCH_ENABLED`, `SERPER_API_KEY`/`TAVILY_API_KEY`
   (cascade in that order), `AI_SEARCH_MAX_RESULTS`, `AI_SEARCH_MIN_RESULTS`,

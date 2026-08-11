@@ -17,28 +17,53 @@ function underDailyLimit() {
     return daily.count < config.reasoningDailyLimit;
 }
 
+// Adaptive routing: not every question deserves the same thinking. The
+// classifier picks one of four modes; each non-NOW mode gets its own think
+// template and token budget, and EVERY template ends with a mandatory voice
+// step so the final reply keeps Tiểu Bot's sassy tone instead of inheriting a
+// bureaucratic outline.
 const CLASSIFIER_SYSTEM =
-    'You are a routing classifier for a Discord chatbot. Decide if the LAST message ' +
-    'needs DEEP reasoning before answering (multi-step analysis, math/logic, planning, ' +
-    'comparisons, debugging, strategy/build questions, anything the bot could get wrong ' +
-    'by answering instantly) or an IMMEDIATE casual reply (greetings, banter, reactions, ' +
-    'simple known facts, short follow-ups). ' +
-    'Reply with EXACTLY one word: DEEP or NOW.';
+    'You are a routing classifier for a Discord chatbot. Classify the LAST message by the ' +
+    'kind of reasoning it needs before answering. Reply with EXACTLY one word:\n' +
+    'NOW — banter, greetings, reactions, simple known facts, short follow-ups.\n' +
+    'SOCIAL — refusals, boundaries, drama, roasts, requests aimed at the bot itself ' +
+    '(kick/ban someone, give money/roles, do admin things), sensitive social situations.\n' +
+    'THINK — logic, math, comparisons, planning that can be answered from the conversation ' +
+    'without looking anything up.\n' +
+    'RESEARCH — needs facts you may not have: news, prices, game builds/meta/guides, ' +
+    'versions, events, real people.';
 
 // The exact bracket prefix is load-bearing: the smoke test's fake provider
-// keys on it to recognize the think turn. Keep in sync with the test.
-const THINK_INSTRUCTION =
+// keys on it to recognize a think turn ('[Private reasoning step'), and on
+// 'tone plan' to recognize the social template. Keep in sync with the test.
+const THINK_PREFIX =
     '[Private reasoning step — the user will NEVER see this text. Do not greet, do not ' +
-    'write the final reply.] Think step by step, briefly (max ~200 words, Vietnamese): ' +
-    '1) What is really being asked? 2) What do you already know from the conversation, ' +
-    'memory and rules? 3) What is uncertain or might need a web search ([[search]] is ' +
-    'available in your NEXT reply, not this one)? If searching: write the EXACT query you ' +
-    'will use and its language, following the search rules (official Chinese terms for CN ' +
-    'games, text pages — you cannot watch videos). 4) Outline the answer.';
+    'write the final reply.] ';
+const VOICE_STEP =
+    'Finally: draft 1-2 opening lines / punchlines in Tiểu Bot\'s sassy Gen Z "lồi lõm" ' +
+    'voice (see SOUL) — concrete and situation-specific, NOT generic politeness.';
+
+const THINK_TEMPLATES = {
+    social: THINK_PREFIX +
+        'This is a social/boundary situation, NOT a research task. Make a brief tone plan ' +
+        '(max ~80 words, Vietnamese): 1) What is the situation and which boundary or fact ' +
+        'applies (e.g. you have NO admin powers)? 2) ' + VOICE_STEP,
+    think: THINK_PREFIX +
+        'Think step by step, briefly (max ~150 words, Vietnamese): 1) What is really being ' +
+        'asked? 2) Reason it out from the conversation, memory and rules — compare, ' +
+        'calculate, weigh options. 3) Outline the answer. 4) ' + VOICE_STEP,
+    research: THINK_PREFIX +
+        'Think step by step, briefly (max ~200 words, Vietnamese): ' +
+        '1) What is really being asked? 2) What do you already know from the conversation, ' +
+        'memory and rules? 3) What is uncertain or might need a web search ([[search]] is ' +
+        'available in your NEXT reply, not this one)? If searching: write the EXACT query you ' +
+        'will use and its language, following the search rules (official Chinese terms for CN ' +
+        'games, text pages — you cannot watch videos). 4) Outline the answer. 5) ' + VOICE_STEP,
+};
 
 const clipTurn = (s, n) => String(s || '').replace(/\s+/g, ' ').slice(0, n);
 
-// → { mode: 'deep'|'immediate', reason }
+// → { mode: 'immediate'|'social'|'think'|'research', reason }
 async function classify({ history, summary, userText, name, trace: t }) {
     let reason;
     if (!config.reasoningEnabled) reason = 'skipped-disabled';
@@ -50,6 +75,8 @@ async function classify({ history, summary, userText, name, trace: t }) {
         metrics.inc('classifyImmediate');
         return { mode: 'immediate', reason };
     }
+
+    const MODES = { NOW: 'immediate', SOCIAL: 'social', THINK: 'think', RESEARCH: 'research' };
 
     const recent = history.slice(-config.reasoningContextTurns)
         .map((m) => `${m.role === 'user' ? (m.name || 'user') : 'bot'}: ${clipTurn(m.content, 200)}`)
@@ -65,10 +92,11 @@ async function classify({ history, summary, userText, name, trace: t }) {
             { role: 'system', content: CLASSIFIER_SYSTEM },
             { role: 'user', content },
         ], { maxTokens: config.reasoningClassifierMaxTokens, temperature: 0 });
-        const deep = /\bDEEP\b/i.test(text);
-        trace.endStep(t, s, { ok: true, result: deep ? 'deep' : 'immediate', reason: 'classified', detail: text });
-        metrics.inc(deep ? 'classifyDeep' : 'classifyImmediate');
-        return { mode: deep ? 'deep' : 'immediate', reason: 'classified' };
+        const m = /\b(RESEARCH|SOCIAL|THINK|NOW)\b/i.exec(text);
+        const mode = m ? MODES[m[1].toUpperCase()] : 'immediate'; // garbage → immediate
+        trace.endStep(t, s, { ok: true, result: mode, reason: 'classified', detail: text });
+        metrics.inc(`classify${mode[0].toUpperCase()}${mode.slice(1)}`);
+        return { mode, reason: 'classified' };
     } catch (e) {
         // Fail-open: a broken classifier must never fail the request.
         log.warn('[ai] classifier failed, answering immediately:', e.message);
@@ -79,15 +107,20 @@ async function classify({ history, summary, userText, name, trace: t }) {
 }
 
 // → thinkText | null. Null on any failure — the caller just answers directly.
-// The step itself (provider, model, tokens, the thinking text) is recorded by
-// providers.js under stepType 'think'.
-async function think({ messages, trace: t }) {
-    if (!underDailyLimit()) return null;
+// Template and token budget adapt to the classified mode; the step itself
+// (provider, model, tokens, the thinking text) is recorded by providers.js
+// under stepType 'think'.
+async function think({ messages, mode, trace: t }) {
+    const instruction = THINK_TEMPLATES[mode];
+    if (!instruction || !underDailyLimit()) return null;
+    const budget = mode === 'social' ? config.reasoningSocialMaxTokens
+        : mode === 'think' ? config.reasoningAnalyzeMaxTokens
+        : config.reasoningThinkMaxTokens;
     daily.count++;
     try {
         const { text } = await generateChatResponse(
-            [...messages, { role: 'user', content: THINK_INSTRUCTION }],
-            { maxTokens: config.reasoningThinkMaxTokens, trace: t, stepType: 'think' },
+            [...messages, { role: 'user', content: instruction }],
+            { maxTokens: budget, trace: t, stepType: 'think' },
         );
         metrics.inc('thinkSteps');
         return text;
@@ -97,4 +130,4 @@ async function think({ messages, trace: t }) {
     }
 }
 
-module.exports = { classify, think, THINK_INSTRUCTION };
+module.exports = { classify, think, THINK_TEMPLATES };
