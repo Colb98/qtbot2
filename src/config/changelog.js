@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.20.1';
+const CURRENT_VERSION = '3.20.2';
 
 const CHANGELOG = {
+    '3.20.2': {
+        date: '2026-08-11',
+        title: 'Nghĩ hay thì nói y vậy luôn',
+        changes: [
+            '🎤 **Hết tự làm nhạt câu thoại của mình** — trước đây bot nghĩ ra câu cà khịa rất mặn rồi... tự diễn giải lại thành văn mẫu khi trả lời. Giờ câu nào trong bản nháp đã hay là dùng nguyên văn, riêng tình huống cà khịa thì punchline chính là câu trả lời.'
+        ]
+    },
     '3.20.1': {
         date: '2026-08-11',
         title: 'Hết gõ nhầm tên model AI',

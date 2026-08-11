@@ -127,12 +127,19 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
         if (thinkText) {
             // Ephemeral like the search turns: grounds every generation below
             // but never enters the session, so it can never reach Discord.
+            // The note grants VERBATIM license — asking for a rewrite makes the
+            // model paraphrase its own best lines into mush (regression to the
+            // mean); telling it to copy them keeps the think pass's energy.
+            const closing = mode === 'social'
+                ? 'Đây là tình huống cà khịa/xã giao — punchline chính LÀ câu trả lời.'
+                : 'Giữ đúng giọng lồi lõm trong SOUL — task first, sass second. ' +
+                  'Vẫn có thể dùng [[search: ...]] nếu cần.';
             messages.push({ role: 'assistant', content: `[Phân tích nội bộ]\n${thinkText}` });
             messages.push({
                 role: 'user',
-                content: '[Ghi chú riêng của chính bạn ở trên — người dùng KHÔNG thấy. ' +
-                    `Giờ viết câu trả lời cuối cùng cho ${name}, giữ đúng giọng lồi lõm ` +
-                    'trong SOUL — task first, sass second. Vẫn có thể dùng [[search: ...]] nếu cần.]',
+                content: '[Bản nháp trên là của CHÍNH BẠN — người dùng KHÔNG thấy. ' +
+                    `Giờ trả lời ${name}: câu/punchline nào trong nháp đã hay thì dùng NGUYÊN VĂN — ` +
+                    `không diễn giải lại, không làm mềm; chỉ bổ sung phần còn thiếu. ${closing}]`,
             });
         }
     }
