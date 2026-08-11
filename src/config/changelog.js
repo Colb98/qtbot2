@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.19.0';
+const CURRENT_VERSION = '3.19.1';
 
 const CHANGELOG = {
+    '3.19.1': {
+        date: '2026-08-11',
+        title: 'Tiểu Bot dậy thì',
+        changes: [
+            '😤 **Bot đổi giọng teen lồi lõm** — hết kiểu "Tôi không biết, hãy chỉ cho tôi nhé" vô hồn, giờ là "Ai mà biết!", "Bó tay sếp" 🤷. Yên tâm: hỏi build/guide nghiêm túc vẫn trả lời tử tế, chỉ đổi thái độ chứ không đổi chất lượng.'
+        ]
+    },
     '3.19.0': {
         date: '2026-08-11',
         title: 'AI biết đọc không khí trong kênh',
