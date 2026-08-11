@@ -117,48 +117,52 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     ];
 
     // Adaptive reasoning: a tiny classifier routes each question to a mode —
-    // immediate (banter), social (tone plan), think (analysis) or research —
-    // and the non-immediate modes run a hidden "think" pass whose notes ground
-    // the answer. Every template ends with a voice step so the reply keeps the
-    // SOUL persona. Classify and think both fail open.
+    // immediate (banter → answer directly), social (single-pass reply), think
+    // (analysis notes) or research (notes + web). Classify and think fail open.
     const { mode } = await reasoning.classify({ history, summary, userText, name, trace: t });
-    if (mode !== 'immediate') {
-        const thinkText = await reasoning.think({ messages, mode, trace: t });
-        if (thinkText) {
+    let text, provider;
+    const searchQueries = [];
+    const readsDone = [];
+    let lastResults = [];
+    let pagesRead = 0;
+
+    // Social fast-path: the social template writes the FINAL reply and we ship
+    // it as-is. A second "now rewrite it" generation only ever paraphrased the
+    // punch into mush or recycled an older reply from history — and it doubled
+    // latency. Draft failure (providers down, daily cap) falls through to the
+    // normal path.
+    const socialDraft = mode === 'social' ? await reasoning.think({ messages, mode, trace: t }) : null;
+    if (socialDraft) ({ text, provider } = socialDraft);
+
+    if (!socialDraft && (mode === 'think' || mode === 'research')) {
+        const draft = await reasoning.think({ messages, mode, trace: t });
+        if (draft) {
             // Ephemeral like the search turns: grounds every generation below
             // but never enters the session, so it can never reach Discord.
-            // The note grants VERBATIM license — asking for a rewrite makes the
-            // model paraphrase its own best lines into mush (regression to the
-            // mean); telling it to copy them keeps the think pass's energy.
-            const closing = mode === 'social'
-                ? 'Đây là tình huống cà khịa/xã giao — punchline chính LÀ câu trả lời.'
-                : 'Giữ đúng giọng lồi lõm trong SOUL — task first, sass second. ' +
-                  'Vẫn có thể dùng [[search: ...]] nếu cần.';
-            // "NGAY TRÊN … ĐỪNG chép lại câu trước": on repeated bait the model
-            // anchors on its committed previous reply over the bracketed note
-            // and recycles it — re-aim the verbatim license at THIS draft only.
-            messages.push({ role: 'assistant', content: `[Phân tích nội bộ]\n${thinkText}` });
+            // The note grants VERBATIM license scoped to THIS draft — a rewrite
+            // request makes the model paraphrase its own best lines into mush,
+            // and on repeated bait it anchors on its committed previous reply
+            // unless explicitly forbidden.
+            messages.push({ role: 'assistant', content: `[Phân tích nội bộ]\n${draft.text}` });
             messages.push({
                 role: 'user',
                 content: `[Bản nháp NGAY TRÊN là của CHÍNH BẠN, viết cho câu hỏi HIỆN TẠI của ${name} — ` +
                     'người dùng KHÔNG thấy. ĐỪNG chép lại câu trả lời trước đó của bạn trong lịch sử — ' +
                     'lý lẽ/tình huống đã khác rồi. Câu/punchline nào trong bản nháp MỚI đã hay thì dùng ' +
-                    `NGUYÊN VĂN — không diễn giải lại, không làm mềm; chỉ bổ sung phần còn thiếu. ${closing}]`,
+                    'NGUYÊN VĂN — không diễn giải lại, không làm mềm; chỉ bổ sung phần còn thiếu. ' +
+                    'Giữ đúng giọng lồi lõm trong SOUL — task first, sass second. ' +
+                    'Vẫn có thể dùng [[search: ...]] nếu cần.]',
             });
         }
     }
-
-    let { text, provider } = await generateChatResponse(messages, { trace: t });
+    if (!socialDraft) ({ text, provider } = await generateChatResponse(messages, { trace: t }));
 
     // Tool loop: the model asks for a search via [[search: ...]], receives a
     // numbered result list, then may select pages to read via [[read: 1,3]].
     // Both steps are capped per message; intermediate steps stay out of the
-    // session — only the user's message and the final answer persist.
-    const searchQueries = [];
-    const readsDone = [];
-    let lastResults = [];
-    let pagesRead = 0;
-    while (config.searchEnabled) {
+    // session — only the user's message and the final answer persist. Skipped
+    // entirely on the social fast-path (its reply is already final).
+    while (!socialDraft && config.searchEnabled) {
         const query = search.extractQuery(text);
         // Same-query repeats are loop bait (a model can echo the prior tool
         // step from its context) — one run per distinct query per message.

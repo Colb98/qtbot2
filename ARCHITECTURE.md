@@ -220,15 +220,19 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   user turns stored/sent as "DisplayName: content" (multi-speaker)
     reasoning.js  adaptive reasoning: a tiny classifier (max ~8 tokens) routes
                   each message to NOW (banter — answer directly), SOCIAL
-                  (refusals/boundary/drama — brief tone plan, ~150 tokens),
-                  THINK (logic/comparison from context, ~250) or RESEARCH
-                  (needs facts/web, ~400). Non-NOW modes run a hidden "think"
-                  generation with a mode-specific template; its notes are pushed
-                  as ephemeral turns that ground the answer (and any searches it
-                  plans) but never enter the session or reach Discord. EVERY
-                  template ends with a mandatory voice step (draft the opening
-                  line in the SOUL persona) so replies keep the sass instead of
-                  inheriting a flat outline. Heuristic fast-path: messages
+                  (refusals/boundary/drama, ~150 tokens), THINK
+                  (logic/comparison from context, ~250) or RESEARCH
+                  (needs facts/web, ~400). SOCIAL is single-pass: its template
+                  writes the FINAL reply and index.js ships it verbatim (no
+                  second generation, no search loop) — a rewrite pass only
+                  paraphrased the punch away or recycled an older reply; falls
+                  back to the normal path if the draft call fails. THINK and
+                  RESEARCH run a hidden "think" generation whose notes are
+                  pushed as ephemeral turns that ground the answer (and any
+                  searches it plans) but never enter the session or reach
+                  Discord; both templates end with a mandatory voice step
+                  (draft the opening line in the SOUL persona) and the framing
+                  note grants verbatim license scoped to the CURRENT draft. Heuristic fast-path: messages
                   shorter than AI_REASONING_MIN_CHARS skip the classifier
                   entirely. Both extra calls are daily-capped
                   (AI_REASONING_DAILY_LIMIT) and FAIL OPEN — any classifier or

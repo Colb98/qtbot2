@@ -44,10 +44,16 @@ const VOICE_STEP =
     'voice (see SOUL) — concrete and situation-specific, NOT generic politeness.';
 
 const THINK_TEMPLATES = {
-    social: THINK_PREFIX +
-        'This is a social/boundary situation, NOT a research task. Make a brief tone plan ' +
-        '(max ~80 words, Vietnamese): 1) What is the situation and which boundary or fact ' +
-        'applies (e.g. you have NO admin powers)? 2) ' + VOICE_STEP,
+    // Social is special: this single call produces the FINAL reply, shipped
+    // verbatim by index.js with no second generation — a rewrite pass only
+    // ever paraphrased the punch away or recycled an older reply.
+    social: '[Instruction — the user does NOT see this turn.] This is a social/boundary ' +
+        'situation (refusal, drama, roast, a request aimed at you), not a research task. ' +
+        'Write your FINAL reply to the CURRENT message now, in Tiểu Bot\'s sassy Gen Z ' +
+        '"lồi lõm" voice (see SOUL): Vietnamese, short, punchline-first, concrete to THIS ' +
+        'situation — do not repeat your earlier replies. If a boundary applies (no admin ' +
+        'powers, refuse scams/illegal stuff), state it with sass, not robot politeness. ' +
+        'Output ONLY the reply text — no analysis, no numbering, no preamble.',
     think: THINK_PREFIX +
         'Think step by step, briefly (max ~150 words, Vietnamese): 1) What is really being ' +
         'asked? 2) Reason it out from the conversation, memory and rules — compare, ' +
@@ -106,7 +112,8 @@ async function classify({ history, summary, userText, name, trace: t }) {
     }
 }
 
-// → thinkText | null. Null on any failure — the caller just answers directly.
+// → { text, provider } | null. Null on any failure — the caller just answers
+// directly (or, for social, falls back to the normal generation path).
 // Template and token budget adapt to the classified mode; the step itself
 // (provider, model, tokens, the thinking text) is recorded by providers.js
 // under stepType 'think'.
@@ -118,12 +125,12 @@ async function think({ messages, mode, trace: t }) {
         : config.reasoningThinkMaxTokens;
     daily.count++;
     try {
-        const { text } = await generateChatResponse(
+        const { text, provider } = await generateChatResponse(
             [...messages, { role: 'user', content: instruction }],
             { maxTokens: budget, trace: t, stepType: 'think' },
         );
         metrics.inc('thinkSteps');
-        return text;
+        return { text, provider };
     } catch (e) {
         log.warn('[ai] think step failed, answering without it:', e.message);
         return null;

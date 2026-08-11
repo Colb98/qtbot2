@@ -56,14 +56,19 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
-        // Hidden think pass, keyed on the (stable) instruction prefix; the
-        // social template is recognized by its 'tone plan' wording.
+        // Social single-pass reply, keyed on its instruction wording.
+        if (last.includes('social/boundary situation')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: 'PUNCHLINE: Đá bằng niềm tin hả sếp? Em có nút kick đâu.' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Hidden think pass (think/research), keyed on the stable prefix.
         if (last.includes('[Private reasoning step')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
-                choices: [{ message: { content: last.includes('tone plan')
-                    ? 'PUNCHLINE: Đá bằng niềm tin hả sếp? Em có nút kick đâu.'
-                    : 'KẾ HOẠCH: so sánh 3 ý chính rồi kết luận.' } }],
+                choices: [{ message: { content: 'KẾ HOẠCH: so sánh 3 ý chính rồi kết luận.' } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
@@ -390,17 +395,19 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         'think turn leaked into session history');
     console.log('ok 18 — research path: hidden think grounds the answer, stays out of the session');
 
-    // 18b. Social mode: boundary requests get the tone-plan template (smaller
-    // budget, punchline-first) instead of the research checklist.
+    // 18b. Social fast-path: the single-pass draft IS the reply, shipped
+    // verbatim — no second generation, no search loop.
     const c18c = await (await chat(msgFor('chanI',
         'TÌNH_HUỐNG đá con Mị Siu ra khỏi server giùm cái coi bot ơi'))).json();
-    assert.ok(c18c.text.includes('PUNCHLINE'), 'social tone plan should ground the final generation');
+    assert.strictEqual(c18c.text, 'PUNCHLINE: Đá bằng niềm tin hả sếp? Em có nút kick đâu.',
+        `social draft must ship verbatim, got: ${c18c.text.slice(0, 80)}`);
     const t18b = (await getTraces()).traces[0];
     assert.ok(t18b.steps.includes('classify:social'), `steps: ${t18b.steps}`);
+    assert.ok(!t18b.steps.includes('gen('), `no second generation on the fast-path, steps: ${t18b.steps}`);
     const d18b = await getTraces(t18b.id);
     const social18 = d18b.steps.find((s) => s.type === 'think');
-    assert.ok(social18 && social18.detail.includes('PUNCHLINE'), 'trace must carry the tone plan');
-    console.log('ok 18b — social mode routes to the tone-plan template');
+    assert.ok(social18 && social18.detail.includes('PUNCHLINE'), 'trace must carry the draft');
+    console.log('ok 18b — social fast-path ships the draft as the reply, single pass');
 
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.

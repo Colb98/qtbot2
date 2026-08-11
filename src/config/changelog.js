@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.20.3';
+const CURRENT_VERSION = '3.21.0';
 
 const CHANGELOG = {
+    '3.21.0': {
+        date: '2026-08-11',
+        title: 'Cà khịa một phát ăn ngay',
+        changes: [
+            '⚡ **Tình huống cà khịa giờ trả lời một lượt duy nhất** — nghĩ ra câu nào là nói thẳng câu đó, không qua vòng "viết lại" từng làm nhạt punchline hay lặp câu cũ. Trả lời nhanh gần gấp đôi trong mấy pha bóp cò xã giao.'
+        ]
+    },
     '3.20.3': {
         date: '2026-08-11',
         title: 'Hết tua lại băng cũ',
