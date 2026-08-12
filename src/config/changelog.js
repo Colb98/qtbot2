@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.23.2';
+const CURRENT_VERSION = '3.23.3';
 
 const CHANGELOG = {
+    '3.23.3': {
+        date: '2026-08-12',
+        title: 'Tai bot biết tiết kiệm RAM',
+        changes: [
+            '🔇 **Chỉ nghe kênh nào có dùng AI** — bot thôi ghi nhớ tạm mọi kênh: kênh AI riêng luôn nghe, kênh khác chỉ bắt đầu nghe khi có người gọi AI và tự "ngủ" (xả bộ nhớ) sau 100 tin không ai gọi nữa. Lúc vừa restart hay kênh vừa thức dậy, bot kéo lịch sử một lần từ Discord nên vẫn không bị "điếc".'
+        ]
+    },
     '3.23.2': {
         date: '2026-08-12',
         title: 'Bot nghe chuyện kênh liền mạch hơn',

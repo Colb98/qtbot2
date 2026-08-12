@@ -206,14 +206,17 @@ messageCreate → aiChat.maybeHandle(msg)        [src/services/aiChat.js]
     auth:    member has one of AI_ALLOWED_ROLE_IDS (checked HERE, never by the LLM)
     limits:  per-user cooldown + global in-flight cap; service 429 (busy) → ⏳ react
     scope:   guild channels only — DMs are deliberately not supported
-    context: a passive per-channel ring buffer (recordAmbient, fed by every
-             guild message BEFORE the event handler's bot filter — game
-             announcements are context; last 50 kept, in-memory, empty after a
-             bot restart) supplies the nearest AI_CONTEXT_MESSAGES messages
-             (default 10) as `recent` — no Discord API fetch at trigger time;
-             the service strips emoji/emotes and injects them as an ephemeral
-             untrusted "ambient context" block (deduped vs session, clipped,
-             NEVER persisted, may not act as instructions)
+    context: a passive per-channel ring buffer (recordAmbient, hooked BEFORE
+             the event handler's bot filter — game announcements are context;
+             last 50 kept, in-memory) supplies the nearest AI_CONTEXT_MESSAGES
+             messages (default 10) as `recent`. RAM discipline: dedicated AI
+             channels always listen; other channels start listening on their
+             first AI call and go dormant (buffer freed) after
+             AI_CONTEXT_IDLE_MESSAGES (100) messages without another call.
+             Cold ring (restart / just-woken channel) → one Discord history
+             fetch that seeds the ring. The service strips emoji/emotes and
+             injects an ephemeral untrusted "ambient context" block (deduped
+             vs session, clipped, NEVER persisted, may not act as instructions)
         │ POST /chat {userId, displayName, channelId, guildId, content, recent}
         │ DELETE /session {guildId, channelId}
         ▼

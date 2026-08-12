@@ -91,38 +91,80 @@ function maybeHandle(msg) {
     return true;
 }
 
-// Ambient context: a passive per-channel ring buffer fed by EVERY guild
-// message (recordAmbient runs before the event handler's bot filter — game
-// announcements are context too). Replaces the Discord API history fetch:
-// gap-free window even in fast-moving channels, zero extra API calls at
-// trigger time. The service dedups anything already in its session history
-// and never persists these. In-memory only — empty right after a bot restart.
+// Ambient context: a passive per-channel ring buffer fed by guild messages
+// (recordAmbient runs before the event handler's bot filter — game
+// announcements are context too). RAM discipline: only channels that actually
+// use AI are heard. Dedicated AI channels always listen; any other channel
+// starts listening on its first AI call and goes dormant (buffer freed) after
+// AI_CONTEXT_IDLE_MESSAGES messages without another call. A cold ring (fresh
+// restart, channel just woke) falls back to ONE Discord history fetch that
+// also seeds the ring. The service dedups vs its session and never persists.
 const AMBIENT_BUFFER_MAX = 50; // per channel; AI_CONTEXT_MESSAGES of these are sent
-const ambientBuf = new Map(); // channelId -> [{id, name, content}]
+const IDLE_LIMIT = Number.isFinite(parseInt(process.env.AI_CONTEXT_IDLE_MESSAGES, 10))
+    ? parseInt(process.env.AI_CONTEXT_IDLE_MESSAGES, 10) : 100;
+const ambientBuf = new Map(); // channelId -> { buf: [{id, name, content}], idle }
+
+const ambientEntry = (m) => ({
+    id: m.id,
+    name: m.member?.displayName || m.author.displayName || m.author.username,
+    // cleanContent resolves mentions to names; drop our own "-# 🔎" note lines.
+    content: m.cleanContent.replace(/^-# .*$/gm, '').trim().slice(0, 300),
+});
 
 function recordAmbient(msg) {
     if (!ENABLED || CONTEXT_MESSAGES <= 0 || !msg.guildId) return;
-    // cleanContent resolves mentions to names; drop our own "-# 🔎" note lines.
-    const content = msg.cleanContent.replace(/^-# .*$/gm, '').trim().slice(0, 300);
-    if (!content) return;
-    const buf = ambientBuf.get(msg.channelId) || [];
-    buf.push({ id: msg.id, name: msg.member?.displayName || msg.author.displayName || msg.author.username, content });
-    if (buf.length > AMBIENT_BUFFER_MAX) buf.shift();
-    ambientBuf.set(msg.channelId, buf);
+    const isAiChannel = CHANNEL_IDS.has(msg.channelId);
+    let state = ambientBuf.get(msg.channelId);
+    if (!state) {
+        if (!isAiChannel) return; // not listening — wakes on the next AI call here
+        state = { buf: [], idle: 0 };
+        ambientBuf.set(msg.channelId, state);
+    }
+    state.idle++;
+    if (state.idle > IDLE_LIMIT && !isAiChannel) {
+        ambientBuf.delete(msg.channelId); // dormant: free the RAM
+        return;
+    }
+    const e = ambientEntry(msg);
+    if (!e.content) return;
+    state.buf.push(e);
+    if (state.buf.length > AMBIENT_BUFFER_MAX) state.buf.shift();
 }
 
-function collectRecent(msg) {
+// An AI call in this channel (re)starts listening and resets the idle clock.
+function wakeAmbient(channelId) {
+    const state = ambientBuf.get(channelId) || { buf: [], idle: 0 };
+    state.idle = 0;
+    ambientBuf.set(channelId, state);
+}
+
+async function collectRecent(msg) {
     if (CONTEXT_MESSAGES <= 0) return [];
-    return (ambientBuf.get(msg.channelId) || [])
-        .filter((e) => e.id !== msg.id) // the trigger itself is already the user message
-        .slice(-CONTEXT_MESSAGES)
-        .map((e) => ({ name: e.name, content: e.content }));
+    const state = ambientBuf.get(msg.channelId);
+    if (state && state.buf.length) {
+        return state.buf
+            .filter((e) => e.id !== msg.id) // the trigger itself is already the user message
+            .slice(-CONTEXT_MESSAGES)
+            .map((e) => ({ name: e.name, content: e.content }));
+    }
+    // Hybrid: cold ring → one best-effort history fetch, seeding the ring so
+    // the next call in this channel reads from RAM again.
+    try {
+        const fetched = await msg.channel.messages.fetch({ limit: Math.min(CONTEXT_MESSAGES, 25), before: msg.id });
+        const entries = [...fetched.values()].reverse().map(ambientEntry).filter((e) => e.content);
+        if (state) state.buf = entries.slice(-AMBIENT_BUFFER_MAX);
+        return entries.slice(-CONTEXT_MESSAGES).map((e) => ({ name: e.name, content: e.content }));
+    } catch (e) {
+        log.warn('[aiChat] could not fetch channel context:', e.message);
+        return [];
+    }
 }
 
 async function processMessage(msg) {
     const content = stripBotMention(msg);
     if (!content) return;
 
+    wakeAmbient(msg.channelId);
     inFlight++;
     // Typing lasts ~10s per call; refresh while the LLM works.
     msg.channel.sendTyping().catch(() => {});
@@ -137,7 +179,7 @@ async function processMessage(msg) {
                 userId: msg.author.id,
                 displayName: msg.member?.displayName || msg.author.username,
                 content,
-                recent: collectRecent(msg),
+                recent: await collectRecent(msg),
             }),
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
@@ -194,6 +236,7 @@ function renderRules(items) {
 
 // `!ai reset` | `!ai rules` | `!ai rule <text>` | `!ai rule xoa <n>`
 async function handleAiCommand(msg) {
+    wakeAmbient(msg.channelId); // `!ai …` counts as AI use for the ambient ear
     const arg = msg.content.trim().replace(/^!ai\s*/i, '');
     const guildId = msg.guildId;
     try {
