@@ -552,7 +552,8 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         ...msgFor('chanK', 'mọi người đang nói gì vậy?'),
         recent: [
             { name: 'Người lạ', content: 'hôm nay đi ăn lẩu không?' },
-            { name: 'GameBot', content: '🎰 Kết quả xổ số: 8-8-8' },
+            { name: 'GameBot', content: '🎰 Kết quả xổ số: 8-8-8 <:qt_win:123456789>' },
+            { name: 'Spammer', content: '😂😂😂' }, // emoji-only → dropped entirely
             { name: 'Tester', content: 'xin chào kênh K' }, // already in session → dedup
         ],
     });
@@ -561,7 +562,10 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     const ambientBlock = sys23.slice(sys23.indexOf('ambient context'));
     assert.ok(sys23.includes('Latest messages in this channel'), 'ambient block should be in the system prompt');
     assert.ok(ambientBlock.includes('Người lạ: hôm nay đi ăn lẩu không?'), 'ambient messages should reach the model');
-    assert.ok(ambientBlock.includes('GameBot: 🎰 Kết quả xổ số: 8-8-8'), 'bot announcements are context too');
+    assert.ok(ambientBlock.includes('GameBot: Kết quả xổ số: 8-8-8 :qt_win:'),
+        'bot announcements are context, emoji stripped, custom emotes → :name:');
+    assert.ok(!ambientBlock.includes('🎰'), 'unicode emoji must be stripped from ambient context');
+    assert.ok(!ambientBlock.includes('Spammer'), 'emoji-only ambient messages must vanish');
     assert.ok(!ambientBlock.includes('xin chào kênh K'), 'session turns must be deduped from ambient context');
     require('../ai-service/sessions').flushSync();
     // The echoed *reply* legitimately contains the system prompt (echo provider),
@@ -610,7 +614,7 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
 
     // 27. Latency guards, via a restart with a tight budget + short reasoning
     // timeout (env is read at module load):
-    process.env.AI_CHAT_BUDGET_MS = '1';
+    process.env.AI_CHAT_BUDGET_MS = '-1'; // negative → always over budget (fakes answer in <1ms)
     process.env.AI_REASONING_TIMEOUT_MS = '100';
     await restartService();
     // 27a. Over-budget: the model asks for a search but no round may start —

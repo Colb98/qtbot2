@@ -242,17 +242,27 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     return { text, provider, searchQueries, pagesRead };
 }
 
+// Emoji are token noise to the LLM: custom Discord emotes collapse to :name:
+// (the name still carries meaning), unicode pictographs/modifiers are dropped.
+function stripEmoji(s) {
+    return s
+        .replace(/<a?:(\w+):\d+>/g, ':$1:')
+        .replace(/[\p{Extended_Pictographic}\p{Emoji_Modifier}\u{FE0F}\u{200D}]/gu, '')
+        .replace(/ {2,}/g, ' ');
+}
+
 // Ambient channel context from the bot: sanitize hard — it is arbitrary
 // channel text (any member, any bot), capped in count and per-message length.
 function sanitizeRecent(recent) {
     if (!Array.isArray(recent) || config.contextMaxMessages <= 0) return [];
     return recent
-        .filter((r) => r && typeof r.content === 'string' && r.content.trim())
-        .slice(-config.contextMaxMessages)
+        .filter((r) => r && typeof r.content === 'string')
         .map((r) => ({
             name: String(r.name || '?').slice(0, 60),
-            content: r.content.trim().slice(0, config.contextMaxChars),
-        }));
+            content: stripEmoji(r.content).trim().slice(0, config.contextMaxChars),
+        }))
+        .filter((r) => r.content) // emoji-only messages vanish entirely
+        .slice(-config.contextMaxMessages);
 }
 
 async function handleChat(req, res) {

@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.23.0';
+const CURRENT_VERSION = '3.23.1';
 
 const CHANGELOG = {
+    '3.23.1': {
+        date: '2026-08-12',
+        title: 'Lọc rác emoji khỏi mắt bot',
+        changes: [
+            '🧽 **Ngữ cảnh kênh sạch emoji** — khi bot đọc ké các tin nhắn gần đây trong kênh, emoji và emote rác bị lọc bớt (emote server giữ lại tên dạng :ten_emote:), tin toàn emoji bị bỏ qua luôn — bot đỡ nhiễu, đỡ tốn token.'
+        ]
+    },
     '3.23.0': {
         date: '2026-08-12',
         title: 'Trí nhớ có lõi, có hạn dùng, có cửa sổ',
