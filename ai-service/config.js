@@ -57,6 +57,7 @@ const config = {
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)
     memoryMaxTokens: int('AI_MEMORY_MAX_TOKENS', 700),             // LLM output budget for rewrites
+    memoryRecentDays: int('AI_MEMORY_RECENT_DAYS', 14),            // dated Recent bullets expire after this
     contextMaxMessages: int('AI_CONTEXT_MESSAGES', 10),           // ambient channel messages per request (0 disables)
     contextMaxChars: int('AI_CONTEXT_MAX_CHARS', 300),            // per ambient message
     reasoningEnabled: process.env.AI_REASONING_ENABLED !== 'false',

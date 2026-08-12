@@ -134,12 +134,18 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         // Memory-update prompts get a fixed rewrite — including a user who never
         // spoke (u999), which the service must refuse to write.
         if (body.messages[0].content.includes('LONG-TERM MEMORY')) {
+            // Two-tier shape: Core + dated Recent, incl. an expired bullet the
+            // code-level pruneExpired backstop must drop (test 13b).
+            const today = new Date().toISOString().slice(0, 10);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
                 choices: [{ message: { content: JSON.stringify({
                     server: 'Server hay bàn guild war',
                     channel: 'Kênh test nói về game',
-                    users: { u1: 'Tester hay hỏi về guild war', u999: 'kẻ lạ không được ghi' },
+                    users: {
+                        u1: `## Core\n- Tester hay hỏi về guild war\n## Recent\n- (2020-01-01) chuyện cũ mèm phải quên\n- (${today}) đang cày event`,
+                        u999: 'kẻ lạ không được ghi',
+                    },
                 }) } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
@@ -343,6 +349,14 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(fs.readFileSync(path.join(memDir, 'user-u1.md'), 'utf8').includes('Tester hay hỏi'));
     assert.ok(!fs.existsSync(path.join(memDir, 'user-u999.md')), 'non-speaker memory must be refused');
     console.log('ok 13 — memory promoted on compaction, non-speaker write refused');
+
+    // 13b. Aging backstop: the expired dated Recent bullet dies in code even
+    // though the fake model returned it; fresh dated + Core bullets survive.
+    const u1mem = fs.readFileSync(path.join(memDir, 'user-u1.md'), 'utf8');
+    assert.ok(!u1mem.includes('2020-01-01'), 'expired Recent bullet must be pruned');
+    assert.ok(u1mem.includes('## Core'), 'Core section survives');
+    assert.ok(u1mem.includes('đang cày event'), 'fresh Recent bullet survives');
+    console.log('ok 13b — expired Recent bullets pruned deterministically, Core kept');
 
     // 14. Scoped retrieval + isolation: u1 sees own memory; u2 sees server
     // memory but never u1's file; chanB (never compacted) has no channel memory.
@@ -612,6 +626,36 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     const d27 = await getTraces((await getTraces()).traces[0].id);
     assert.strictEqual(d27.steps.find((s) => s.type === 'classify').result, 'error-fallback');
     console.log('ok 27 — time budget stops search rounds; short reasoning timeout fails over fast');
+
+    // 28. Memory admin CRUD (files survived both restart drills — only
+    // sessions/metrics were truncated).
+    const memApi = 'http://127.0.0.1:3999/admin/memory';
+    const list28 = (await (await fetch(memApi)).json()).files;
+    assert.ok(list28.length >= 3, `expected server/channel/user files, got ${list28.length}`);
+    assert.ok(list28.every((f) => f.scope && f.preview !== undefined && f.size > 0), 'list carries scope/preview/size');
+    const got = await (await fetch(`${memApi}?file=user-u1.md`)).json();
+    assert.ok(got.content.includes('Tester hay hỏi'), 'file content readable');
+    const put28 = await fetch(memApi, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: 'user-u1.md', content: '## Core\n- Tester đã được admin sửa tay' }),
+    });
+    assert.strictEqual(put28.status, 200);
+    assert.ok((await (await fetch(`${memApi}?file=user-u1.md`)).json()).content.includes('sửa tay'), 'edit persisted');
+    for (const bad of ['../../etc/passwd', 'user-x.txt', 'sessions.json', 'user-..%2F.md']) {
+        const r = await fetch(memApi, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file: bad, content: 'x' }),
+        });
+        assert.strictEqual(r.status, 400, `bad name must be rejected: ${bad}`);
+    }
+    const del28 = await fetch(memApi, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: 'user-u1.md' }),
+    });
+    assert.strictEqual(del28.status, 200);
+    assert.strictEqual((await fetch(`${memApi}?file=user-u1.md`)).status, 404, 'deleted file must 404');
+    assert.ok(!(await (await fetch(memApi)).json()).files.some((f) => f.file === 'user-u1.md'), 'deleted file left the list');
+    console.log('ok 28 — memory admin CRUD works, name whitelist blocks traversal');
 
     console.log('PASS: all Phase 1–6 + reasoning + traces + admin smoke checks green');
     process.exit(0);

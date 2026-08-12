@@ -365,6 +365,33 @@ async function handleModels(req, res) {
     }
 }
 
+// Memory CRUD for the /ai dashboard. GET → list (or ?file= → content),
+// PUT {file, content} → save, DELETE {file} → remove; both return the fresh
+// list so the page never needs a second round-trip.
+async function handleMemoryAdmin(req, res) {
+    try {
+        if (req.method === 'GET') {
+            const file = new URL(req.url, 'http://x').searchParams.get('file');
+            if (!file) return send(res, 200, { files: memory.adminList() });
+            const content = memory.adminRead(file);
+            if (content === null) return send(res, 404, { error: 'file not found' });
+            return send(res, 200, { file, content });
+        }
+        const body = await readJsonBody(req);
+        if (req.method === 'PUT') {
+            memory.adminWrite(body.file, body.content);
+            log.info(`[ai] memory admin saved ${body.file}`);
+        } else {
+            const removed = memory.adminDelete(body.file);
+            log.info(`[ai] memory admin deleted ${body.file} existed=${removed}`);
+        }
+        return send(res, 200, { files: memory.adminList() });
+    } catch (e) {
+        if (e.message === 'invalid JSON' || e.message === 'body too large') throw e;
+        return send(res, 400, { error: e.message });
+    }
+}
+
 // GET /admin/traces → compact list; ?id=<id> → one full trace with all steps.
 function handleTraces(req, res) {
     const id = new URL(req.url, 'http://x').searchParams.get('id');
@@ -402,6 +429,7 @@ const server = http.createServer((req, res) => {
         route === 'GET /admin/metrics' ? Promise.resolve(send(res, 200, metrics.snapshot())) :
         route === 'GET /admin/traces' ? Promise.resolve(handleTraces(req, res)) :
         route === 'GET /admin/models' ? handleModels(req, res) :
+        route === 'GET /admin/memory' || route === 'PUT /admin/memory' || route === 'DELETE /admin/memory' ? handleMemoryAdmin(req, res) :
         route === 'GET /health' ? Promise.resolve(send(res, 200, { ok: true, providers: healthSnapshot() })) :
         Promise.resolve(send(res, 404, { error: 'not found' }));
     task.catch((e) => {

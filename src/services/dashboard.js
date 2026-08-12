@@ -1718,6 +1718,22 @@ async function handleAdmin(req, res, pathname, query) {
                 return sendJson(res, 502, { error: 'Không kết nối được qtbot-ai.' });
             }
         }
+        // Memory CRUD proxy for the /ai page (view/edit/delete memory files).
+        if (pathname === '/api/admin/ai/memory' && (method === 'GET' || method === 'PUT' || method === 'DELETE')) {
+            try {
+                const qs = query && query.file ? `?file=${encodeURIComponent(query.file)}` : '';
+                const opts = { method, signal: AbortSignal.timeout(5000) };
+                if (method !== 'GET') {
+                    opts.headers = { 'Content-Type': 'application/json' };
+                    opts.body = JSON.stringify(await readJsonBody(req));
+                }
+                const r = await fetch(`${AI_SERVICE_URL}/admin/memory${qs}`, opts);
+                return sendJson(res, r.status, await r.json());
+            } catch (e) {
+                if (/invalid JSON|payload too large/.test(e.message)) throw e;
+                return sendJson(res, 502, { error: 'Không kết nối được qtbot-ai.' });
+            }
+        }
         // Read-only proxies for the /ai page's metrics, trace and model-list data.
         if ((pathname === '/api/admin/ai/metrics' || pathname === '/api/admin/ai/traces' || pathname === '/api/admin/ai/models') && method === 'GET') {
             const upstream = pathname === '/api/admin/ai/metrics' ? '/admin/metrics'

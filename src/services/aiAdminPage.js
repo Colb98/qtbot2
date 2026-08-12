@@ -55,6 +55,15 @@ module.exports = `<!DOCTYPE html>
   .pill.perr { background:rgba(239,83,80,.15); color:var(--bad); }
   .pill.pok { background:rgba(102,187,106,.15); color:var(--good); }
   .stepline pre { white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px; margin:6px 0 0; max-height:260px; overflow:auto; font-size:12px; width:100%; }
+  .mem-group { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; margin:12px 0 4px; }
+  .mem-row { display:flex; gap:10px; align-items:baseline; padding:7px 6px; border-bottom:1px solid rgba(255,255,255,.05); cursor:pointer; }
+  .mem-row:hover { background:rgba(79,195,247,.05); }
+  .mem-row .file { font-family:ui-monospace,monospace; font-size:12px; white-space:nowrap; }
+  .mem-row .preview { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .mem-row .size { color:var(--muted); font-size:11px; white-space:nowrap; }
+  #memEditor textarea { width:100%; min-height:220px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:10px; font-family:ui-monospace,monospace; font-size:12px; resize:vertical; }
+  #memEditor .actions { margin-top:8px; }
+  button.danger { background:rgba(239,83,80,.15); color:var(--bad); border-color:var(--bad); }
 </style>
 </head>
 <body>
@@ -98,6 +107,23 @@ module.exports = `<!DOCTYPE html>
       <tbody id="traceRows"></tbody>
     </table>
     <p class="muted" id="traceEmpty" style="display:none;margin-bottom:0">Chưa có yêu cầu nào từ khi service khởi động.</p>
+  </div>
+
+  <div class="card">
+    <h2>Trí nhớ dài hạn <span class="muted" style="font-weight:400">— bấm vào file để xem/sửa; file là markdown thuần</span>
+      <button id="memReloadBtn" style="float:right">↻</button></h2>
+    <div id="memList"></div>
+    <p class="muted" id="memEmpty" style="display:none;margin-bottom:0">Bot chưa ghi nhớ gì.</p>
+    <div id="memEditor" class="hidden">
+      <p class="mono" id="memFileName" style="margin:12px 0 6px"></p>
+      <textarea id="memText"></textarea>
+      <div class="actions">
+        <button class="primary" id="memSaveBtn">Lưu</button>
+        <button class="danger" id="memDeleteBtn">Xoá file</button>
+        <button id="memCloseBtn">Đóng</button>
+        <span class="muted" id="memNote"></span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -364,6 +390,83 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+// ---- Trí nhớ dài hạn: tải khi mở trang / bấm ↻, KHÔNG nằm trong poll 5s
+// (đang sửa mà bị vẽ lại là mất nội dung). Text là dữ liệu LLM → textContent.
+let memOpenFile = null;
+
+function renderMemList(files) {
+  const box = $('memList');
+  box.innerHTML = '';
+  $('memEmpty').style.display = files.length ? 'none' : 'block';
+  [['server', 'Server'], ['channel', 'Kênh'], ['user', 'Thành viên']].forEach((g) => {
+    const items = files.filter((f) => f.scope === g[0]);
+    if (!items.length) return;
+    box.appendChild(makeEl('div', 'mem-group', g[1]));
+    items.forEach((f) => {
+      const row = makeEl('div', 'mem-row');
+      row.dataset.mfile = f.file;
+      row.appendChild(makeEl('span', 'file', f.file));
+      row.appendChild(makeEl('span', 'preview', f.preview || '(trống)'));
+      row.appendChild(makeEl('span', 'size', f.size + ' ký tự'));
+      box.appendChild(row);
+    });
+  });
+}
+
+async function loadMemList() {
+  try {
+    const res = await fetch('/api/admin/ai/memory');
+    if (res.ok) renderMemList((await res.json()).files || []);
+  } catch (_) { /* transient */ }
+}
+
+document.addEventListener('click', async (e) => {
+  const row = e.target.closest ? e.target.closest('.mem-row') : null;
+  if (!row) return;
+  try {
+    const res = await fetch('/api/admin/ai/memory?file=' + encodeURIComponent(row.dataset.mfile));
+    if (!res.ok) return toast('Không đọc được file.', false);
+    const body = await res.json();
+    memOpenFile = body.file;
+    $('memFileName').textContent = body.file;
+    $('memText').value = body.content;
+    $('memEditor').classList.remove('hidden');
+  } catch (_) { toast('Không đọc được file.', false); }
+});
+
+$('memSaveBtn').addEventListener('click', async () => {
+  if (!memOpenFile) return;
+  const res = await fetch('/api/admin/ai/memory', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: memOpenFile, content: $('memText').value }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return toast(body.error || 'Lưu thất bại.', false);
+  renderMemList(body.files || []);
+  toast('Đã lưu trí nhớ.', true);
+});
+
+$('memDeleteBtn').addEventListener('click', async () => {
+  if (!memOpenFile) return;
+  if (!confirm('Xoá hẳn ' + memOpenFile + '? Bot sẽ quên nội dung này.')) return;
+  const res = await fetch('/api/admin/ai/memory', {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: memOpenFile }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return toast(body.error || 'Xoá thất bại.', false);
+  memOpenFile = null;
+  $('memEditor').classList.add('hidden');
+  renderMemList(body.files || []);
+  toast('Đã xoá.', true);
+});
+
+$('memCloseBtn').addEventListener('click', () => {
+  memOpenFile = null;
+  $('memEditor').classList.add('hidden');
+});
+$('memReloadBtn').addEventListener('click', loadMemList);
+
 async function refreshExtras() {
   try {
     const both = await Promise.all([fetch('/api/admin/ai/metrics'), fetch('/api/admin/ai/traces')]);
@@ -381,6 +484,7 @@ async function load() {
   $('app').classList.remove('hidden');
   applySnapshot(await res.json());
   refreshExtras();
+  loadMemList();
   if (!statusTimer) statusTimer = setInterval(refreshStatus, 5000);
 }
 

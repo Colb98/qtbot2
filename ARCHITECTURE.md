@@ -301,12 +301,25 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   Written at compaction time from the folded messages (facts get
                   promoted before the summary blurs them): one LLM call REWRITES
                   the affected files whole under hard char caps (memory cannot
-                  grow unbounded). The model may only write files of users who
-                  spoke in the chunk. Retrieval per message: server + this channel
-                  + the speaker ONLY — other users' memory never enters the prompt.
-                  Updates serialize per guild; failures skip harmlessly.
-                  Kill switch: AI_MEMORY_ENABLED=false. `!ai reset` does NOT
-                  clear memory — delete the file on the VPS to forget someone.
+                  grow unbounded). Two-tier retention: "## Core" (undated stable
+                  impression — identity, relationships, nicknames, running
+                  jokes/stories, preferences; kept indefinitely) and "## Recent"
+                  (episodic bullets date-stamped "(YYYY-MM-DD)"; expire after
+                  AI_MEMORY_RECENT_DAYS unless the topic recurs → promoted to
+                  Core). pruneExpired() enforces the expiry in code even when
+                  the model ignores it. The model may only write files of users
+                  who spoke in the chunk. Retrieval per message: server + this
+                  channel + the speaker ONLY — other users' memory never enters
+                  the prompt. Updates serialize per guild; failures skip
+                  harmlessly. Admin CRUD via GET|PUT|DELETE /admin/memory (name
+                  whitelist ^(server|channel|user)-[id].md — no traversal),
+                  surfaced on the /ai dashboard. Kill switch:
+                  AI_MEMORY_ENABLED=false. `!ai reset` does NOT clear memory —
+                  use the /ai memory card (or delete the file) to forget.
+                  TODO (deferred, plan phase B): `!ai nhớ <text>` — direct
+                  dated write to the SPEAKER'S OWN memory file via a bot
+                  command (identity injected bot-side), for capturing facts
+                  without waiting for compaction.
     queue.js      per-session FIFO (depth AI_SESSION_QUEUE_DEPTH, overflow → 429);
                   different sessions run concurrently
     providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI) → gemini,
@@ -331,7 +344,9 @@ sections refreshed on the same 5s poll: **Thống kê** (today's metrics tiles +
 per-provider table, from `GET /admin/metrics`) and **Yêu cầu gần đây** (the
 per-request flow traces; click a row for the step-by-step timeline including
 the hidden thinking text and tool results, from `GET /admin/traces[?id=]`).
-Uses the existing dashboard session auth; `/api/admin/ai/{config,metrics,traces,models}`
+A "Trí nhớ dài hạn" card lists all memory files (grouped server/channel/user,
+with previews) and opens a plain-markdown editor — view/edit/delete without SSH.
+Uses the existing dashboard session auth; `/api/admin/ai/{config,metrics,traces,models,memory}`
 proxy to the service's admin endpoints (the localhost-only service's sole
 exposure). Trace/LLM text is rendered with `textContent` only — never innerHTML.
 
@@ -347,7 +362,7 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
   `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
   `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
-  `AI_MEMORY_MAX_TOKENS`, `AI_CONTEXT_MESSAGES` (ambient channel messages per
+  `AI_MEMORY_MAX_TOKENS`, `AI_MEMORY_RECENT_DAYS`, `AI_CONTEXT_MESSAGES` (ambient channel messages per
   request, 0 disables — read by both bot and service), `AI_CONTEXT_MAX_CHARS`,
   `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,
   `AI_REASONING_CONTEXT_TURNS`, `AI_REASONING_CLASSIFIER_MAX_TOKENS`,

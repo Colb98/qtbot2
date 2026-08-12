@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.22.4';
+const CURRENT_VERSION = '3.23.0';
 
 const CHANGELOG = {
+    '3.23.0': {
+        date: '2026-08-12',
+        title: 'Trí nhớ có lõi, có hạn dùng, có cửa sổ',
+        changes: [
+            '🧠 **Trí nhớ hai tầng** — ấn tượng cốt lõi về từng người (tính cách, biệt danh, chuyện dài kỳ, sở thích) được giữ mãi; chuyện lặt vặt theo ngày tự phai sau ~2 tuần, trừ khi được nhắc lại thì thăng cấp thành kỷ niệm lâu dài. Nhớ đúng chất một người bạn: nhớ bạn là ai, quên bạn ăn gì hôm thứ ba.',
+            '🗂️ **Xem/sửa/xoá trí nhớ ngay trên trang /ai** — thêm mục "Trí nhớ dài hạn": danh sách file theo server/kênh/thành viên, bấm vào là sửa trực tiếp, hết cảnh SSH vào VPS.'
+        ]
+    },
     '3.22.4': {
         date: '2026-08-12',
         title: 'Chuỗi fallback nhìn phát biết ngay',

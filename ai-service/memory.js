@@ -46,18 +46,42 @@ function getContext(guildId, channelId, userId) {
     };
 }
 
-const MEMORY_SYSTEM = `You are the LONG-TERM MEMORY component of QT, a Discord bot.
+// Two-tier retention: the CORE impression of a person/place is kept forever,
+// episodic items carry a date and expire — memory stays compact AND fresh.
+// Built per call because it embeds today's date.
+const memorySystem = () => `You are the LONG-TERM MEMORY component of QT, a Discord bot.
 Task: REWRITE the memory files completely, merging in facts worth keeping from the new conversation.
 
-KEEP only stable, long-term useful information: preferences, jobs, usual language,
-nicknames, recurring inside jokes, long-running server events/activities.
-DO NOT keep one-off trivia (what someone ate today, a single joke, temporary details).
-If nothing new is worth keeping for a file, return that file unchanged.
-Each file: bullet points, IN VIETNAMESE, max ~120 words.
+Each file has two sections:
+## Core — stable impression, UNDATED bullets: identity, personality, relationships,
+nicknames, recurring jokes/stories, preferences, jobs/skills, usual language.
+Keep indefinitely; update a bullet when the fact changes.
+## Recent — episodic, every bullet MUST start with a date "(YYYY-MM-DD)":
+ongoing events, temporary situations, things true this week.
+
+Aging rules, applied on EVERY rewrite:
+- Today is ${new Date().toISOString().slice(0, 10)}. DROP Recent bullets older than ${config.memoryRecentDays} days —
+  unless the topic came up again in the new conversation; then move it (undated) into Core.
+- One-off trivia (what someone ate today, a single joke) never enters memory at all.
+- If nothing new is worth keeping for a file, return that file unchanged.
+Each file: bullet points IN VIETNAMESE, max ~120 words, headers exactly "## Core" and
+"## Recent" (omit an empty section).
 
 Return ONLY syntactically valid JSON, nothing else:
 {"server": "<server memory file>", "channel": "<channel memory file>", "users": {"<userId>": "<that user's memory file>"}}
 "users" may only contain userIds that appear in the conversation.`;
+
+// Deterministic backstop for the aging rule: expired dated bullets die here
+// even when the model ignores the instruction.
+function pruneExpired(text) {
+    const cutoff = new Date(Date.now() - config.memoryRecentDays * 86400000).toISOString().slice(0, 10);
+    return String(text).split('\n')
+        .filter((line) => {
+            const m = /^\s*-\s*\((\d{4}-\d{2}-\d{2})\)/.exec(line);
+            return !m || m[1] >= cutoff;
+        })
+        .join('\n');
+}
 
 function parseMemoryJson(text) {
     const start = text.indexOf('{');
@@ -79,7 +103,7 @@ async function updateFromTranscript(guildId, channelId, messages) {
         .join('\n');
 
     const { text } = await generateChatResponse([
-        { role: 'system', content: MEMORY_SYSTEM },
+        { role: 'system', content: memorySystem() },
         { role: 'user', content: `## Current memory\n${JSON.stringify(current)}\n\n## Conversation that just happened\n${transcript}` },
     ], { maxTokens: config.memoryMaxTokens });
 
@@ -88,11 +112,11 @@ async function updateFromTranscript(guildId, channelId, messages) {
 
     const wrote = [];
     if (typeof parsed.server === 'string' && parsed.server.trim()) {
-        write(serverFile(guildId), clip(parsed.server, config.memoryServerMaxChars));
+        write(serverFile(guildId), clip(pruneExpired(parsed.server), config.memoryServerMaxChars));
         wrote.push('server');
     }
     if (typeof parsed.channel === 'string' && parsed.channel.trim()) {
-        write(channelFile(channelId), clip(parsed.channel, config.memoryScopeMaxChars));
+        write(channelFile(channelId), clip(pruneExpired(parsed.channel), config.memoryScopeMaxChars));
         wrote.push('channel');
     }
     if (parsed.users && typeof parsed.users === 'object') {
@@ -102,12 +126,57 @@ async function updateFromTranscript(guildId, channelId, messages) {
             // an absent user's memory.
             if (!speakers.includes(id)) { log.warn(`[ai] memory for non-speaker ${id} ignored`); continue; }
             if (typeof text2 !== 'string' || !text2.trim()) continue;
-            write(userFile(id), clip(text2, config.memoryScopeMaxChars));
+            write(userFile(id), clip(pruneExpired(text2), config.memoryScopeMaxChars));
             wrote.push(`user:${id}`);
         }
     }
     if (wrote.length) metrics.inc('memoryWrites');
     log.info(`[ai] memory write guild=${guildId} channel=${channelId} scopes=[${wrote.join(', ')}]`);
+}
+
+// ------------------------------------------------------------- admin CRUD
+// For the /ai dashboard (localhost-only service, session-auth at the proxy).
+// The name whitelist is the security-critical line: nothing outside
+// data/memory/, no traversal, no non-memory files.
+const FILE_RE = /^(server|channel|user)-[0-9A-Za-z_-]+\.md$/;
+function assertName(file) {
+    if (typeof file !== 'string' || !FILE_RE.test(file)) throw new Error('Tên file trí nhớ không hợp lệ.');
+    return file;
+}
+
+function adminList() {
+    let names = [];
+    try { names = fs.readdirSync(MEM_DIR); } catch (_) { /* no memory yet */ }
+    return names.filter((n) => FILE_RE.test(n)).sort().map((file) => {
+        const content = read(file);
+        const preview = content.split('\n').find((l) => l.trim() && !l.startsWith('#')) || '';
+        return {
+            file,
+            scope: file.split('-')[0],
+            size: content.length,
+            preview: preview.replace(/^\s*-\s*/, '').slice(0, 80),
+        };
+    });
+}
+
+function adminRead(file) {
+    assertName(file);
+    const content = read(file);
+    return content || null;
+}
+
+function adminWrite(file, content) {
+    assertName(file);
+    if (typeof content !== 'string' || !content.trim()) throw new Error('Nội dung trống — dùng nút Xoá nếu muốn bỏ file.');
+    const cap = file.startsWith('server-') ? config.memoryServerMaxChars : config.memoryScopeMaxChars;
+    if (content.length > cap) throw new Error(`Nội dung quá dài (tối đa ${cap} ký tự cho file này).`);
+    write(file, content);
+}
+
+function adminDelete(file) {
+    assertName(file);
+    try { fs.unlinkSync(path.join(MEM_DIR, file)); return true; }
+    catch (_) { return false; }
 }
 
 // Serialized per guild: two channels compacting at once share the server file,
@@ -122,4 +191,4 @@ function scheduleUpdate(guildId, channelId, messages) {
     }
 }
 
-module.exports = { getContext, scheduleUpdate };
+module.exports = { getContext, scheduleUpdate, adminList, adminRead, adminWrite, adminDelete };
