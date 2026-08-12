@@ -51,6 +51,9 @@ module.exports = `<!DOCTYPE html>
   .stepline { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; padding:7px 0; border-bottom:1px solid rgba(255,255,255,.05); }
   .stepline:last-child { border-bottom:none; }
   .stepline b { text-transform:uppercase; font-size:12px; letter-spacing:.5px; }
+  .pill { display:inline-block; border-radius:999px; padding:2px 9px; font-size:11px; font-weight:600; white-space:nowrap; cursor:default; }
+  .pill.perr { background:rgba(239,83,80,.15); color:var(--bad); }
+  .pill.pok { background:rgba(102,187,106,.15); color:var(--good); }
   .stepline pre { white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px; margin:6px 0 0; max-height:260px; overflow:auto; font-size:12px; width:100%; }
 </style>
 </head>
@@ -280,8 +283,9 @@ function renderTraceList(list) {
 }
 
 function stepMeta(s) {
+  // Provider chain is rendered as pills (see providerPills) — not here.
   const bits = [];
-  if (s.provider) bits.push(s.provider + (s.model ? ' · ' + s.model : ''));
+  if (s.model) bits.push(s.model);
   if (s.result) bits.push('→ ' + s.result);
   if (s.reason && s.reason !== 'classified') bits.push(s.reason);
   if (s.query) bits.push('"' + s.query + '"');
@@ -291,8 +295,30 @@ function stepMeta(s) {
   if (s.fetched != null) bits.push('đọc được ' + s.fetched + '/' + s.total);
   if (s.tokensIn != null) bits.push('tokens ' + s.tokensIn + ' → ' + s.tokensOut);
   if (s.chars != null) bits.push(s.chars + ' ký tự');
-  if (s.attempts && s.attempts.length) bits.push('thử lại: ' + s.attempts.join('; '));
   return bits.join(' · ');
+}
+
+function shortErr(msg) {
+  const m = /HTTP \\d+/.exec(msg || '');
+  if (m) return m[0];
+  if (/timeout/i.test(msg || '')) return 'timeout';
+  if (/empty completion/.test(msg || '')) return 'empty';
+  return String(msg || '?').slice(0, 24);
+}
+
+// The failover chain of one step: red pill per failed attempt (full error in
+// the tooltip), green pill for the provider that finally served it.
+function providerPills(s) {
+  const pills = [];
+  (s.attempts || []).forEach((a) => {
+    const provider = a && a.provider ? a.provider : '?';
+    const error = a && a.error ? a.error : String(a);
+    const p = makeEl('span', 'pill perr', '✗ ' + provider + ' · ' + shortErr(error));
+    p.title = error;
+    pills.push(p);
+  });
+  if (s.provider) pills.push(makeEl('span', 'pill pok', '✓ ' + s.provider));
+  return pills;
 }
 
 function buildTraceDetail(t) {
@@ -306,6 +332,7 @@ function buildTraceDetail(t) {
     line.appendChild(makeEl('span', s.ok === false ? 'badge off' : 'badge on', s.ok === false ? '✗' : '✓'));
     line.appendChild(makeEl('b', null, s.type));
     line.appendChild(makeEl('span', 'muted', fmtMs(s.ms)));
+    providerPills(s).forEach((p) => line.appendChild(p));
     const meta = stepMeta(s);
     if (meta) line.appendChild(makeEl('span', 'muted', meta));
     if (s.detail) line.appendChild(makeEl('pre', null, s.detail));

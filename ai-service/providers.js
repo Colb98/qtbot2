@@ -54,9 +54,9 @@ function normalize(text) {
 
 class AllProvidersFailedError extends Error {
     constructor(attempts) {
-        super(`All providers failed: ${attempts.join('; ')}`);
+        super(`All providers failed: ${attempts.map((a) => `${a.provider}: ${a.error.slice(0, 120)}`).join('; ')}`);
         this.name = 'AllProvidersFailedError';
-        this.attempts = attempts; // per-provider failure notes, for traces
+        this.attempts = attempts; // structured [{provider, error}], for traces
     }
 }
 
@@ -140,7 +140,8 @@ async function generateChatResponse(messages, opts = {}) {
             // steps (classify/verify) can explain their latency.
             return { text, provider: p.name, model: p.model, attempts: attempts.length ? [...attempts] : undefined };
         } catch (e) {
-            attempts.push(`${p.name}: ${e.message.slice(0, 120)}`);
+            // Structured for the trace pills — full-ish message, not a stub.
+            attempts.push({ provider: p.name, error: e.message.slice(0, 300) });
             metrics.provider(p.name, { ok: false, rateLimited: e.status === 429 });
             if (e.status === 400) {
                 log.error(`[ai] provider ${p.name} rejected payload (our bug, no failover):`, e.message);
@@ -164,7 +165,10 @@ async function generateChatResponse(messages, opts = {}) {
 function recordFailedStep(opts, attempts) {
     if (!opts.trace) return;
     const s = trace.step(opts.trace, opts.stepType || 'generation');
-    trace.endStep(opts.trace, s, { ok: false, attempts: [...attempts], detail: attempts.join('; ') });
+    trace.endStep(opts.trace, s, {
+        ok: false, attempts: [...attempts],
+        detail: attempts.map((a) => `${a.provider}: ${a.error}`).join('\n'),
+    });
 }
 
 module.exports = { generateChatResponse, healthSnapshot, rebuild, AllProvidersFailedError, _normalize: normalize };

@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.22.3';
+const CURRENT_VERSION = '3.22.4';
 
 const CHANGELOG = {
+    '3.22.4': {
+        date: '2026-08-12',
+        title: 'Chuỗi fallback nhìn phát biết ngay',
+        changes: [
+            '💊 **Nhật ký /ai hiện chuỗi fallback bằng pill màu** — mỗi bước hiện rõ nhà nào trượt (pill đỏ, rê chuột xem lỗi đầy đủ, hết cảnh lỗi bị cắt cụt) và nhà nào chốt đơn (pill xanh).'
+        ]
+    },
     '3.22.3': {
         date: '2026-08-11',
         title: 'Soi được ai làm chậm bước phân loại',
