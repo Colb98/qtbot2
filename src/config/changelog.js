@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.24.1';
+const CURRENT_VERSION = '3.25.0';
 
 const CHANGELOG = {
+    '3.25.0': {
+        date: '2026-08-12',
+        title: 'Để model reasoning nghĩ chỗ đáng nghĩ',
+        changes: [
+            '🧠 **Phân tích + trả lời do model chính (reasoning) lo, chỉ chặn bước định tuyến** — model nhanh giờ chỉ gánh phân loại/kiểm tra; phần suy nghĩ thật sự (phân tích tác vụ và trả lời) trả lại cho model chính, kèm nới hạn mức token để model reasoning có chỗ nghĩ mà không bị cụt câu trả lời giữa chừng.'
+        ]
+    },
     '3.24.1': {
         date: '2026-08-12',
         title: 'Bước phân tích cũng xài model nhanh',

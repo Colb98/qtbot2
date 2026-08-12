@@ -16,7 +16,7 @@ function int(name, def) {
 const config = {
     port: int('AI_SERVICE_PORT', 3001),
     host: '127.0.0.1', // never expose publicly: auth happens in the bot process
-    maxResponseTokens: int('AI_MAX_RESPONSE_TOKENS', 800),
+    maxResponseTokens: int('AI_MAX_RESPONSE_TOKENS', 2500), // reasoning models spend most of this thinking
     providerTimeoutMs: int('AI_PROVIDER_TIMEOUT_MS', 30000),
     // Soft wall-clock budget per /chat request: past it, no new search/read
     // rounds start and analysis is skipped — the reply must reach the bot
@@ -64,9 +64,11 @@ const config = {
     reasoningMinChars: int('AI_REASONING_MIN_CHARS', 40),          // shorter → immediate, no classifier call
     reasoningContextTurns: int('AI_REASONING_CONTEXT_TURNS', 4),   // recent turns shown to the classifier
     reasoningClassifierMaxTokens: int('AI_REASONING_CLASSIFIER_MAX_TOKENS', 8),
-    reasoningThinkMaxTokens: int('AI_REASONING_THINK_MAX_TOKENS', 400),   // research mode
-    reasoningAnalyzeMaxTokens: int('AI_REASONING_ANALYZE_MAX_TOKENS', 250), // think mode
-    reasoningSocialMaxTokens: int('AI_REASONING_SOCIAL_MAX_TOKENS', 150),   // social/tone-plan mode
+    // Sized for a reasoning main model (thinking + output share the budget);
+    // a non-reasoning model just self-stops well under these.
+    reasoningThinkMaxTokens: int('AI_REASONING_THINK_MAX_TOKENS', 1200),    // research analyze
+    reasoningAnalyzeMaxTokens: int('AI_REASONING_ANALYZE_MAX_TOKENS', 900), // think analyze
+    reasoningSocialMaxTokens: int('AI_REASONING_SOCIAL_MAX_TOKENS', 600),   // social one-shot reply
     reasoningDailyLimit: int('AI_REASONING_DAILY_LIMIT', 300),     // all reasoning-layer calls per day
     verifyEnabled: process.env.AI_VERIFY_ENABLED !== 'false',      // PASS/FAIL gate on social drafts
     verifyMaxTokens: int('AI_VERIFY_MAX_TOKENS', 60),
@@ -91,9 +93,10 @@ const DEFAULT_MODELS = {
 // grok (xAI) deliberately uses XAI_* keys — GROK_API_KEY next to GROQ_API_KEY
 // would be a typo waiting to happen.
 const ENV_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_MODEL', groq: 'GROQ_MODEL', openrouter: 'OPENROUTER_MODEL', grok: 'XAI_MODEL', gemini: 'GEMINI_MODEL' };
-// Second model slot per provider for the FAST role (classifier + verifier):
-// tiny hard-capped calls that must answer instantly and must never think —
-// pair a reasoning main model (qwen*-flash) with an instruct fast model.
+// Second model slot per provider for the FAST role (classifier + verifier
+// ONLY — the tiny routing calls that must answer instantly and never think).
+// The MAIN model does the reasoning work (analyze + generation). Pair a
+// reasoning main model (qwen*-flash) with an instruct fast model.
 // Unset → the provider's main model serves both roles.
 const ENV_FAST_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_FAST_MODEL', groq: 'GROQ_FAST_MODEL', openrouter: 'OPENROUTER_FAST_MODEL', grok: 'XAI_FAST_MODEL', gemini: 'GEMINI_FAST_MODEL' };
 

@@ -661,8 +661,8 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(!(await (await fetch(memApi)).json()).files.some((f) => f.file === 'user-u1.md'), 'deleted file left the list');
     console.log('ok 28 — memory admin CRUD works, name whitelist blocks traversal');
 
-    // 29. Fast-model role: classifier/verifier/analyze use the provider's fast
-    // model, generation uses the main model — set both, check the trace.
+    // 29. Model roles: classifier/verifier use the provider's fast model;
+    // analyze + generation (the reasoning work) use the main model.
     // Restore a normal budget first (test 27 left it at -1 → analyze skipped).
     process.env.AI_CHAT_BUDGET_MS = '90000';
     process.env.AI_REASONING_TIMEOUT_MS = '10000';
@@ -679,10 +679,10 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     const d29 = await getTraces((await getTraces()).traces[0].id);
     assert.strictEqual(d29.steps.find((s) => s.type === 'classify').model, 'fast-model-y',
         'classifier must run on the fast model');
-    assert.strictEqual(d29.steps.find((s) => s.type === 'analyze').model, 'fast-model-y',
-        'analysis must run on the fast model (it is the structured-thinking step)');
+    assert.strictEqual(d29.steps.find((s) => s.type === 'analyze').model, 'main-model-x',
+        'analysis runs on the main (reasoning) model — reason where it matters');
     assert.strictEqual(d29.steps.find((s) => s.type === 'generation').model, 'main-model-x',
-        'the main pipeline (final answer) must run on the main model');
+        'generation runs on the main model');
     // fastModels validation shares the models path.
     const bad29 = await fetch('http://127.0.0.1:3999/admin/config', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },

@@ -331,14 +331,17 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI) → gemini,
                   429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
                   Disable a provider by removing it from AI_PROVIDER_ORDER.
-                  Two model roles per provider: the MAIN model (the final
-                  answer generation) and a FAST model (opts.role='fast' —
-                  classifier + verifier + task analysis: routing/structuring
-                  calls that must not burn budget thinking). Pair a
-                  reasoning main model (e.g. qwen*-flash) with an instruct fast
-                  model (qwen*-instruct) so <think> output can't starve the
-                  budget on the routing calls. Fast model unset → main serves
-                  both. Set via *_FAST_MODEL env or the /ai "Model nhanh" column.
+                  Two model roles per provider: the MAIN model does the
+                  reasoning work (task analysis + generation), a FAST model
+                  (opts.role='fast') shields ONLY the tiny routing calls
+                  (classifier + verifier) that must not burn budget thinking.
+                  "Reason where it matters": pair a reasoning main model (e.g.
+                  qwen*-flash) with an instruct fast model (qwen*-instruct).
+                  Token budgets (AI_MAX_RESPONSE_TOKENS 2500, AI_REASONING_*_MAX_TOKENS)
+                  are sized so the reasoning model has room to think AND emit
+                  output; a non-reasoning model just self-stops under them.
+                  Fast model unset → main serves both. Set via *_FAST_MODEL env
+                  or the /ai "Model nhanh" column.
                   Reasoning-model hygiene: <think> blocks are stripped hard
                   (closed anywhere, unclosed = truncated → whole tail dropped;
                   empty result → failover), and classifier calls (opts.noThink)
