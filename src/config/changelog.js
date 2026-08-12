@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.25.2';
+const CURRENT_VERSION = '3.25.3';
 
 const CHANGELOG = {
+    '3.25.3': {
+        date: '2026-08-12',
+        title: 'Thôi bắt bẻ mấy câu đùa',
+        changes: [
+            '😂 **Bộ kiểm tra hết làm kỳ đà cản mũi** — trước đây nó hay đánh rớt mấy câu cà khịa duyên vì "đùa không phù hợp" rồi bắt viết lại nhạt hơn. Giờ nó chỉ chặn khi câu trả lời thật sự nguy hiểm (giúp lừa đảo, làm bậy) hoặc lảm nhảm vô nghĩa — còn cà khịa, châm chọc, né bằng cách đùa thì luôn cho qua.'
+        ]
+    },
     '3.25.2': {
         date: '2026-08-12',
         title: 'Bot lầy hơn, hiểu tiếng lóng hơn',

@@ -78,7 +78,7 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             }));
         }
         // Verifier: fail only the marked-bad draft.
-        if (body.messages[0].content.includes('reply checker')) {
+        if (body.messages[0].content.includes('SAFETY checker')) {
             const fail = last.includes('DRAFT_SAI');
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
