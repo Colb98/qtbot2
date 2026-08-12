@@ -508,6 +508,7 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(m20.today.searches >= 1, 'searches counted');
     assert.ok(m20.today.pagesRead >= 1, 'page reads counted');
     assert.ok(m20.today.compactions >= 1, 'compactions counted');
+    assert.ok(m20.today.memoryWrites >= 1, 'memory writes counted (background call must not starve)');
     assert.ok(m20.today.perUser.u1 > 0, 'per-user counts');
     assert.ok(Object.keys(m20.today.providers).length > 0, 'per-provider counters exist');
     require('../ai-service/metrics').flushSync();

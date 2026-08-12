@@ -44,6 +44,9 @@ async function compactSession(sessionKey) {
             content: (prev ? `## Previous summary\n${prev}\n\n` : '') +
                 `## Conversation to fold into the summary\n${transcriptOf(old)}`,
         },
+    // Runs on the MAIN (reasoning) model for better lossy compression — the
+    // budget (AI_SUMMARY_MAX_TOKENS) is sized so it has room to think AND write
+    // the summary without truncating mid-thought.
     ], { maxTokens: config.summaryMaxTokens });
 
     if (sessions.applyCompaction(sessionKey, summary)) {

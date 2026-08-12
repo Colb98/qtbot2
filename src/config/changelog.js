@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.25.4';
+const CURRENT_VERSION = '3.25.5';
 
 const CHANGELOG = {
+    '3.25.5': {
+        date: '2026-08-12',
+        title: 'Ghi nhớ chạy thật, nén cũng thông minh hơn',
+        changes: [
+            '📔 **Trí nhớ dài hạn giờ ghi được thật** — trước đây bước ghi nhớ bị nghẹn token nên nén xong mà chẳng nhớ gì (0 lần ghi); giờ nới hạn mức để model có đủ chỗ vừa suy nghĩ vừa xuất ra bản ghi nhớ hoàn chỉnh.',
+            '🗜️ **Nén hội thoại do model chính lo** — phần tóm tắt/nén ký ức dùng model reasoning để nén "mất mát" khéo hơn, giữ đúng ý cốt lõi.'
+        ]
+    },
     '3.25.4': {
         date: '2026-08-12',
         title: 'Bot chịu ghi nhớ dài hạn rồi',

@@ -39,7 +39,7 @@ const config = {
     // Keep below AI_SESSION_MAX_MESSAGES so compaction fires before the trim.
     compactMaxMessages: int('AI_COMPACT_MAX_MESSAGES', 24),
     compactKeepRecent: int('AI_COMPACT_KEEP_RECENT', 10),
-    summaryMaxTokens: int('AI_SUMMARY_MAX_TOKENS', 500),
+    summaryMaxTokens: int('AI_SUMMARY_MAX_TOKENS', 2000),          // reasoning model needs room to think + summarize
     searchEnabled: process.env.AI_SEARCH_ENABLED !== 'false'
         && !!(process.env.SERPER_API_KEY || process.env.TAVILY_API_KEY),
     searchMaxResults: int('AI_SEARCH_MAX_RESULTS', 10),
@@ -61,7 +61,7 @@ const config = {
     memoryEnabled: process.env.AI_MEMORY_ENABLED !== 'false',
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)
-    memoryMaxTokens: int('AI_MEMORY_MAX_TOKENS', 700),             // LLM output budget for rewrites
+    memoryMaxTokens: int('AI_MEMORY_MAX_TOKENS', 2500),            // reasoning + full JSON rewrite must both fit
     memoryRecentDays: int('AI_MEMORY_RECENT_DAYS', 14),            // dated Recent bullets expire after this
     contextMaxMessages: int('AI_CONTEXT_MESSAGES', 10),           // ambient channel messages per request (0 disables)
     contextMaxChars: int('AI_CONTEXT_MAX_CHARS', 300),            // per ambient message

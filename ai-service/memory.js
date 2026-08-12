@@ -102,6 +102,10 @@ async function updateFromTranscript(guildId, channelId, messages) {
         .map((m) => (m.role === 'user' ? `[${m.userId || '?'}] ${m.name}: ${m.content}` : `QT (bot): ${m.content}`))
         .join('\n');
 
+    // Runs on the MAIN (reasoning) model — memory judgment (what's worth
+    // keeping, Core vs Recent) benefits from reasoning. AI_MEMORY_MAX_TOKENS is
+    // sized generously so the model can think AND emit the full JSON; if it
+    // still overflows, the JSON truncates and this write is skipped (logged).
     const { text } = await generateChatResponse([
         { role: 'system', content: memorySystem() },
         { role: 'user', content: `## Current memory\n${JSON.stringify(current)}\n\n## Conversation that just happened\n${transcript}` },
