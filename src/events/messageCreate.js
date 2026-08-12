@@ -14,6 +14,7 @@ const aiChat = require('../services/aiChat');
 module.exports = {
     name: Events.MessageCreate,
     async execute(msg) {
+        aiChat.recordAmbient(msg); // passive AI ambient ear — must see bot messages too
         if (msg.author.bot) return;
         if (msg.channel.type === ChannelType.DM) return;
         const blocked = isBlockedByMaintenance(msg.author.id, msg.guild);

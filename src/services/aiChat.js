@@ -91,27 +91,32 @@ function maybeHandle(msg) {
     return true;
 }
 
-// Ambient context: the nearest channel messages BEFORE the trigger, oldest
-// first — including other members' and other bots' messages (game results are
-// context too), so the AI can read the room. The service dedups anything
-// already in its session history and never persists these. Best-effort: a
-// fetch failure just means no ambient context.
-async function collectRecent(msg) {
+// Ambient context: a passive per-channel ring buffer fed by EVERY guild
+// message (recordAmbient runs before the event handler's bot filter — game
+// announcements are context too). Replaces the Discord API history fetch:
+// gap-free window even in fast-moving channels, zero extra API calls at
+// trigger time. The service dedups anything already in its session history
+// and never persists these. In-memory only — empty right after a bot restart.
+const AMBIENT_BUFFER_MAX = 50; // per channel; AI_CONTEXT_MESSAGES of these are sent
+const ambientBuf = new Map(); // channelId -> [{id, name, content}]
+
+function recordAmbient(msg) {
+    if (!ENABLED || CONTEXT_MESSAGES <= 0 || !msg.guildId) return;
+    // cleanContent resolves mentions to names; drop our own "-# 🔎" note lines.
+    const content = msg.cleanContent.replace(/^-# .*$/gm, '').trim().slice(0, 300);
+    if (!content) return;
+    const buf = ambientBuf.get(msg.channelId) || [];
+    buf.push({ id: msg.id, name: msg.member?.displayName || msg.author.displayName || msg.author.username, content });
+    if (buf.length > AMBIENT_BUFFER_MAX) buf.shift();
+    ambientBuf.set(msg.channelId, buf);
+}
+
+function collectRecent(msg) {
     if (CONTEXT_MESSAGES <= 0) return [];
-    try {
-        const fetched = await msg.channel.messages.fetch({ limit: Math.min(CONTEXT_MESSAGES, 25), before: msg.id });
-        return [...fetched.values()]
-            .reverse() // Discord returns newest first
-            .map((m) => ({
-                name: m.member?.displayName || m.author.displayName || m.author.username,
-                // cleanContent resolves mentions to names; drop our own "-# 🔎" note lines.
-                content: m.cleanContent.replace(/^-# .*$/gm, '').trim().slice(0, 300),
-            }))
-            .filter((r) => r.content);
-    } catch (e) {
-        log.warn('[aiChat] could not fetch channel context:', e.message);
-        return [];
-    }
+    return (ambientBuf.get(msg.channelId) || [])
+        .filter((e) => e.id !== msg.id) // the trigger itself is already the user message
+        .slice(-CONTEXT_MESSAGES)
+        .map((e) => ({ name: e.name, content: e.content }));
 }
 
 async function processMessage(msg) {
@@ -132,7 +137,7 @@ async function processMessage(msg) {
                 userId: msg.author.id,
                 displayName: msg.member?.displayName || msg.author.username,
                 content,
-                recent: await collectRecent(msg),
+                recent: collectRecent(msg),
             }),
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
@@ -236,4 +241,4 @@ async function handleAiCommand(msg) {
     }
 }
 
-module.exports = { maybeHandle };
+module.exports = { maybeHandle, recordAmbient };

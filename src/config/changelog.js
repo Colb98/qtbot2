@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.23.1';
+const CURRENT_VERSION = '3.23.2';
 
 const CHANGELOG = {
+    '3.23.2': {
+        date: '2026-08-12',
+        title: 'Bot nghe chuyện kênh liền mạch hơn',
+        changes: [
+            '👂 **Bot tự nghe kênh thay vì ngoái lại nhìn** — thay vì lúc được gọi mới kéo 10 tin gần nhất từ Discord, bot giờ lặng lẽ ghi nhớ tạm dòng chat của từng kênh (tối đa 50 tin, chỉ trong RAM): nắm chuyện liền mạch kể cả khi kênh chat nhanh, phản hồi cũng nhỉnh hơn vì bớt một lượt gọi API. Vẫn chỉ dùng tại chỗ, không lưu.'
+        ]
+    },
     '3.23.1': {
         date: '2026-08-12',
         title: 'Lọc rác emoji khỏi mắt bot',
