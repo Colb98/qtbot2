@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.25.1';
+const CURRENT_VERSION = '3.25.2';
 
 const CHANGELOG = {
+    '3.25.2': {
+        date: '2026-08-12',
+        title: 'Bot lầy hơn, hiểu tiếng lóng hơn',
+        changes: [
+            '😎 **Bị nghi ăn gian thì cà khịa chứ không chối máy móc** — bot giờ nhận mình chính là con bot chia lô/số, nên ai trêu "mày ăn gian à, sao tao xịt hoài" thì nó đùa lại kiểu "Thề tao liêm 🤙" chứ không đọc bài "tao không có quyền can thiệp".',
+            '🔤 **Hiểu tiếng lóng chat** — z=v=vậy, t=tao, m=mày, k=ko=không, j=gì... bot đọc hiểu tự nhiên, khỏi cần gõ đầy đủ.'
+        ]
+    },
     '3.25.1': {
         date: '2026-08-12',
         title: 'Hỏi ngắn nhưng thật thì bot không lơ',
