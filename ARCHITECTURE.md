@@ -331,6 +331,13 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI) → gemini,
                   429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
                   Disable a provider by removing it from AI_PROVIDER_ORDER.
+                  Two model roles per provider: the MAIN model (think/generate/
+                  analyze) and a FAST model (opts.role='fast' — classifier +
+                  verifier: tiny hard-capped calls that must not think). Pair a
+                  reasoning main model (e.g. qwen*-flash) with an instruct fast
+                  model (qwen*-instruct) so <think> output can't starve the
+                  budget on the routing calls. Fast model unset → main serves
+                  both. Set via *_FAST_MODEL env or the /ai "Model nhanh" column.
                   Reasoning-model hygiene: <think> blocks are stripped hard
                   (closed anywhere, unclosed = truncated → whole tail dropped;
                   empty result → failover), and classifier calls (opts.noThink)
@@ -387,7 +394,8 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
   `OPENROUTER_API_KEY`+`OPENROUTER_MODEL`, `XAI_API_KEY`+`XAI_MODEL` (grok — XAI_ prefix on
   purpose, don't confuse with GROQ_), `GEMINI_API_KEY` (or `GOOGLE_API_KEY`)+`GEMINI_MODEL`
-  (Google OpenAI-compat endpoint) (optional `*_BASE_URL` overrides).
+  (Google OpenAI-compat endpoint) (optional `*_BASE_URL` overrides), and an
+  optional `*_FAST_MODEL` per provider (classifier/verifier model).
 - **Deploy:** `pm2 start ai-service/index.js --name qtbot-ai --cwd /root/qtbot` then `pm2 save`.
   Kill switch: `AI_ENABLED=false` (bot ignores triggers) and/or stop `qtbot-ai`.
 - **Test:** `node scripts/smoke_ai_service.js` — offline, fakes providers, verifies

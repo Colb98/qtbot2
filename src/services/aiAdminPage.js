@@ -24,7 +24,7 @@ module.exports = `<!DOCTYPE html>
   td { padding:9px 8px; border-bottom:1px solid rgba(255,255,255,.05); vertical-align:middle; }
   tr:last-child td { border-bottom:none; }
   td.name { font-weight:600; }
-  td.model input { width:100%; min-width:220px; font-family:ui-monospace,monospace; font-size:12px; }
+  td.model input { width:100%; min-width:160px; font-family:ui-monospace,monospace; font-size:12px; }
   .ordbtn { padding:3px 8px; margin-right:2px; }
   .badge { border-radius:999px; padding:3px 9px; font-size:11px; font-weight:600; white-space:nowrap; }
   .badge.on { background:rgba(102,187,106,.15); color:var(--good); }
@@ -79,9 +79,10 @@ module.exports = `<!DOCTYPE html>
 <div id="app" class="hidden">
   <div class="card">
     <p class="muted" style="margin-top:0">Thứ tự trên–dưới = thứ tự ưu tiên (failover). Bỏ tick để loại provider khỏi chuỗi.
-    Ô model trống = dùng mặc định (hiện trong placeholder). Thay đổi áp dụng ngay, không cần restart.</p>
+    Ô model trống = dùng mặc định (hiện trong placeholder). "Model nhanh" phục vụ bước phân loại/kiểm tra
+    (nên chọn bản instruct không suy nghĩ); trống = dùng model chính. Thay đổi áp dụng ngay, không cần restart.</p>
     <table>
-      <thead><tr><th></th><th>Dùng</th><th>Provider</th><th>Model</th><th>Trạng thái</th></tr></thead>
+      <thead><tr><th></th><th>Dùng</th><th>Provider</th><th>Model chính</th><th>Model nhanh</th><th>Trạng thái</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="actions">
@@ -170,6 +171,7 @@ function render() {
       '<td class="name">' + p.name + '</td>' +
       '<td class="model"><input data-model="' + i + '" list="models-' + p.name + '" value="' + p.modelInput.replace(/"/g, '&quot;') + '" placeholder="' + p.fallbackModel + '">' +
       '<datalist id="models-' + p.name + '"></datalist></td>' +
+      '<td class="model"><input data-fastmodel="' + i + '" list="models-' + p.name + '" value="' + p.fastInput.replace(/"/g, '&quot;') + '" placeholder="' + p.fallbackFastModel + '"></td>' +
       '<td data-status="' + p.name + '">' + healthBadge(p) + '</td>';
     tb.appendChild(tr);
   });
@@ -187,6 +189,8 @@ document.addEventListener('change', (e) => {
 document.addEventListener('input', (e) => {
   const m = e.target.dataset && e.target.dataset.model;
   if (m !== undefined && m !== '') { rows[+m].modelInput = e.target.value; setDirty(true); }
+  const fm = e.target.dataset && e.target.dataset.fastmodel;
+  if (fm !== undefined && fm !== '') { rows[+fm].fastInput = e.target.value; setDirty(true); }
 });
 
 // Model combo-box: on first focus of a model input, fetch the provider's real
@@ -194,7 +198,7 @@ document.addEventListener('input', (e) => {
 // still works — the list is a helper, not a constraint. Failure = plain input.
 const modelLists = {}; // provider -> [ids]
 document.addEventListener('focusin', async (e) => {
-  const m = e.target.dataset && e.target.dataset.model;
+  const m = (e.target.dataset && e.target.dataset.model) ?? (e.target.dataset && e.target.dataset.fastmodel);
   if (m === undefined || m === '') return;
   const name = rows[+m] && rows[+m].name;
   const dl = name && document.getElementById('models-' + name);
@@ -220,6 +224,7 @@ function applySnapshot(snap) {
   rows = ordered.map((n) => {
     const p = byName[n];
     return { name: n, enabled: snap.order.includes(n) && p.configured, modelInput: p.override || '',
+             fastInput: p.fastOverride || '', fallbackFastModel: p.fallbackFastModel || p.fallbackModel,
              configured: p.configured, health: p.health, fallbackModel: p.fallbackModel };
   });
   setDirty(false);
@@ -512,10 +517,11 @@ $('saveBtn').addEventListener('click', async () => {
   const order = rows.filter((r) => r.enabled).map((r) => r.name);
   if (!order.length) return toast('Phải bật ít nhất một provider.', false);
   const models = {};
-  for (const r of rows) models[r.name] = r.modelInput.trim();
+  const fastModels = {};
+  for (const r of rows) { models[r.name] = r.modelInput.trim(); fastModels[r.name] = r.fastInput.trim(); }
   const res = await fetch('/api/admin/ai/config', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ providerOrder: order, models }),
+    body: JSON.stringify({ providerOrder: order, models, fastModels }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) return toast(body.error || 'Lưu thất bại.', false);

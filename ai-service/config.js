@@ -91,20 +91,26 @@ const DEFAULT_MODELS = {
 // grok (xAI) deliberately uses XAI_* keys — GROK_API_KEY next to GROQ_API_KEY
 // would be a typo waiting to happen.
 const ENV_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_MODEL', groq: 'GROQ_MODEL', openrouter: 'OPENROUTER_MODEL', grok: 'XAI_MODEL', gemini: 'GEMINI_MODEL' };
+// Second model slot per provider for the FAST role (classifier + verifier):
+// tiny hard-capped calls that must answer instantly and must never think —
+// pair a reasoning main model (qwen*-flash) with an instruct fast model.
+// Unset → the provider's main model serves both roles.
+const ENV_FAST_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_FAST_MODEL', groq: 'GROQ_FAST_MODEL', openrouter: 'OPENROUTER_FAST_MODEL', grok: 'XAI_FAST_MODEL', gemini: 'GEMINI_FAST_MODEL' };
 
 // Runtime overrides set from the admin dashboard; persisted so they survive
 // restarts. Precedence: override > env > hardcoded default.
-let overrides = { providerOrder: null, models: {} };
+let overrides = { providerOrder: null, models: {}, fastModels: {} };
 try {
     const raw = JSON.parse(fs.readFileSync(OVERRIDES_FILE, 'utf8'));
     if (Array.isArray(raw.providerOrder) && raw.providerOrder.length) overrides.providerOrder = raw.providerOrder;
     if (raw.models && typeof raw.models === 'object') overrides.models = raw.models;
+    if (raw.fastModels && typeof raw.fastModels === 'object') overrides.fastModels = raw.fastModels;
 } catch (e) {
     if (e.code !== 'ENOENT') console.warn('[ai] could not read overrides.json:', e.message);
 }
 
 function getOverrides() {
-    return { providerOrder: overrides.providerOrder, models: { ...overrides.models } };
+    return { providerOrder: overrides.providerOrder, models: { ...overrides.models }, fastModels: { ...overrides.fastModels } };
 }
 
 function saveOverrides(next) {
@@ -119,6 +125,15 @@ function fallbackModelFor(name) {
 
 function modelFor(name) {
     return overrides.models[name] || fallbackModelFor(name);
+}
+
+// Fast role. Fallback chain: override > env fast model > the main model.
+function fallbackFastModelFor(name) {
+    return process.env[ENV_FAST_MODEL_KEYS[name]] || modelFor(name);
+}
+
+function fastModelFor(name) {
+    return overrides.fastModels[name] || fallbackFastModelFor(name);
 }
 
 function credsFor(name) {
@@ -174,7 +189,7 @@ function loadProviders(log) {
     for (const name of effectiveOrder()) {
         if (!KNOWN_PROVIDERS.includes(name)) { log.warn(`Unknown provider "${name}" in order, skipping`); continue; }
         const creds = credsFor(name);
-        if (creds) providers.push({ name, ...creds, model: modelFor(name) });
+        if (creds) providers.push({ name, ...creds, model: modelFor(name), fastModel: fastModelFor(name) });
         else log.warn(`Provider "${name}" has no credentials configured, skipping`);
     }
     return providers;
@@ -200,6 +215,7 @@ function loadRules() {
 
 module.exports = {
     config, loadProviders, loadSoul, loadRules,
-    KNOWN_PROVIDERS, effectiveOrder, modelFor, fallbackModelFor, credsFor,
+    KNOWN_PROVIDERS, effectiveOrder, modelFor, fallbackModelFor,
+    fastModelFor, fallbackFastModelFor, credsFor,
     getOverrides, saveOverrides,
 };

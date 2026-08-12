@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.23.3';
+const CURRENT_VERSION = '3.24.0';
 
 const CHANGELOG = {
+    '3.24.0': {
+        date: '2026-08-12',
+        title: 'Model nhanh riêng cho việc phân loại',
+        changes: [
+            '⚡ **Mỗi provider có 2 ô model: chính và "nhanh"** — bước phân loại/kiểm tra dùng model nhanh (nên chọn bản instruct không suy nghĩ), còn nghĩ và trả lời dùng model chính (có thể là bản reasoning như qwen-flash). Nhờ vậy model hay "lẩm bẩm" không còn làm hỏng bước định tuyến, mà câu trả lời vẫn được suy nghĩ kỹ. Đặt ngay trên trang /ai.'
+        ]
+    },
     '3.23.3': {
         date: '2026-08-12',
         title: 'Tai bot biết tiết kiệm RAM',

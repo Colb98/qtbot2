@@ -661,6 +661,30 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(!(await (await fetch(memApi)).json()).files.some((f) => f.file === 'user-u1.md'), 'deleted file left the list');
     console.log('ok 28 — memory admin CRUD works, name whitelist blocks traversal');
 
+    // 29. Fast-model role: classifier/verifier use the provider's fast model,
+    // the main pipeline uses the main model — set both, check the trace.
+    const put29 = await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerOrder: ['openrouter'], models: { openrouter: 'main-model-x' }, fastModels: { openrouter: 'fast-model-y' } }),
+    });
+    assert.strictEqual(put29.status, 200);
+    const snap29 = (await put29.json()).providers.find((p) => p.name === 'openrouter');
+    assert.strictEqual(snap29.effectiveModel, 'main-model-x');
+    assert.strictEqual(snap29.effectiveFastModel, 'fast-model-y');
+    await chat(msgFor('chanO', 'SUY_LUẬN so sánh hai lựa chọn này giúp em cái nào hơn nha'));
+    const d29 = await getTraces((await getTraces()).traces[0].id);
+    assert.strictEqual(d29.steps.find((s) => s.type === 'classify').model, 'fast-model-y',
+        'classifier must run on the fast model');
+    assert.strictEqual(d29.steps.find((s) => s.type === 'generation').model, 'main-model-x',
+        'the main pipeline must run on the main model');
+    // fastModels validation shares the models path.
+    const bad29 = await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fastModels: { bogus: 'x' } }),
+    });
+    assert.strictEqual(bad29.status, 400, 'unknown provider in fastModels must be rejected');
+    console.log('ok 29 — fast model serves classifier/verifier, main model serves the pipeline');
+
     console.log('PASS: all Phase 1–6 + reasoning + traces + admin smoke checks green');
     process.exit(0);
 })().catch((e) => {

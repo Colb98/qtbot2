@@ -60,7 +60,7 @@ class AllProvidersFailedError extends Error {
     }
 }
 
-async function callProvider(p, messages, maxTokens, temperature, timeoutMs) {
+async function callProvider(p, model, messages, maxTokens, temperature, timeoutMs) {
     const res = await fetch(p.url, {
         method: 'POST',
         headers: {
@@ -68,7 +68,7 @@ async function callProvider(p, messages, maxTokens, temperature, timeoutMs) {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            model: p.model,
+            model,
             messages,
             max_tokens: maxTokens,
             temperature,
@@ -110,8 +110,8 @@ async function generateChatResponse(messages, opts = {}) {
     // not burn their tokens thinking. Prompt-level and per-model, decided here
     // because only this loop knows which model actually serves the call — the
     // other providers never see the directive.
-    const msgsFor = (p) => {
-        if (!opts.noThink || !/qwen/i.test(p.model)) return messages;
+    const msgsFor = (model) => {
+        if (!opts.noThink || !/qwen/i.test(model)) return messages;
         const out = [...messages];
         const last = out[out.length - 1];
         out[out.length - 1] = { ...last, content: `${last.content}\n/no_think` };
@@ -120,9 +120,12 @@ async function generateChatResponse(messages, opts = {}) {
 
     const attempts = [];
     for (const p of eligible) {
+        // Fast role (classifier/verifier): the provider's second model slot —
+        // an instant instruct model next to a reasoning main model.
+        const model = opts.role === 'fast' && p.fastModel ? p.fastModel : p.model;
         const started = Date.now();
         try {
-            const { text, usage } = await callProvider(p, msgsFor(p), maxTokens, temperature, timeoutMs);
+            const { text, usage } = await callProvider(p, model, msgsFor(model), maxTokens, temperature, timeoutMs);
             const h = health.get(p.name);
             h.cooldownUntil = 0; h.lastFailure = null; // a success clears cooldown state
             const latencyMs = Date.now() - started;
@@ -130,15 +133,15 @@ async function generateChatResponse(messages, opts = {}) {
             const tokensOut = usage?.completion_tokens ?? Math.ceil(text.length / 4);
             metrics.provider(p.name, { ok: true, latencyMs, fallback: attempts.length > 0, tokensIn, tokensOut });
             if (opts.trace) {
-                const s = trace.step(opts.trace, opts.stepType || 'generation', { provider: p.name, model: p.model });
+                const s = trace.step(opts.trace, opts.stepType || 'generation', { provider: p.name, model });
                 s.startedAt = started;
                 trace.endStep(opts.trace, s, { ok: true, tokensIn, tokensOut, attempts: attempts.length ? [...attempts] : undefined, detail: text });
             }
-            log.info(`[ai] provider=${p.name} model=${p.model} latency=${latencyMs}ms` +
+            log.info(`[ai] provider=${p.name} model=${model} latency=${latencyMs}ms` +
                 (usage ? ` tokens_in=${usage.prompt_tokens} tokens_out=${usage.completion_tokens}` : ''));
             // model/attempts ride along so callers that record their own trace
             // steps (classify/verify) can explain their latency.
-            return { text, provider: p.name, model: p.model, attempts: attempts.length ? [...attempts] : undefined };
+            return { text, provider: p.name, model, attempts: attempts.length ? [...attempts] : undefined };
         } catch (e) {
             // Structured for the trace pills — full-ish message, not a stub.
             attempts.push({ provider: p.name, error: e.message.slice(0, 300) });
