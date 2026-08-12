@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.25.3';
+const CURRENT_VERSION = '3.25.4';
 
 const CHANGELOG = {
+    '3.25.4': {
+        date: '2026-08-12',
+        title: 'Bot chịu ghi nhớ dài hạn rồi',
+        changes: [
+            '📔 **Trí nhớ dài hạn giờ mới thực sự chạy** — trước đây do cách tính, hội thoại toàn tin ngắn không bao giờ đủ "nặng" để bot nén lại và rút ra điều đáng nhớ, nên nhớ dài hạn gần như không kích hoạt. Giờ chỉ cần trò chuyện đủ nhiều lượt là bot tự nén và ghi nhớ, khỏi cần chat những đoạn dài lê thê.'
+        ]
+    },
     '3.25.3': {
         date: '2026-08-12',
         title: 'Thôi bắt bẻ mấy câu đùa',

@@ -277,7 +277,10 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   debounce-flushed to ai-service/data/ (gitignored, server-side
                   runtime state; failed generations never enter history).
                   AI_SESSION_MAX_MESSAGES/~TOKENS are only the emergency trim.
-    compaction.js when the tail passes AI_COMPACT_THRESHOLD_TOKENS, folds all but
+    compaction.js when the tail passes AI_COMPACT_THRESHOLD_TOKENS *or*
+                  AI_COMPACT_MAX_MESSAGES (24 — the count trigger; short-reply
+                  chat never reaches the token threshold before the emergency
+                  trim, so without it memory would never get promoted), folds all but
                   AI_COMPACT_KEEP_RECENT messages into the structured rolling
                   summary (participants/topics/decisions/unresolved/jokes, Vietnamese)
                   via the provider router. Runs as a follow-up task on the session's
@@ -380,7 +383,7 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   calls — sick providers fail over fast),
   `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, `AI_SESSION_MAX_MESSAGES`,
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
-  `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
+  `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_MAX_MESSAGES`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
   `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
   `AI_MEMORY_MAX_TOKENS`, `AI_MEMORY_RECENT_DAYS`, `AI_CONTEXT_MESSAGES` (ambient channel messages per
   request, 0 disables — read by both bot and service), `AI_CONTEXT_MAX_CHARS`,

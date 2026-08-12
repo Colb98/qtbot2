@@ -33,6 +33,11 @@ const config = {
     sessionQueueDepth: int('AI_SESSION_QUEUE_DEPTH', 3),
     compactionEnabled: process.env.AI_COMPACTION_ENABLED !== 'false',
     compactThresholdTokens: int('AI_COMPACT_THRESHOLD_TOKENS', 2000),
+    // Also compact after this many messages regardless of token count — short
+    // sassy replies never reach the token threshold before the emergency trim
+    // (sessionMaxMessages) discards them, so memory would never get promoted.
+    // Keep below AI_SESSION_MAX_MESSAGES so compaction fires before the trim.
+    compactMaxMessages: int('AI_COMPACT_MAX_MESSAGES', 24),
     compactKeepRecent: int('AI_COMPACT_KEEP_RECENT', 10),
     summaryMaxTokens: int('AI_SUMMARY_MAX_TOKENS', 500),
     searchEnabled: process.env.AI_SEARCH_ENABLED !== 'false'

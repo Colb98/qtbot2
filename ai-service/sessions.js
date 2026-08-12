@@ -64,11 +64,15 @@ function getSummary(key) {
     return s ? s.summary : null;
 }
 
-// Enough tail to be worth folding, and over the token budget.
+// Enough tail to be worth folding, then over EITHER budget — token count (a
+// verbose conversation) or message count (a long low-token one). The count
+// path is what lets memory get promoted from short-reply chat, which never
+// reaches the token threshold before the emergency trim.
 function needsCompaction(key) {
     const s = sessions.get(key);
-    return !!s && s.messages.length > config.compactKeepRecent
-        && estimateTokens(s.messages) > config.compactThresholdTokens;
+    if (!s || s.messages.length <= config.compactKeepRecent) return false;
+    return estimateTokens(s.messages) > config.compactThresholdTokens
+        || s.messages.length >= config.compactMaxMessages;
 }
 
 // Split the tail for the summarizer: [toCompact, toKeep].

@@ -700,6 +700,22 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.strictEqual(bad29.status, 400, 'unknown provider in fastModels must be rejected');
     console.log('ok 29 — fast model serves classifier/verifier, main model serves the pipeline');
 
+    // 30. Compaction (hence memory) must fire on MESSAGE COUNT even when the
+    // token threshold is unreachable — short-reply chat would otherwise never
+    // compact before the emergency trim, and memory would never get promoted.
+    process.env.AI_COMPACT_THRESHOLD_TOKENS = '100000'; // token trigger unreachable
+    process.env.AI_COMPACT_MAX_MESSAGES = '4';
+    process.env.AI_COMPACT_KEEP_RECENT = '2';
+    process.env.AI_PROVIDER_ORDER = 'openrouter';
+    await restartService();
+    await chat(msgFor('chanQ', 'tin ngắn 1'));
+    await chat(msgFor('chanQ', 'tin ngắn 2')); // 4 messages ≥ max → compaction scheduled
+    await new Promise((r) => setTimeout(r, 400));
+    const c30 = JSON.parse((await (await chat(msgFor('chanQ', 'tin ngắn 3'))).json()).text);
+    assert.ok(c30.messages[0].content.includes('Summary of earlier conversation'),
+        'compaction must fire on message count alone (token threshold unreachable)');
+    console.log('ok 30 — compaction fires on message count, not just tokens (memory can promote)');
+
     console.log('PASS: all Phase 1–6 + reasoning + traces + admin smoke checks green');
     process.exit(0);
 })().catch((e) => {
