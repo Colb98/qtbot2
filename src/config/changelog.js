@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.25.0';
+const CURRENT_VERSION = '3.25.1';
 
 const CHANGELOG = {
+    '3.25.1': {
+        date: '2026-08-12',
+        title: 'Hỏi ngắn nhưng thật thì bot không lơ',
+        changes: [
+            '🎯 **Câu hỏi ngắn vẫn được suy nghĩ tử tế** — trước đây tin dưới ngưỡng ký tự bị bỏ qua bước định tuyến nên hỏi cụt kiểu "sao z?" thì bot trả lời hời hợt. Giờ tin ngắn nhưng có dạng câu hỏi (có "?", "sao", "tại sao", "thế nào"...) vẫn được phân loại và phân tích đàng hoàng; chỉ tin phản ứng kiểu "haha", "ok" mới bỏ qua cho nhanh.'
+        ]
+    },
     '3.25.0': {
         date: '2026-08-12',
         title: 'Để model reasoning nghĩ chỗ đáng nghĩ',

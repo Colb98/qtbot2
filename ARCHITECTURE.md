@@ -241,7 +241,10 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   wording; its notes are pushed as ephemeral turns that never
                   enter the session or reach Discord. Heuristic fast-path: messages
                   shorter than AI_REASONING_MIN_CHARS skip the classifier
-                  entirely. Both extra calls are daily-capped
+                  entirely — UNLESS question-shaped (ends in ?, or carries a
+                  question word sao/gì/tại sao/why/how…), which always classifies
+                  so a briefly-asked real question still gets routed and analyzed.
+                  Both extra calls are daily-capped
                   (AI_REASONING_DAILY_LIMIT) and FAIL OPEN — any classifier or
                   think failure degrades to answering immediately.
                   Kill switch: AI_REASONING_ENABLED=false.

@@ -425,7 +425,16 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     const d17 = await getTraces(t17.id);
     assert.strictEqual(d17.steps[0].reason, 'skipped-short');
     assert.strictEqual(d17.status, 'ok');
-    console.log('ok 17 — short messages skip the classifier, trace records skipped-short');
+    console.log('ok 17 — short reactions skip the classifier, trace records skipped-short');
+
+    // 17b. Smart skip: a SHORT but question-shaped message ("sao z?") is a real
+    // question — it must still be classified, not brushed off as a reaction.
+    await chat(msgFor('chanI', 'sao z?'));
+    const d17b = await getTraces((await getTraces()).traces[0].id);
+    const cls17b = d17b.steps.find((s) => s.type === 'classify');
+    assert.strictEqual(cls17b.reason, 'classified', 'short question must reach the classifier');
+    assert.ok(cls17b.provider, 'classifier actually ran (has a serving provider)');
+    console.log('ok 17b — short question-shaped messages still get classified');
 
     // 18. Deep path: classifier says DEEP → hidden think pass grounds the final
     // generation (echo proves it was in context) but never persists — the

@@ -76,11 +76,22 @@ const VERIFY_SYSTEM =
 
 const clipTurn = (s, n) => String(s || '').replace(/\s+/g, ' ').slice(0, n);
 
+// Vietnamese/English question words — a short message carrying one is a real
+// question, not a reaction, and must be classified regardless of length.
+const QUESTION_RE = /\?|\b(sao|gì|gi|tại sao|tai sao|vì sao|vi sao|thế nào|the nao|làm sao|lam sao|bao nhiêu|bao nhieu|khi nào|khi nao|ở đâu|o dau|ai|nào|nao|mấy|may|why|how|what|when|where|which)\b/i;
+
+// The short-message fast path skips reasoning only for genuine reactions. A
+// question-shaped short message ("sao z?", "tại sao vậy") is NOT trivial —
+// let it classify so it gets routed (and analyzed if it needs it).
+function isReactionShort(userText) {
+    return userText.length < config.reasoningMinChars && !QUESTION_RE.test(userText);
+}
+
 // → { mode: 'immediate'|'social'|'think'|'research', reason }
 async function classify({ history, summary, userText, name, trace: t }) {
     let reason;
     if (!config.reasoningEnabled) reason = 'skipped-disabled';
-    else if (userText.length < config.reasoningMinChars) reason = 'skipped-short';
+    else if (isReactionShort(userText)) reason = 'skipped-short';
     else if (!underDailyLimit()) reason = 'skipped-limit';
     if (reason) {
         const s = trace.step(t, 'classify');
