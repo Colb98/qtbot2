@@ -163,6 +163,10 @@ async function verify({ userText, draftText, trace: t }) {
 
 // → analysisText | null. Persona-free by construction: index.js hands it
 // messages built on TASK_SYSTEM (rules + facts, no SOUL, no member advice).
+// Runs on the FAST model: analysis IS the structured-thinking step, so a
+// reasoning main model would just double-think and (on a tight budget) blank
+// out mid-reasoning — the instruct fast model emits the notes directly.
+// Generation still uses the main model for the careful final answer.
 async function analyzeTask({ messages, mode, trace: t }) {
     const instruction = ANALYZE_TEMPLATES[mode];
     if (!instruction || !underDailyLimit()) return null;
@@ -171,7 +175,7 @@ async function analyzeTask({ messages, mode, trace: t }) {
     try {
         const { text } = await generateChatResponse(
             [...messages, { role: 'user', content: instruction }],
-            { maxTokens: budget, trace: t, stepType: 'analyze' },
+            { maxTokens: budget, trace: t, stepType: 'analyze', role: 'fast', noThink: true },
         );
         metrics.inc('thinkSteps');
         return text;

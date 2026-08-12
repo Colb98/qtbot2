@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.24.0';
+const CURRENT_VERSION = '3.24.1';
 
 const CHANGELOG = {
+    '3.24.1': {
+        date: '2026-08-12',
+        title: 'Bước phân tích cũng xài model nhanh',
+        changes: [
+            '⚡ **Bước phân tích tác vụ chuyển sang model nhanh** — phân tích vốn đã là bước "nghĩ có cấu trúc" nên không cần model reasoning (chỉ tổ token rồi nghẹn giữa chừng); giờ nó dùng model nhanh cho gọn, còn model chính vẫn lo phần trả lời cuối cho kỹ. Bớt hẳn lỗi "empty completion" ở nhà reasoning.'
+        ]
+    },
     '3.24.0': {
         date: '2026-08-12',
         title: 'Model nhanh riêng cho việc phân loại',

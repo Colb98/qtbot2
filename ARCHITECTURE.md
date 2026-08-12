@@ -331,9 +331,10 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
     providers.js  OpenAI-compat router: groq → cloudflare → openrouter → grok (xAI) → gemini,
                   429/5xx/timeout → cooldown + failover; 400 = our bug, no failover.
                   Disable a provider by removing it from AI_PROVIDER_ORDER.
-                  Two model roles per provider: the MAIN model (think/generate/
-                  analyze) and a FAST model (opts.role='fast' — classifier +
-                  verifier: tiny hard-capped calls that must not think). Pair a
+                  Two model roles per provider: the MAIN model (the final
+                  answer generation) and a FAST model (opts.role='fast' —
+                  classifier + verifier + task analysis: routing/structuring
+                  calls that must not burn budget thinking). Pair a
                   reasoning main model (e.g. qwen*-flash) with an instruct fast
                   model (qwen*-instruct) so <think> output can't starve the
                   budget on the routing calls. Fast model unset → main serves
