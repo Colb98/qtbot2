@@ -65,6 +65,7 @@ const config = {
     memoryRecentDays: int('AI_MEMORY_RECENT_DAYS', 14),            // dated Recent bullets expire after this
     contextMaxMessages: int('AI_CONTEXT_MESSAGES', 10),           // ambient channel messages per request (0 disables)
     contextMaxChars: int('AI_CONTEXT_MAX_CHARS', 300),            // per ambient message
+    docsEnabled: process.env.AI_DOCS_ENABLED !== 'false',              // on-demand reference docs (docs.js)
     reasoningEnabled: process.env.AI_REASONING_ENABLED !== 'false',
     reasoningMinChars: int('AI_REASONING_MIN_CHARS', 40),          // shorter → immediate, no classifier call
     reasoningContextTurns: int('AI_REASONING_CONTEXT_TURNS', 4),   // recent turns shown to the classifier

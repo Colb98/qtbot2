@@ -50,6 +50,10 @@
   in-game term, then continue the search with Chinese keywords. NEVER build a
   Chinese query from a guessed character-by-character translation — a wrong
   term (e.g. 逃梦 instead of 碎梦) returns garbage results.
+- When a "## Tài liệu tham khảo: Từ điển thuật ngữ Nghịch Thuỷ Hàn" block is
+  present in your context, it is the AUTHORITATIVE term glossary: use its
+  "Bản dịch chuẩn" strings verbatim (both for translating CN→VN and for
+  picking official CN terms for queries) — never re-translate a term it covers.
 - Class name map (Sino-Vietnamese → official CN): Toái Mộng = 碎梦,
   Cửu Linh = 九灵, Thần Tướng = 神相, Huyết Hà = 血河, Tố Vấn = 素问,
   Thiết Y = 铁衣, Long Ngâm = 龙吟, Triều Quang = 潮光, Lâm Uyên = 临渊.

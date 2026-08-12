@@ -114,6 +114,16 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             }));
         }
         if (last.includes('SLOW')) await new Promise((r) => setTimeout(r, 300));
+        // DÙNG_SEARCH_GAME issues a Chinese game query — the topic pattern must
+        // catch it and late-inject the reference doc (test 18e). Checked before
+        // the generic DÙNG_SEARCH branch (the marker contains it).
+        if (last.includes('DÙNG_SEARCH_GAME') && !last.includes('Search results')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '[[search: 逆水寒手游 碎梦 内功 攻略]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         // A user message containing DÙNG_SEARCH makes the "model" request a web
         // search; on the result list it selects page 1 to read; once page
         // contents come back it echoes as usual.
@@ -487,6 +497,39 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.strictEqual((await getTraces(t18c.id)).steps.find((s) => s.type === 'verify').result, 'fail');
     console.log('ok 18c — verifier FAIL regenerates with specific feedback');
 
+    // 18d. On-demand reference doc: a research question about Nghịch Thuỷ Hàn
+    // pulls the CN↔VN glossary into the system prompt; non-topic research
+    // (test 18's gold question) must NOT have paid that token cost; the doc is
+    // never a persisted turn.
+    const c18e = await (await chat(msgFor('chanP',
+        'SUY_LUẬN build nội công cho Toái Mộng chơi PVE nên chọn gì?'))).json();
+    const ctx18e = JSON.parse(c18e.text);
+    // '断玉' is unique to the doc body — RULES.md's pointer line already carries
+    // the doc TITLE into every system prompt, so the title can't be the probe.
+    assert.ok(ctx18e.messages[0].content.includes('## Tài liệu tham khảo: Từ điển thuật ngữ'),
+        'glossary must be in the system prompt for NTH research');
+    assert.ok(ctx18e.messages[0].content.includes('断玉'), 'glossary table content must be present');
+    assert.ok(!c18.text.includes('断玉'), 'non-topic research must not attach the glossary');
+    assert.ok((await getTraces()).traces[0].steps.includes('doc:nth-glossary'),
+        `steps: ${(await getTraces()).traces[0].steps}`);
+    const c18f = JSON.parse((await (await chat(msgFor('chanP', 'ok luôn'))).json()).text);
+    assert.ok(!c18f.messages.some((m) => m.content.startsWith('## Tài liệu tham khảo')
+        || m.content.startsWith('[Tài liệu tham khảo')),
+        'reference doc leaked into session history');
+    console.log('ok 18d — NTH research attaches the glossary, off-topic and history stay clean');
+
+    // 18e. Late trigger: an immediate-mode message whose SEARCH QUERY is about
+    // the game (Chinese keywords) gets the doc injected next to the results.
+    const c18g = await (await chat(msgFor('chanR',
+        'DÙNG_SEARCH_GAME meta đao khách dạo này ra sao vậy bot ơi?'))).json();
+    assert.ok(c18g.text.includes('[Tài liệu tham khảo nội bộ'),
+        'glossary must be injected after a topic search query');
+    assert.ok(c18g.text.includes('断玉'), 'glossary content present');
+    const t18e = (await getTraces()).traces[0];
+    assert.ok(t18e.steps.includes('search'), `steps: ${t18e.steps}`);
+    assert.ok(t18e.steps.includes('doc:nth-glossary'), `steps: ${t18e.steps}`);
+    console.log('ok 18e — topic search query late-injects the glossary');
+
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.
     const r19 = await chat(msgFor('chanI',
@@ -505,6 +548,7 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(m20.today.classifySocial >= 1, 'social classification counted');
     assert.ok(m20.today.verifyFails >= 1, 'verifier rejection counted');
     assert.ok(m20.today.thinkSteps >= 1, 'think steps counted');
+    assert.ok(m20.today.docInjections >= 2, 'reference-doc injections counted');
     assert.ok(m20.today.searches >= 1, 'searches counted');
     assert.ok(m20.today.pagesRead >= 1, 'page reads counted');
     assert.ok(m20.today.compactions >= 1, 'compactions counted');

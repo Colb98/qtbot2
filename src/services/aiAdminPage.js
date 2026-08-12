@@ -270,6 +270,7 @@ function renderMetrics(m) {
   add('Phân tích', d.classifyThink || 0);
   add('Tra cứu sâu', d.classifyResearch || 0);
   add('Bước nghĩ', d.thinkSteps || 0);
+  add('Tra từ điển', d.docInjections || 0);
   add('Verifier chặn', d.verifyFails || 0);
   add('Nén hội thoại', d.compactions || 0);
   add('Ghi nhớ', d.memoryWrites || 0);

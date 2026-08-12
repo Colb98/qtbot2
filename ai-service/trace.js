@@ -56,6 +56,7 @@ function finish(trace, { status, replyChars = null, error = null } = {}) {
 function stepLabel(s) {
     if (s.type === 'generation') return `gen(${s.provider || '?'})`;
     if (s.type === 'classify') return `classify:${s.result || '?'}`;
+    if (s.type === 'doc') return `doc:${s.name || '?'}`;
     return s.type;
 }
 

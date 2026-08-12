@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.25.5';
+const CURRENT_VERSION = '3.26.0';
 
 const CHANGELOG = {
+    '3.26.0': {
+        date: '2026-08-12',
+        title: 'Bot thuộc bài thuật ngữ Nghịch Thuỷ Hàn',
+        changes: [
+            '📖 **Từ điển thuật ngữ Trung–Việt cho Nghịch Thuỷ Hàn** — khi tra cứu build/guide, bot tự mở từ điển đối chiếu (nội công, chu thiên, chỉ số, tên 12 phái...) và dịch đúng theo bản Việt hoá trong game thay vì dịch bừa kiểu "sông máu". Chỉ mở khi thật sự nghiên cứu về game — tám nhảm thì không tốn tài nguyên.'
+        ]
+    },
     '3.25.5': {
         date: '2026-08-12',
         title: 'Ghi nhớ chạy thật, nén cũng thông minh hơn',

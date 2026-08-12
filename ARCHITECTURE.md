@@ -308,6 +308,19 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   Replies show "🔎 tìm web". Enabled iff SERPER_API_KEY or
                   TAVILY_API_KEY is set. Page-read kill
                   switch: AI_FETCH_ENABLED=false.
+    docs.js       on-demand reference docs (ai-service/docs/*.md, git-tracked) —
+                  domain knowledge too bulky for RULES.md (which loads into
+                  EVERY prompt). A doc is attached only when the message is
+                  classified think/research AND the user's text/recent user
+                  turns match its topic regex (registry in docs.js); a second
+                  trigger attaches it when a SEARCH QUERY matches (catches
+                  immediate-mode messages that turn into topic research).
+                  Ephemeral — never enters the session. Currently one doc:
+                  nth-glossary.md, the Nghịch Thuỷ Hàn CN↔VN term-lock
+                  glossary (RULES.md's NTH section tells the model to treat
+                  it as authoritative when present). Trace step doc:<name>,
+                  metric docInjections ("Tra từ điển" tile). Kill switch:
+                  AI_DOCS_ENABLED=false.
     memory.js     long-term memory in ai-service/data/memory/ — server-<gid>.md,
                   channel-<cid>.md, user-<uid>.md (hand-editable markdown).
                   Written at compaction time from the folded messages (facts get
@@ -387,7 +400,7 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
   `AI_MEMORY_MAX_TOKENS`, `AI_MEMORY_RECENT_DAYS`, `AI_CONTEXT_MESSAGES` (ambient channel messages per
   request, 0 disables — read by both bot and service), `AI_CONTEXT_MAX_CHARS`,
-  `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,
+  `AI_DOCS_ENABLED` (on-demand reference docs), `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,
   `AI_REASONING_CONTEXT_TURNS`, `AI_REASONING_CLASSIFIER_MAX_TOKENS`,
   `AI_REASONING_THINK_MAX_TOKENS` (research), `AI_REASONING_ANALYZE_MAX_TOKENS`,
   `AI_REASONING_SOCIAL_MAX_TOKENS`, `AI_REASONING_DAILY_LIMIT`, `AI_VERIFY_ENABLED`,
