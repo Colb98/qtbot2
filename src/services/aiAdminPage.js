@@ -48,6 +48,8 @@ module.exports = `<!DOCTYPE html>
   tr[data-tid]:hover td { background:rgba(79,195,247,.05); }
   td.steps-cell { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   td.trace-detail { background:var(--panel-2); }
+  .trace-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding-bottom:4px; }
+  button.tiny { padding:3px 9px; font-size:11px; }
   .stepline { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; padding:7px 0; border-bottom:1px solid rgba(255,255,255,.05); }
   .stepline:last-child { border-bottom:none; }
   .stepline b { text-transform:uppercase; font-size:12px; letter-spacing:.5px; }
@@ -441,12 +443,86 @@ function providerPills(s) {
   return pills;
 }
 
+// One trace as a minified JSON debug dump: everything the detail view shows
+// (including step detail text — that IS the debugging meat), minus what nobody
+// reads back (absolute per-step timestamps, null/empty fields, the routing ids).
+// Minified on purpose: this gets pasted into a chat or an issue, where pretty
+// whitespace is dead weight.
+const TRACE_DROP_KEYS = ['startedAt'];
+
+function compactSteps(steps) {
+  return (steps || []).map((s) => {
+    const o = {};
+    Object.keys(s).forEach((k) => {
+      const v = s[k];
+      if (TRACE_DROP_KEYS.indexOf(k) >= 0) return;
+      if (v == null || v === '' || (Array.isArray(v) && !v.length)) return;
+      o[k] = v;
+    });
+    return o;
+  });
+}
+
+function traceDebugJson(t) {
+  const payload = {
+    id: t.id,
+    at: new Date(t.startedAt).toISOString(),
+    session: t.sessionKey,
+    user: t.name || t.userId,
+    status: t.status,
+    totalMs: t.totalMs,
+    userChars: t.userChars,
+    replyChars: t.replyChars,
+    error: t.error,
+    steps: compactSteps(t.steps),
+  };
+  Object.keys(payload).forEach((k) => { if (payload[k] == null) delete payload[k]; });
+  return JSON.stringify(payload);
+}
+
+// Clipboard API needs a secure context; this panel is often served over plain
+// http on the VPS, so fall back to the execCommand trick rather than failing.
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_) { /* fall through to the legacy path */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
 function buildTraceDetail(t) {
   const box = makeEl('div');
-  box.appendChild(makeEl('div', 'muted',
+  const head = makeEl('div', 'trace-head');
+  head.appendChild(makeEl('span', 'muted',
     t.sessionKey + ' · ' + (t.name || t.userId) + ' · hỏi ' + t.userChars + ' ký tự' +
     (t.replyChars != null ? ' · trả lời ' + t.replyChars + ' ký tự' : '') +
     (t.error ? ' · lỗi: ' + t.error : '')));
+  const copyBtn = makeEl('button', 'tiny', '📋 Copy JSON');
+  copyBtn.title = 'Copy toàn bộ trace (JSON nén 1 dòng) để dán đi debug';
+  copyBtn.addEventListener('click', async () => {
+    const json = traceDebugJson(t);
+    const ok = await copyText(json);
+    copyBtn.textContent = ok ? '✓ Đã copy' : '✗ Copy lỗi';
+    setTimeout(() => { copyBtn.textContent = '📋 Copy JSON'; }, 1800);
+    toast(ok ? 'Đã copy trace ' + t.id + ' (' + json.length + ' ký tự JSON).'
+             : 'Trình duyệt chặn clipboard — thử lại trên https hoặc copy tay.', ok);
+  });
+  head.appendChild(copyBtn);
+  box.appendChild(head);
   (t.steps || []).forEach((s) => {
     const line = makeEl('div', 'stepline');
     line.appendChild(makeEl('span', s.ok === false ? 'badge off' : 'badge on', s.ok === false ? '✗' : '✓'));

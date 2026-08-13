@@ -6,7 +6,8 @@ const CHANGELOG = {
         title: 'Hỏi nhiều thứ một lúc, bot tra từng thứ',
         changes: [
             '🔍 **Hỏi một lượt nhiều mục là bot tách ra tra** — kiểu "chỉ tao làm 5 kỳ ngộ A, B, C, D, E" thì trước đây bot nhồi cả 5 cái tên vào một câu tìm kiếm rồi ra con số không. Giờ bot nhận ra đây là một danh sách: nếu cả 5 cùng một bản đồ/phiên bản thì tra thẳng cái "gốc" đó rồi đọc guide bao trọn, không thì tra lần lượt từng cái.',
-            '🗒️ **Tra không đủ thì nói thẳng còn thiếu mục nào** — thay vì báo "không tìm thấy" cho cả cụm, bot trả lời những mục đã tra được và ghi rõ mục nào chưa có.'
+            '🗒️ **Tra không đủ thì nói thẳng còn thiếu mục nào** — thay vì báo "không tìm thấy" cho cả cụm, bot trả lời những mục đã tra được và ghi rõ mục nào chưa có.',
+            '🧰 **Trang quản trị AI: nút Copy JSON cho từng yêu cầu** — admin mở chi tiết một yêu cầu là copy được toàn bộ nhật ký các bước dưới dạng JSON nén một dòng, dán thẳng đi soi lỗi.'
         ]
     },
     '3.28.0': {
