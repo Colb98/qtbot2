@@ -66,11 +66,15 @@ const ANALYZE_HEADER =
 const ANALYZE_TEMPLATES = {
     think: ANALYZE_HEADER,
     research: ANALYZE_HEADER + '\n' +
-        'search_plan: if web facts are needed — numbered queries in DEPENDENCY order, ONE ' +
-        'unknown per query ("build for class X in the version it released" = query 1: when did ' +
-        'X release / which version; query 2: <build query using query 1\'s answer>). Never dump ' +
-        'the whole multi-part question into one query. Language per the search rules (official ' +
-        'Chinese terms for CN games, text pages, no videos); else "none"',
+        'search_plan: if web facts are needed — numbered queries, ONE unknown per query, each ' +
+        'labelled with the part of the question it serves. CHAINED unknowns go in DEPENDENCY ' +
+        'order ("build for class X in the version it released" = query 1: when did X release / ' +
+        'which version; query 2: <build query using query 1\'s answer>). A question that LISTS ' +
+        'several distinct things (5 quests, 3 items, 4 people) = ONE query on the container they ' +
+        'share (same map / patch / category) if one guide page would cover them all, else one ' +
+        'query PER thing — never one query containing all their names, that returns nothing. ' +
+        'Never dump the whole multi-part question into one query. Language per the search rules ' +
+        '(official Chinese terms for CN games, text pages, no videos); else "none"',
 };
 
 // Sufficiency gate (spec §8): a coverage check, not a quality check — sass,

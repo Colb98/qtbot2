@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.28.0';
+const CURRENT_VERSION = '3.28.1';
 
 const CHANGELOG = {
+    '3.28.1': {
+        date: '2026-08-13',
+        title: 'Hỏi nhiều thứ một lúc, bot tra từng thứ',
+        changes: [
+            '🔍 **Hỏi một lượt nhiều mục là bot tách ra tra** — kiểu "chỉ tao làm 5 kỳ ngộ A, B, C, D, E" thì trước đây bot nhồi cả 5 cái tên vào một câu tìm kiếm rồi ra con số không. Giờ bot nhận ra đây là một danh sách: nếu cả 5 cùng một bản đồ/phiên bản thì tra thẳng cái "gốc" đó rồi đọc guide bao trọn, không thì tra lần lượt từng cái.',
+            '🗒️ **Tra không đủ thì nói thẳng còn thiếu mục nào** — thay vì báo "không tìm thấy" cho cả cụm, bot trả lời những mục đã tra được và ghi rõ mục nào chưa có.'
+        ]
+    },
     '3.28.0': {
         date: '2026-08-13',
         title: 'Bot biết vẽ hình',

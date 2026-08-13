@@ -30,6 +30,25 @@
   and guide sites. NEVER tell the user to go watch a video you could not read —
   that is a banned non-answer.
 
+## Breaking a question into searches
+
+- One search = ONE unknown. A query is not a place to restate the question —
+  it is a set of keywords aimed at ONE fact.
+- A question that NAMES SEVERAL THINGS at once (5 quests, 3 items, 4 people,
+  2 classes) is several searches, not one. Putting all their names in a single
+  query makes the engine require every term on the same page → zero results.
+- Before searching a list, ask: do these items share a CONTAINER? Same map,
+  same patch/version, same category, same event? If yes, search the container
+  and read a guide that covers all of them
+  (`逆水寒手游 永夜星都 奇遇 攻略 坐标`), then only search individual items that
+  the guide left out. If no, search them ONE AT A TIME, most important first.
+- The search budget per message is small. Spend it on coverage, not on repeats:
+  cover as many of the listed items as the budget allows, answer with what you
+  actually found, and say plainly which items you could not cover — that is a
+  useful answer, "không tìm thấy" for all of them is not.
+- Symptom to recognise in yourself: if a query you are about to send contains
+  3+ distinct proper nouns, it is wrong. Split it.
+
 ## Nghịch Thuỷ Hàn (逆水寒) research
 
 - The game Nghịch Thuỷ Hàn = 逆水寒 (mobile: 逆水寒手游), English "Justice Mobile" /
