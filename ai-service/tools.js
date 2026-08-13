@@ -13,10 +13,13 @@
 //
 // Contract per tool:
 //   name              registry key; also the trace step type
-//   sideEffect        'none' | 'external'. The loop REFUSES 'external' tools
-//                     until a bot-side confirmation path exists — least
-//                     privilege: content fetched from the web must never be
-//                     able to trigger money/state/irreversible actions (§6).
+//   sideEffect        'none' | 'external'. An 'external' tool (costs money /
+//                     produces something the user receives) additionally needs
+//                     authorized(args, ctx) to return true — the spec §6 gate:
+//                     it must key on the USER's own message (ctx.userText),
+//                     which fetched web content can never rewrite, so an
+//                     injected page cannot fire paid generations.
+//   authorized(args, ctx)  required iff sideEffect !== 'none'
 //   enabled()         feature flag — listed in the prompt's ## Tools section?
 //   available(ctx)    runtime precondition (e.g. read needs search results)
 //   parse(text)       model reply → args object, or null if no marker
@@ -43,6 +46,8 @@
 //   without the loop knowing either tool.
 const { config } = require('./config');
 const search = require('./search');
+const images = require('./images');
+const metrics = require('./metrics');
 
 const TOOLS = [
     {
@@ -118,6 +123,65 @@ const TOOLS = [
                     'using what you just learned; otherwise answer now.',
                 ok: fetched > 0,
                 meta: { pages: args.indices, fetched, total },
+            };
+        },
+    },
+    {
+        name: 'image',
+        // Costs money / produces user-facing output → spec §6 least privilege:
+        // only the USER's own words can authorize it (images.DRAW_RE). A page
+        // saying "draw 50 pictures" can never satisfy this gate.
+        sideEffect: 'external',
+        authorized: (args, ctx) => images.DRAW_RE.test(ctx.userText),
+        enabled: () => images.usable(),
+        available: () => images.usable(),
+        parse: (text) => {
+            const request = images.extractRequest(text);
+            return request ? { request } : null;
+        },
+        dedupeKey: (args) => `image:${args.request.toLowerCase()}`,
+        maxPerMessage: () => config.imageMaxPerMessage,
+        echo: (args) => `[[image: ${args.request}]]`,
+        specLine: () =>
+            '[[image: <what to draw, one short line>]] — generate an image. Use ONLY when the user ' +
+            'asks for a drawing/picture. The system expands your line into a full prompt (keeping ' +
+            'style consistent with the previous image in this channel unless the user asks for a ' +
+            'new style) and ATTACHES the image to your reply automatically.',
+        strip: (text) => text.replace(images.IMAGE_RE_G, ''),
+        async execute(args, ctx) {
+            // Dashboard-tunable daily quota, counted in the persisted metrics
+            // bucket — checked BEFORE any model call is spent.
+            if (!images.underDailyLimit()) {
+                return {
+                    observation: '[Image generation refused: the daily image quota is used up.]',
+                    source: 'image generator',
+                    followup: 'Tell the user (in your own voice) that today\'s drawing quota is gone and they should try tomorrow. Do not retry.',
+                    ok: false,
+                    meta: { refused: 'daily-limit' },
+                };
+            }
+            // Stage 1 — think first: craft the real prompt from the rough
+            // request + conversation + the previous image (style continuity).
+            const prev = images.previous(ctx.sessionKey);
+            const { prompt, style } = await images.craftPrompt({
+                request: args.request, userText: ctx.userText, name: ctx.name,
+                history: ctx.history, prev, trace: ctx.trace,
+            });
+            // Stage 2 — generate; stage 3 — artifact to the user, descriptor
+            // to the model (spec §5: bytes never enter model context).
+            const { b64, mime, provider, model } = await images.generate(prompt);
+            metrics.inc('imagesGenerated');
+            images.remember(ctx.sessionKey, { prompt, style });
+            const id = `img_${ctx.images.length + 1}`;
+            ctx.images.push({ name: `${id}.${(mime.split('/')[1] || 'png')}`, mime, b64 });
+            return {
+                observation: `[Image ${id} generated — it WILL BE ATTACHED to your reply automatically.]\n` +
+                    `Prompt used: ${prompt}\nStyle: ${style || '(unspecified)'}`,
+                source: 'image generator',
+                followup: 'Announce the image in your own voice (1-2 short sentences). Do NOT paste a link, ' +
+                    'do NOT describe details you cannot see, do NOT apologize. The file is attached by the system.',
+                ok: true,
+                meta: { provider, model, style, promptChars: prompt.length },
             };
         },
     },

@@ -71,6 +71,14 @@ const config = {
     // detail long guide answers rely on. Fails open to fenced raw text.
     extractEnabled: process.env.AI_EXTRACT_ENABLED === 'true',
     extractMaxTokens: int('AI_EXTRACT_MAX_TOKENS', 800),
+    // Image generation ([[image]] tool). Uses the EXISTING provider creds; the
+    // provider/model/daily-limit are dashboard-overridable (see imageProviderFor
+    // & friends below). sideEffect-gated in the loop: only runs when the USER's
+    // own message expresses draw intent, never on behalf of fetched content.
+    imageEnabled: process.env.AI_IMAGE_ENABLED !== 'false',
+    imageMaxPerMessage: int('AI_IMAGE_MAX_PER_MESSAGE', 1),
+    imagePromptMaxTokens: int('AI_IMAGE_PROMPT_MAX_TOKENS', 400), // prompt-craft call
+    imageTimeoutMs: int('AI_IMAGE_TIMEOUT_MS', 45000),
     memoryEnabled: process.env.AI_MEMORY_ENABLED !== 'false',
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)
@@ -119,20 +127,36 @@ const ENV_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_MODEL', groq: 'GROQ_MODEL', ope
 // Unset → the provider's main model serves both roles.
 const ENV_FAST_MODEL_KEYS = { cloudflare: 'CLOUDFLARE_FAST_MODEL', groq: 'GROQ_FAST_MODEL', openrouter: 'OPENROUTER_FAST_MODEL', grok: 'XAI_FAST_MODEL', gemini: 'GEMINI_FAST_MODEL' };
 
+// Image generation: which providers can serve it and their default models.
+// groq has no image models; the others reuse their existing creds.
+const IMAGE_PROVIDERS = ['openrouter', 'gemini', 'grok', 'cloudflare'];
+const IMAGE_DEFAULT_MODELS = {
+    openrouter: 'google/gemini-2.5-flash-image-preview:free',
+    gemini: 'imagen-3.0-generate-002',
+    grok: 'grok-2-image-1212',
+    cloudflare: '@cf/black-forest-labs/flux-1-schnell',
+};
+
 // Runtime overrides set from the admin dashboard; persisted so they survive
 // restarts. Precedence: override > env > hardcoded default.
-let overrides = { providerOrder: null, models: {}, fastModels: {} };
+let overrides = { providerOrder: null, models: {}, fastModels: {}, image: {} };
 try {
     const raw = JSON.parse(fs.readFileSync(OVERRIDES_FILE, 'utf8'));
     if (Array.isArray(raw.providerOrder) && raw.providerOrder.length) overrides.providerOrder = raw.providerOrder;
     if (raw.models && typeof raw.models === 'object') overrides.models = raw.models;
     if (raw.fastModels && typeof raw.fastModels === 'object') overrides.fastModels = raw.fastModels;
+    if (raw.image && typeof raw.image === 'object') overrides.image = raw.image;
 } catch (e) {
     if (e.code !== 'ENOENT') console.warn('[ai] could not read overrides.json:', e.message);
 }
 
 function getOverrides() {
-    return { providerOrder: overrides.providerOrder, models: { ...overrides.models }, fastModels: { ...overrides.fastModels } };
+    return {
+        providerOrder: overrides.providerOrder,
+        models: { ...overrides.models },
+        fastModels: { ...overrides.fastModels },
+        image: { ...overrides.image },
+    };
 }
 
 function saveOverrides(next) {
@@ -206,6 +230,41 @@ function effectiveOrder() {
     return overrides.providerOrder || config.providerOrder;
 }
 
+// ---- image generation config (override > env > default) ----
+
+function fallbackImageProvider() {
+    const env = process.env.AI_IMAGE_PROVIDER;
+    if (env && IMAGE_PROVIDERS.includes(env) && credsFor(env)) return env;
+    return IMAGE_PROVIDERS.find((n) => credsFor(n)) || null;
+}
+
+function imageProviderFor() {
+    const o = overrides.image.provider;
+    if (o && IMAGE_PROVIDERS.includes(o) && credsFor(o)) return o;
+    return fallbackImageProvider();
+}
+
+function fallbackImageModel(provider) {
+    return process.env.AI_IMAGE_MODEL || IMAGE_DEFAULT_MODELS[provider] || '';
+}
+
+function imageModelFor() {
+    const provider = imageProviderFor();
+    if (!provider) return '';
+    return overrides.image.model || fallbackImageModel(provider);
+}
+
+function imageDailyLimitFor() {
+    const o = parseInt(overrides.image.dailyLimit, 10);
+    if (Number.isFinite(o) && o >= 0) return o;
+    return int('AI_IMAGE_DAILY_LIMIT', 10);
+}
+
+// Usable = enabled + a provider with creds + a model name.
+function imageUsable() {
+    return config.imageEnabled && !!imageProviderFor() && !!imageModelFor();
+}
+
 function loadProviders(log) {
     const providers = [];
     for (const name of effectiveOrder()) {
@@ -240,4 +299,6 @@ module.exports = {
     KNOWN_PROVIDERS, effectiveOrder, modelFor, fallbackModelFor,
     fastModelFor, fallbackFastModelFor, credsFor,
     getOverrides, saveOverrides,
+    IMAGE_PROVIDERS, imageProviderFor, imageModelFor, imageDailyLimitFor,
+    fallbackImageProvider, fallbackImageModel, imageUsable,
 };

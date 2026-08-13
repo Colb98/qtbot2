@@ -126,6 +126,29 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             }));
         }
         if (last.includes('SLOW')) await new Promise((r) => setTimeout(r, 300));
+        // Image-gen prompt craft (stage 1), keyed on its system prompt. Echoes
+        // whether it saw the previous image (consistency drill, test 33b) in
+        // the style tag.
+        if (body.messages[0].content.includes('image prompt engineer')) {
+            const kept = last.includes('Previous image in this channel');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: JSON.stringify({
+                    prompt: 'a cat riding a dragon over a Vietnamese village, watercolor, detailed',
+                    style: kept ? 'watercolor-kept' : 'watercolor',
+                }) } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Image-gen backend (stage 2): the openrouter adapter posts with
+        // modalities and expects a data: URL back. 'dGVzdA==' = "test".
+        if (body.modalities) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '', images: [{ image_url: { url: 'data:image/png;base64,dGVzdA==' } }] } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         // Layer-C quarantined page-fact extraction (test 15c), keyed on its
         // system prompt — returns the fixed strict-shape JSON.
         if (body.messages[0].content.includes('quarantined fact extractor')) {
@@ -185,6 +208,24 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
                 choices: [{ message: { content: '[[read: 1]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Image drills: TOOL_VẼ = user genuinely asked to draw (authorized);
+        // TOOL_BAIT = model tries to draw without user intent (must be
+        // refused by the loop's authorized() gate). Both stop once a tool
+        // observation ('[Image') arrived.
+        if (last.includes('TOOL_VẼ') && !last.includes('[Image')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '[[image: con mèo cưỡi rồng]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        if (last.includes('TOOL_BAIT') && !last.includes('[Image')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '[[image: lén vẽ không ai nhờ]]' } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
@@ -673,6 +714,66 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(!JSON.stringify(disk31['ch:g1:chansuff']).includes('TRẢ LỜI CỤT'),
         'the incomplete draft must never enter the session');
     console.log('ok 31b — sufficiency gate catches the skipped sub-question, nudge stays ephemeral');
+
+    // 33. Image tool: user asks to draw → model emits [[image: ...]] → prompt
+    // craft (stage 1) → openrouter adapter (stage 2) → the PNG rides the
+    // response as an artifact while the model only sees a descriptor.
+    const c33 = await (await chat(msgFor('chanVe', 'TOOL_VẼ vẽ con mèo cưỡi rồng đi'))).json();
+    assert.strictEqual(c33.images.length, 1, 'one image artifact should ride the response');
+    assert.strictEqual(c33.images[0].b64, 'dGVzdA==', 'artifact bytes must come from the backend');
+    assert.ok(c33.images[0].name.endsWith('.png'), `artifact name: ${c33.images[0].name}`);
+    assert.ok(c33.text.includes('[Image img_1 generated'), 'the model must see the descriptor');
+    assert.ok(!c33.text.includes('dGVzdA=='), 'image bytes must NEVER enter model context');
+    assert.ok(c33.text.includes('watercolor'), 'crafted prompt/style must reach the model');
+    const t33 = (await getTraces()).traces[0];
+    assert.ok(t33.steps.includes('craft') && t33.steps.includes('image'), `steps: ${t33.steps}`);
+    // Per-request token totals (trace list): 3 LLM calls in this flow (draw
+    // marker gen + prompt craft + final reply), 1 token in/out each in the fake.
+    assert.ok(t33.tokensIn >= 3 && t33.tokensOut >= 3,
+        `trace should sum tokens across steps, got ${t33.tokensIn}/${t33.tokensOut}`);
+    console.log('ok 33 — image tool: craft → generate → artifact out-of-context; tokens totaled');
+
+    // 33b. Style continuity: the next draw in the same channel hands the
+    // previous prompt/style to the craft step (fake echoes "-kept").
+    const c33b = await (await chat(msgFor('chanVe', 'TOOL_VẼ vẽ thêm con chó nữa đi'))).json();
+    assert.strictEqual(c33b.images.length, 1);
+    assert.ok(c33b.text.includes('Style: watercolor-kept'),
+        'craft must receive the previous image for consistency');
+    console.log('ok 33b — consecutive draws keep the previous style via the craft step');
+
+    // 33c. Least-privilege gate (spec §6): the model tries [[image]] but the
+    // USER never asked to draw — the loop must refuse to execute it.
+    const c33c = await (await chat(msgFor('chanBait', 'TOOL_BAIT kể chuyện gì vui đi'))).json();
+    assert.strictEqual(c33c.images.length, 0, 'unauthorized image call must not run');
+    assert.ok(!c33c.text.includes('[[image:'), 'the marker must be stripped from the reply');
+    console.log('ok 33c — image tool refused without user draw intent');
+
+    // 33d. Daily limit, dashboard-tunable: cap at the current used count →
+    // next draw is refused before any backend call; then revert. Also proves
+    // the /admin/config image roundtrip the dashboard card uses.
+    const snap33 = await (await fetch('http://127.0.0.1:3999/admin/config')).json();
+    const put33 = await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: { model: 'test-img-model', dailyLimit: snap33.image.usedToday } }),
+    });
+    assert.strictEqual(put33.status, 200);
+    const snap33b = await put33.json();
+    assert.strictEqual(snap33b.image.model, 'test-img-model', 'image model override must apply');
+    assert.strictEqual(snap33b.image.dailyLimit, snap33.image.usedToday, 'daily limit override must apply');
+    const c33d = await (await chat(msgFor('chanVe', 'TOOL_VẼ vẽ nữa đi bot ơi'))).json();
+    assert.strictEqual(c33d.images.length, 0, 'over-quota draw must be refused');
+    assert.ok(c33d.text.includes('daily image quota'), 'the model must be told the quota is gone');
+    const putBack = await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: { model: '', dailyLimit: null } }),
+    });
+    assert.strictEqual((await putBack.json()).image.model, snap33.image.model, 'empty model reverts to default');
+    const bad33 = await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: { provider: 'groq' } }),
+    });
+    assert.strictEqual(bad33.status, 400, 'groq is not an image provider');
+    console.log('ok 33d — daily limit enforced + dashboard config roundtrip validated');
 
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.

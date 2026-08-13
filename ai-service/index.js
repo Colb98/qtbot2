@@ -9,7 +9,10 @@ const {
     KNOWN_PROVIDERS, effectiveOrder, modelFor, fallbackModelFor,
     fastModelFor, fallbackFastModelFor, credsFor,
     getOverrides, saveOverrides,
+    IMAGE_PROVIDERS, imageProviderFor, imageModelFor, imageDailyLimitFor,
+    fallbackImageProvider, fallbackImageModel, imageUsable,
 } = require('./config');
+const images = require('./images');
 const advice = require('./advice');
 const { generateChatResponse, healthSnapshot, rebuild } = require('./providers');
 const sessions = require('./sessions');
@@ -160,8 +163,12 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     let shipped = false; // social draft passed the verifier → reply is final
     // Per-message tool context (spec §3's `ctx`), owned by the loop and
     // threaded through every execute() — how `read` chains on `search`'s
-    // results without the loop knowing either tool.
-    const toolCtx = { userText, name, lastResults: [], searchQueries: [], pagesRead: 0, trace: t };
+    // results without the loop knowing either tool. `images` collects
+    // artifacts (spec §5): bytes for the user, never for the model.
+    const toolCtx = {
+        userText, name, sessionKey, history, trace: t,
+        lastResults: [], searchQueries: [], pagesRead: 0, images: [],
+    };
 
     if (mode === 'social') {
         const draft = await reasoning.socialReply({ messages, trace: t });
@@ -229,10 +236,13 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     let sufficiencyChecked = false;
     while (!shipped && !overBudget()) {
         // All tools whose marker matches, registry order; take the first one
-        // that is allowed to run. A blocked candidate (dupe/cap) falls through
-        // to the next — a duped [[search]] must not shadow a fresh [[read]].
+        // that is allowed to run. A blocked candidate (dupe/cap/unauthorized)
+        // falls through to the next — a duped [[search]] must not shadow a
+        // fresh [[read]]. Least privilege (§6): a sideEffect tool runs only
+        // when its authorized() gate — keyed on the USER's own message, which
+        // web content can never rewrite — says the user asked for it.
         const act = tools.match(text, toolCtx).find(({ tool, args }) =>
-            tool.sideEffect === 'none' && // least privilege (§6): no confirmation path exists yet
+            (tool.sideEffect === 'none' || (tool.authorized && tool.authorized(args, toolCtx))) &&
             !dedupe.has(tool.dedupeKey(args, toolCtx)) &&
             (toolCounts[tool.name] || 0) < tool.maxPerMessage());
         if (act && toolSteps < config.toolMaxSteps) {
@@ -301,8 +311,12 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     metrics.requestDone(Date.now() - started, true);
     log.info(`[ai] done session=${sessionKey} provider=${provider} mode=${mode} history=${history.length} ` +
         `ctx=${ambient.length} searches=${toolCtx.searchQueries.length} pagesRead=${toolCtx.pagesRead} ` +
-        `docs=${attachedDocs.size} total=${Date.now() - started}ms trace=${t ? t.id : '-'}`);
-    return { text, provider, searchQueries: toolCtx.searchQueries, pagesRead: toolCtx.pagesRead };
+        `images=${toolCtx.images.length} docs=${attachedDocs.size} total=${Date.now() - started}ms trace=${t ? t.id : '-'}`);
+    return {
+        text, provider,
+        searchQueries: toolCtx.searchQueries, pagesRead: toolCtx.pagesRead,
+        images: toolCtx.images, // artifacts: the bot attaches these to the Discord reply
+    };
 }
 
 // Emoji are token noise to the LLM: custom Discord emotes collapse to :name:
@@ -360,6 +374,7 @@ async function handleSessionReset(req, res) {
     const body = await readJsonBody(req);
     if (!body.guildId || !body.channelId) return send(res, 400, { error: 'guildId and channelId required' });
     const existed = sessions.reset(sessionKeyOf(body));
+    images.forget(sessionKeyOf(body)); // style continuity resets with the chat
     log.info(`[ai] session reset ${sessionKeyOf(body)} existed=${existed}`);
     send(res, 200, { ok: true, existed });
 }
@@ -369,8 +384,21 @@ async function handleSessionReset(req, res) {
 function adminSnapshot() {
     const health = healthSnapshot();
     const order = effectiveOrder();
+    const imgProvider = imageProviderFor();
     return {
         order,
+        image: {
+            usable: imageUsable(),
+            provider: imgProvider,
+            providerOverride: getOverrides().image.provider || null,
+            providers: IMAGE_PROVIDERS.filter((n) => !!credsFor(n)), // selectable on the dashboard
+            fallbackProvider: fallbackImageProvider(),
+            model: imageModelFor(),
+            modelOverride: getOverrides().image.model || null,
+            fallbackModel: imgProvider ? fallbackImageModel(imgProvider) : '',
+            dailyLimit: imageDailyLimitFor(),
+            usedToday: metrics.todayCount('imagesGenerated'),
+        },
         providers: KNOWN_PROVIDERS.map((name) => ({
             name,
             configured: !!credsFor(name),           // creds present in env
@@ -411,22 +439,55 @@ async function handleAdminConfig(req, res) {
             else delete next[key][name]; // empty = revert to env/default
         }
     }
+    // Image-gen settings: provider (must be image-capable), model, daily limit.
+    // Empty/absent value = revert that field to env/default.
+    if (body.image !== undefined) {
+        if (!body.image || typeof body.image !== 'object') return send(res, 400, { error: 'image must be an object' });
+        if (body.image.provider !== undefined) {
+            const p = String(body.image.provider || '').trim();
+            if (p && !IMAGE_PROVIDERS.includes(p)) return send(res, 400, { error: `not an image provider: ${p}` });
+            if (p) next.image.provider = p;
+            else delete next.image.provider;
+        }
+        if (body.image.model !== undefined) {
+            const m = String(body.image.model || '').trim();
+            if (m.length > 150) return send(res, 400, { error: 'image model name too long' });
+            if (m) next.image.model = m;
+            else delete next.image.model;
+        }
+        if (body.image.dailyLimit !== undefined) {
+            if (body.image.dailyLimit === null || body.image.dailyLimit === '') {
+                delete next.image.dailyLimit;
+            } else {
+                const n = parseInt(body.image.dailyLimit, 10);
+                if (!Number.isFinite(n) || n < 0 || n > 10000) return send(res, 400, { error: 'image dailyLimit must be 0–10000' });
+                next.image.dailyLimit = n;
+            }
+        }
+    }
     saveOverrides(next);
     rebuild();
     log.info(`[ai] admin config updated: order=${effectiveOrder().join(',')}`);
     send(res, 200, adminSnapshot());
 }
 
-// GET /admin/models?provider=<name> → model ids the provider actually serves,
-// straight from its OpenAI-compat GET {base}/models — so the dashboard picker
-// can only offer names that exist (goodbye error_404 cooldowns). Cached 10 min;
-// obvious non-chat models (embeddings, audio, image...) are filtered out.
-const modelsCache = new Map(); // provider -> { ts, models }
+// GET /admin/models?provider=<name>[&kind=image] → model ids the provider
+// actually serves, straight from its OpenAI-compat GET {base}/models — so the
+// dashboard picker can only offer names that exist (goodbye error_404
+// cooldowns). Cached 10 min per (provider, kind). Default kind filters OUT
+// non-chat models; kind=image keeps ONLY image-generation-looking ids for the
+// image-model picker (heuristic — free text still allowed in the UI).
+const IMAGE_MODEL_RE = /image|imagen|flux|dall|diffusion|sdxl|photon|recraft|painting/i;
+const NON_CHAT_RE = /embed|whisper|tts|audio|image|video|veo|aqa|moderation|guard|rerank/i;
+const modelsCache = new Map(); // `${provider}:${kind}` -> { ts, models }
 async function handleModels(req, res) {
-    const name = new URL(req.url, 'http://x').searchParams.get('provider');
+    const params = new URL(req.url, 'http://x').searchParams;
+    const name = params.get('provider');
+    const kind = params.get('kind') === 'image' ? 'image' : 'chat';
     const creds = name && KNOWN_PROVIDERS.includes(name) ? credsFor(name) : null;
     if (!creds) return send(res, 400, { error: 'unknown or unconfigured provider' });
-    const cached = modelsCache.get(name);
+    const cacheKey = `${name}:${kind}`;
+    const cached = modelsCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return send(res, 200, { models: cached.models });
     try {
         const url = creds.url.replace(/\/chat\/completions\/?$/, '/models');
@@ -438,9 +499,9 @@ async function handleModels(req, res) {
         const data = await r.json();
         const models = [...new Set((data.data || [])
             .map((m) => String(m.id || '').replace(/^models\//, '')) // gemini prefixes ids
-            .filter((id) => id && !/embed|whisper|tts|audio|image|video|veo|aqa|moderation|guard|rerank/i.test(id)))]
+            .filter((id) => id && (kind === 'image' ? IMAGE_MODEL_RE.test(id) : !NON_CHAT_RE.test(id))))]
             .sort();
-        modelsCache.set(name, { ts: Date.now(), models });
+        modelsCache.set(cacheKey, { ts: Date.now(), models });
         send(res, 200, { models });
     } catch (e) {
         log.warn(`[ai] model list for ${name} failed:`, e.message);

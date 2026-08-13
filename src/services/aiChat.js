@@ -1,6 +1,7 @@
 // AI chat gateway — the ONLY bridge between Discord and the qtbot-ai process.
 // All authorization, trigger detection and rate limiting happens here, before
 // anything reaches the LLM service. The LLM side gets text in, text out.
+const { AttachmentBuilder } = require('discord.js');
 const log = require('../../logger');
 const { data, saveData } = require('../state');
 const { isSuperAdmin } = require('../utils');
@@ -185,11 +186,17 @@ async function processMessage(msg) {
         });
         if (res.status === 429) { msg.react('⏳').catch(() => {}); return; } // session busy
         if (!res.ok) throw new Error(`ai-service HTTP ${res.status}`);
-        const { text, searchQueries } = await res.json();
-        const note = searchQueries?.length
-            ? `-# 🔎 tìm web: ${searchQueries.map((q) => `"${q}"`).join(' · ')}\n` : '';
+        const { text, searchQueries, images } = await res.json();
+        const note = (searchQueries?.length
+            ? `-# 🔎 tìm web: ${searchQueries.map((q) => `"${q}"`).join(' · ')}\n` : '') +
+            (images?.length ? '-# 🎨 tạo ảnh\n' : '');
+        // Image artifacts ride the service response as base64 (spec §5: bytes
+        // never enter the LLM context); Discord gets them as attachments on
+        // the first reply chunk. Cap 10 = Discord's per-message file limit.
+        const files = (images || []).slice(0, 10).map((i) =>
+            new AttachmentBuilder(Buffer.from(i.b64, 'base64'), { name: i.name || 'image.png' }));
         const chunks = chunkText(note + text);
-        await msg.reply({ content: chunks.shift(), allowedMentions: { repliedUser: false } });
+        await msg.reply({ content: chunks.shift(), files, allowedMentions: { repliedUser: false } });
         for (const c of chunks) await msg.channel.send(c);
     } catch (e) {
         log.error(`[aiChat] request failed user=${msg.author.id}:`, e.message);

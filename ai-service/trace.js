@@ -61,12 +61,25 @@ function stepLabel(s) {
     return s.type;
 }
 
+// Total LLM tokens spent on one request: every provider call records
+// tokensIn/tokensOut on its step (generation, classify, verify, craft, ...),
+// so the request total is just the sum over steps.
+function tokenTotals(t) {
+    let tokensIn = 0, tokensOut = 0;
+    for (const s of t.steps) {
+        tokensIn += s.tokensIn || 0;
+        tokensOut += s.tokensOut || 0;
+    }
+    return { tokensIn, tokensOut };
+}
+
 function list() {
     return [...ring].reverse().map((t) => ({
         id: t.id, startedAt: t.startedAt, userId: t.userId, name: t.name,
         sessionKey: t.sessionKey, status: t.status, totalMs: t.totalMs,
         userChars: t.userChars, replyChars: t.replyChars, error: t.error,
         steps: t.steps.map(stepLabel).join('→'),
+        ...tokenTotals(t),
     }));
 }
 

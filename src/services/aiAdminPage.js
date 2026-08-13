@@ -93,6 +93,26 @@ module.exports = `<!DOCTYPE html>
   </div>
 
   <div class="card">
+    <h2>Tạo ảnh <span class="badge" id="imgUsableBadge"></span></h2>
+    <p class="muted" style="margin-top:6px">Bot vẽ hình khi thành viên nhờ (tool <span class="mono">[[image]]</span>).
+    Ô model trống = mặc định của provider (hiện trong placeholder). Giới hạn/ngày tính chung cả server,
+    đếm theo thống kê nên restart không reset. Thay đổi áp dụng ngay.</p>
+    <table>
+      <thead><tr><th>Provider</th><th>Model ảnh</th><th>Giới hạn/ngày</th><th>Hôm nay</th></tr></thead>
+      <tbody><tr>
+        <td><select id="imgProvider"></select></td>
+        <td class="model"><input id="imgModel" list="models-image"><datalist id="models-image"></datalist></td>
+        <td><input id="imgLimit" type="number" min="0" max="10000" style="width:90px"></td>
+        <td class="muted" id="imgUsed">—</td>
+      </tr></tbody>
+    </table>
+    <div class="actions">
+      <button class="primary" id="imgSaveBtn">Lưu tạo ảnh</button>
+      <span class="muted" id="imgNote"></span>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Thống kê hôm nay</h2>
     <div class="tiles" id="tiles"></div>
     <table style="margin-top:12px">
@@ -104,7 +124,7 @@ module.exports = `<!DOCTYPE html>
   <div class="card">
     <h2>Yêu cầu gần đây <span class="muted" style="font-weight:400">— bấm vào dòng để xem từng bước (nghĩ / tìm / đọc / trả lời); mất khi service restart</span></h2>
     <table>
-      <thead><tr><th>Lúc</th><th>Người dùng</th><th>Kênh</th><th>Các bước</th><th>Tổng</th><th>Kết quả</th></tr></thead>
+      <thead><tr><th>Lúc</th><th>Người dùng</th><th>Kênh</th><th>Các bước</th><th>Tổng</th><th>Tokens in / out</th><th>Kết quả</th></tr></thead>
       <tbody id="traceRows"></tbody>
     </table>
     <p class="muted" id="traceEmpty" style="display:none;margin-bottom:0">Chưa có yêu cầu nào từ khi service khởi động.</p>
@@ -229,7 +249,70 @@ function applySnapshot(snap) {
   });
   setDirty(false);
   render();
+  renderImage(snap.image);
 }
+
+// ---- Tạo ảnh: provider select + model combo (kind=image) + daily limit ----
+let imgSnap = null;
+function renderImage(img) {
+  imgSnap = img || null;
+  const badge = $('imgUsableBadge');
+  if (!img || !img.providers || !img.providers.length) {
+    badge.textContent = 'không có provider hỗ trợ'; badge.className = 'badge nocreds';
+    $('imgProvider').innerHTML = ''; $('imgUsed').textContent = '—';
+    return;
+  }
+  badge.textContent = img.usable ? 'đang bật' : 'tắt (AI_IMAGE_ENABLED)';
+  badge.className = img.usable ? 'badge on' : 'badge off';
+  const sel = $('imgProvider');
+  sel.innerHTML = '';
+  img.providers.forEach((n) => {
+    const o = document.createElement('option');
+    o.value = n; o.textContent = n + (n === img.fallbackProvider && !img.providerOverride ? ' (mặc định)' : '');
+    if (n === img.provider) o.selected = true;
+    sel.appendChild(o);
+  });
+  $('imgModel').value = img.modelOverride || '';
+  $('imgModel').placeholder = img.fallbackModel || '';
+  $('imgLimit').value = img.dailyLimit;
+  $('imgUsed').textContent = img.usedToday + ' / ' + img.dailyLimit;
+}
+
+// Model list depends on BOTH the chosen provider and kind=image — refill the
+// datalist when the provider changes, fetch lazily on focus like the chat combos.
+$('imgProvider').addEventListener('change', () => {
+  document.getElementById('models-image').innerHTML = '';
+  $('imgModel').placeholder = ''; // real fallback returns on save/reload
+});
+$('imgModel').addEventListener('focus', async () => {
+  const dl = document.getElementById('models-image');
+  if (dl.children.length) return;
+  try {
+    const res = await fetch('/api/admin/ai/models?provider=' + encodeURIComponent($('imgProvider').value) + '&kind=image');
+    if (!res.ok) return;
+    ((await res.json()).models || []).forEach((id) => {
+      const o = document.createElement('option');
+      o.value = id;
+      dl.appendChild(o);
+    });
+  } catch (_) { /* keep free-text input */ }
+});
+
+$('imgSaveBtn').addEventListener('click', async () => {
+  const limit = $('imgLimit').value.trim();
+  const res = await fetch('/api/admin/ai/config', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: {
+      provider: $('imgProvider').value || '',
+      model: $('imgModel').value.trim(),
+      dailyLimit: limit === '' ? null : +limit,
+    } }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return toast(body.error || 'Lưu thất bại.', false);
+  applySnapshot(body);
+  toast('Đã lưu cài đặt tạo ảnh.', true);
+});
 
 // ---- Thống kê + nhật ký yêu cầu (chỉ đọc, làm mới cùng nhịp 5s) ----
 // Mọi text từ service (thinking, kết quả tool, tên người dùng) đi qua
@@ -271,6 +354,7 @@ function renderMetrics(m) {
   add('Tra cứu sâu', d.classifyResearch || 0);
   add('Bước nghĩ', d.thinkSteps || 0);
   add('Tra từ điển', d.docInjections || 0);
+  add('Ảnh đã vẽ', d.imagesGenerated || 0);
   add('Verifier chặn', d.verifyFails || 0);
   add('Nén hội thoại', d.compactions || 0);
   add('Ghi nhớ', d.memoryWrites || 0);
@@ -307,6 +391,9 @@ function renderTraceList(list) {
     row.appendChild(makeEl('td', 'muted mono', t.sessionKey));
     row.appendChild(makeEl('td', 'mono steps-cell', t.steps || '—'));
     row.appendChild(makeEl('td', null, fmtMs(t.totalMs)));
+    // Total LLM tokens this request across ALL steps (classify + analyze +
+    // generations + craft...), summed service-side by trace.list().
+    row.appendChild(makeEl('td', 'mono', (t.tokensIn || t.tokensOut) ? (t.tokensIn || 0) + ' / ' + (t.tokensOut || 0) : '—'));
     const st = makeEl('td');
     st.appendChild(makeEl('span', statusBadgeCls(t.status), t.status));
     row.appendChild(st);
@@ -325,6 +412,7 @@ function stepMeta(s) {
   if (s.results != null) bits.push(s.results + ' kết quả');
   if (s.pages) bits.push('trang ' + s.pages.join(','));
   if (s.fetched != null) bits.push('đọc được ' + s.fetched + '/' + s.total);
+  if (s.style) bits.push('style: ' + s.style);
   if (s.tokensIn != null) bits.push('tokens ' + s.tokensIn + ' → ' + s.tokensOut);
   if (s.chars != null) bits.push(s.chars + ' ký tự');
   return bits.join(' · ');
@@ -387,7 +475,7 @@ document.addEventListener('click', async (e) => {
     const detail = makeEl('tr');
     detail.id = 'traceDetailRow';
     const td = makeEl('td', 'trace-detail');
-    td.colSpan = 6;
+    td.colSpan = 7; // trace table now includes the Tokens column
     td.appendChild(buildTraceDetail(await res.json()));
     detail.appendChild(td);
     row.after(detail);
@@ -508,6 +596,8 @@ async function refreshStatus() {
       const cell = document.querySelector('[data-status="' + r.name + '"]');
       if (cell) cell.innerHTML = healthBadge(r);
     }
+    // Status-only for the image card too: quota ticker, never the inputs.
+    if (snap.image) $('imgUsed').textContent = snap.image.usedToday + ' / ' + snap.image.dailyLimit;
     refreshExtras();
   } catch (_) {
     $('svcBadge').textContent = 'qtbot-ai OFFLINE'; $('svcBadge').className = 'badge off';

@@ -102,6 +102,12 @@ function requestDone(totalMs, ok) {
     scheduleFlush();
 }
 
+// Today's value of one counter — the image daily limit reads this instead of
+// keeping its own in-memory count, so the quota survives restarts.
+function todayCount(name) {
+    return today()[name] || 0;
+}
+
 // today's bucket in full plus the last 7 day keys for trend context.
 function snapshot() {
     const t = today();
@@ -111,4 +117,4 @@ function snapshot() {
     return { today: t, days: recent };
 }
 
-module.exports = { inc, incUser, provider, requestDone, snapshot, flushSync };
+module.exports = { inc, incUser, provider, requestDone, snapshot, todayCount, flushSync };

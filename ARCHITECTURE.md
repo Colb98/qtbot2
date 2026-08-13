@@ -249,8 +249,9 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   think failure degrades to answering immediately.
                   Kill switch: AI_REASONING_ENABLED=false.
     trace.js      per-request flow traces (classify → think → generation → search
-                  → read → reply, each with duration/status/detail text) for the
-                  /ai dashboard. In-memory ring buffer (AI_TRACE_MAX), VOLATILE
+                  → read → craft/image → reply, each with duration/status/detail
+                  text; the list view also sums tokensIn/tokensOut across steps
+                  into a per-request total) for the /ai dashboard. In-memory ring buffer (AI_TRACE_MAX), VOLATILE
                   across restarts by design — traces hold raw LLM thinking and
                   fetched web text; durable numbers live in metrics.js. Background
                   generations (compaction/memory) are deliberately not traced.
@@ -295,8 +296,11 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   (name, sideEffect, enabled/available, parse, echo, dedupeKey,
                   maxPerMessage, specLine, strip, execute) — NO loop changes;
                   the ## Tools prompt section is generated from the registry.
-                  sideEffect: 'external' tools are refused by the loop until a
-                  bot-side confirmation path exists (least privilege, §21).
+                  sideEffect: 'external' tools additionally need their
+                  authorized(args, ctx) gate to pass — it must key on the
+                  USER's own message (which fetched web content can never
+                  rewrite), so an injected page cannot fire paid generations
+                  (least privilege, §21).
                   Multi-hop: the tool spec + the research analysis template
                   teach decomposition (one unknown per query, later queries
                   built from earlier answers), and the loop chains steps until
@@ -306,6 +310,28 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   coverage check (reasoning.checkSufficiency) verifies every
                   part of a multi-part question was addressed; a miss buys ONE
                   ephemeral fix-up round (may itself search again). Fails open.
+    images.js     the [[image]] tool implementation (registered in tools.js).
+                  Three stages: (1) PROMPT CRAFT — a persona-free "think
+                  first" call turns the model's rough request + conversation
+                  context + the PREVIOUS image's prompt into a proper image
+                  prompt; consecutive draws in a channel keep style/characters
+                  consistent unless the user asks for a new style (per-channel
+                  in-memory continuity, cleared by !ai reset / 24h); fails
+                  open to the raw request. (2) GENERATE — one adapter per
+                  provider reusing existing creds: openrouter (chat
+                  completions + modalities), gemini/grok (OpenAI-compat
+                  /images/generations), cloudflare (Workers AI /ai/run).
+                  Provider + model + daily limit are dashboard-overridable
+                  ("Tạo ảnh" card on /ai; model picker uses GET /admin/models
+                  ?kind=image). (3) ARTIFACT — the PNG never enters model
+                  context (spec §5): the model sees a descriptor, the base64
+                  bytes ride the /chat response and aiChat.js attaches them to
+                  the Discord reply. Authorization: sideEffect 'external' +
+                  authorized() = the user's own message must express draw
+                  intent (DRAW_RE) — web content can never trigger a paid
+                  generation. Daily quota counts via the PERSISTED metrics
+                  bucket (imagesGenerated), so restarts don't reset it; checked
+                  before any model call. Kill switch: AI_IMAGE_ENABLED=false.
     search.js     the search/read tool implementations (registered in
                   tools.js) — a two-step marker flow (works on every provider,
                   no native function-calling needed): (1) the model replies "[[search: q]]"
@@ -462,6 +488,11 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   quarantined page-fact extraction, default false), `AI_EXTRACT_MAX_TOKENS`,
   `AI_TOOL_MAX_STEPS` (global tool-step budget per message, default 6),
   `AI_SUFFICIENCY_ENABLED` (research coverage check, default true),
+  `AI_IMAGE_ENABLED` (default true; needs an image-capable provider with creds),
+  `AI_IMAGE_PROVIDER`/`AI_IMAGE_MODEL` (defaults: first configured of
+  openrouter/gemini/grok/cloudflare + a per-provider default model),
+  `AI_IMAGE_DAILY_LIMIT` (default 10), `AI_IMAGE_MAX_PER_MESSAGE` (default 1),
+  `AI_IMAGE_PROMPT_MAX_TOKENS`, `AI_IMAGE_TIMEOUT_MS`,
   `JINA_API_KEY` (optional, higher
   reader limits), `FIRECRAWL_API_KEY` (optional, last-resort fetcher), plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,

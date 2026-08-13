@@ -1741,6 +1741,7 @@ async function handleAdmin(req, res, pathname, query) {
             const params = new URLSearchParams();
             if (query && query.id) params.set('id', query.id);
             if (query && query.provider) params.set('provider', query.provider);
+            if (query && query.kind) params.set('kind', query.kind); // image-model picker
             const qs = params.size ? `?${params}` : '';
             try {
                 const r = await fetch(`${AI_SERVICE_URL}${upstream}${qs}`, { signal: AbortSignal.timeout(5000) });

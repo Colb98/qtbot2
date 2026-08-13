@@ -1,6 +1,14 @@
-const CURRENT_VERSION = '3.27.0';
+const CURRENT_VERSION = '3.28.0';
 
 const CHANGELOG = {
+    '3.28.0': {
+        date: '2026-08-13',
+        title: 'Bot biết vẽ hình',
+        changes: [
+            '🎨 **Nhờ bot vẽ là bot vẽ** — chat kiểu "vẽ con mèo cưỡi rồng đi" là bot tự soạn prompt xịn (dựa trên ngữ cảnh đang chat) rồi vẽ và gửi ảnh ngay trong kênh. Vẽ tiếp thì giữ nguyên style với ảnh trước, muốn đổi style thì nói rõ.',
+            '🎟️ **Có hạn mức vẽ mỗi ngày** cho cả server để không cháy tài khoản — admin chỉnh được trong trang quản trị, kèm chọn model vẽ.'
+        ]
+    },
     '3.27.0': {
         date: '2026-08-13',
         title: 'Bot tra cứu nhiều bước, tự soát thiếu ý',
