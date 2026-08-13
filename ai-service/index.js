@@ -168,6 +168,10 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     const toolCtx = {
         userText, name, sessionKey, history, trace: t,
         lastResults: [], searchQueries: [], pagesRead: 0, images: [],
+        // Wall-clock left in this request's budget — slow tools (image gen)
+        // must clamp their own timeouts to it instead of overshooting into
+        // territory where the bot has already stopped listening.
+        remainingMs: () => Math.max(0, config.chatBudgetMs - (Date.now() - started)),
     };
 
     if (mode === 'social') {
@@ -259,7 +263,26 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
             toolCounts[tool.name] = (toolCounts[tool.name] || 0) + 1;
             toolSteps++;
             const s = trace.step(t, tool.name, args);
-            const result = await tool.execute(args, toolCtx);
+            // A tool crash (timeout, provider down, malformed response) is an
+            // ERROR OBSERVATION (spec §4), never a dead request: the model is
+            // told it failed and answers gracefully. Dedupe already recorded
+            // this call, so the model cannot burn the budget retrying it.
+            let result;
+            try {
+                result = await tool.execute(args, toolCtx);
+            } catch (e) {
+                log.warn(`[ai] tool ${tool.name} failed: ${e.message}`);
+                trace.endStep(t, s, { ok: false, detail: e.message });
+                messages.push({ role: 'assistant', content: tool.echo(args) });
+                messages.push({
+                    role: 'user',
+                    content: `[Tool "${tool.name}" failed: ${String(e.message).slice(0, 200)} — ` +
+                        'the user did NOT get a result. Tell them briefly, in your own voice, that it ' +
+                        'did not work this time. Do NOT pretend it succeeded, do NOT retry the same call.]',
+                });
+                ({ text, provider } = await generateChatResponse(messages, { trace: t }));
+                continue;
+            }
             trace.endStep(t, s, { ok: result.ok, ...result.meta, detail: result.observation });
             // The canonical marker (not the raw reply — it may carry chatter)
             // is what enters the ephemeral transcript as the model's request.

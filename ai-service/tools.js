@@ -160,6 +160,20 @@ const TOOLS = [
                     meta: { refused: 'daily-limit' },
                 };
             }
+            // Time budget: craft (LLM call, can chain provider fallbacks) +
+            // generation (tens of seconds) must FIT in what's left of the
+            // request, or the reply lands after the bot stopped listening.
+            const timeLeft = ctx.remainingMs ? ctx.remainingMs() : Infinity;
+            if (timeLeft < 25000) {
+                return {
+                    observation: '[Image generation refused: not enough time left in this request.]',
+                    source: 'image generator',
+                    followup: 'Tell the user (briefly, your voice) the request ran too long to draw now — ' +
+                        'asking again in a fresh message will work. Do not retry.',
+                    ok: false,
+                    meta: { refused: 'time-budget' },
+                };
+            }
             // Stage 1 — think first: craft the real prompt from the rough
             // request + conversation + the previous image (style continuity).
             const prev = images.previous(ctx.sessionKey);
@@ -167,9 +181,12 @@ const TOOLS = [
                 request: args.request, userText: ctx.userText, name: ctx.name,
                 history: ctx.history, prev, trace: ctx.trace,
             });
-            // Stage 2 — generate; stage 3 — artifact to the user, descriptor
-            // to the model (spec §5: bytes never enter model context).
-            const { b64, mime, provider, model } = await images.generate(prompt);
+            // Stage 2 — generate, clamped to the remaining budget (minus a
+            // margin for the final reply generation); stage 3 — artifact to
+            // the user, descriptor to the model (spec §5: bytes never enter
+            // model context).
+            const genTimeout = Math.max(5000, (ctx.remainingMs ? ctx.remainingMs() : Infinity) - 10000);
+            const { b64, mime, provider, model } = await images.generate(prompt, genTimeout);
             metrics.inc('imagesGenerated');
             images.remember(ctx.sessionKey, { prompt, style });
             const id = `img_${ctx.images.length + 1}`;

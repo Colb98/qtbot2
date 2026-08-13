@@ -107,12 +107,12 @@ async function craftPrompt({ request, userText, name, history, prev, trace }) {
 
 // OpenRouter: image models answer on chat/completions with modalities and
 // return data: URLs in message.images.
-async function viaOpenrouter(creds, model, prompt) {
+async function viaOpenrouter(creds, model, prompt, timeoutMs) {
     const res = await fetch(creds.url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${creds.key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], modalities: ['image', 'text'] }),
-        signal: AbortSignal.timeout(config.imageTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`openrouter HTTP ${res.status}`);
     const data = await res.json();
@@ -124,13 +124,13 @@ async function viaOpenrouter(creds, model, prompt) {
 
 // OpenAI-compat /images/generations (xAI grok-2-image; Google's OpenAI-compat
 // layer serves Imagen the same way). Derived from the chat URL.
-async function viaImagesEndpoint(creds, model, prompt, name) {
+async function viaImagesEndpoint(creds, model, prompt, name, timeoutMs) {
     const url = creds.url.replace(/\/chat\/completions\/?$/, '/images/generations');
     const res = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${creds.key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, prompt, n: 1, response_format: 'b64_json' }),
-        signal: AbortSignal.timeout(config.imageTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`${name} HTTP ${res.status}`);
     const data = await res.json();
@@ -141,13 +141,13 @@ async function viaImagesEndpoint(creds, model, prompt, name) {
 
 // Cloudflare Workers AI run endpoint: flux answers JSON {result:{image:b64}},
 // stable-diffusion answers a raw PNG body.
-async function viaCloudflare(creds, model, prompt) {
+async function viaCloudflare(creds, model, prompt, timeoutMs) {
     const url = creds.url.replace(/\/ai\/v1\/chat\/completions\/?$/, `/ai/run/${model}`);
     const res = await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${creds.key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
-        signal: AbortSignal.timeout(config.imageTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`cloudflare HTTP ${res.status}`);
     const type = res.headers.get('content-type') || '';
@@ -162,18 +162,20 @@ async function viaCloudflare(creds, model, prompt) {
 
 const ADAPTERS = {
     openrouter: viaOpenrouter,
-    gemini: (c, m, p) => viaImagesEndpoint(c, m, p, 'gemini'),
-    grok: (c, m, p) => viaImagesEndpoint(c, m, p, 'grok'),
+    gemini: (c, m, p, t) => viaImagesEndpoint(c, m, p, 'gemini', t),
+    grok: (c, m, p, t) => viaImagesEndpoint(c, m, p, 'grok', t),
     cloudflare: viaCloudflare,
 };
 
-async function generate(prompt) {
+// timeoutMs: the CALLER clamps to what's left of the request budget — a
+// 45s image call started 30s into a 60s request is a reply nobody sees.
+async function generate(prompt, timeoutMs = config.imageTimeoutMs) {
     const provider = imageProviderFor();
     const model = imageModelFor();
     const creds = provider && credsFor(provider);
     if (!creds || !model) throw new Error('image generation not configured');
     const started = Date.now();
-    const { b64, mime } = await ADAPTERS[provider](creds, model, prompt);
+    const { b64, mime } = await ADAPTERS[provider](creds, model, prompt, Math.min(timeoutMs, config.imageTimeoutMs));
     log.info(`[ai] image generated provider=${provider} model=${model} bytes~=${Math.round(b64.length * 0.75)} took=${Date.now() - started}ms`);
     return { b64, mime, provider, model };
 }

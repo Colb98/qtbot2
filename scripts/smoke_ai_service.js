@@ -44,6 +44,10 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             return res.end(JSON.stringify({ data: [{ id: 'models/model-b' }, { id: 'model-a' }, { id: 'whisper-large-v3' }] }));
         }
         const body = await readBody(req);
+        // OpenAI-compat /images/generations (grok/gemini image adapter):
+        // always 500s — the tool-crash drill (test 33f) proves a tool failure
+        // degrades into a graceful reply, never a dead request.
+        if (req.url.includes('/images/generations')) { res.writeHead(500); return res.end('{}'); }
         const last = body.messages[body.messages.length - 1].content;
         // Reasoning classifier: mode picked by marker in the question;
         // FORCE_CLASSIFY_FAIL simulates a broken classifier (must fail open).
@@ -786,6 +790,27 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(!t33e.steps.includes('analyze'), 'draw requests must not pay the analysis detour');
     assert.ok(t33e.steps.includes('image'), `steps: ${t33e.steps}`);
     console.log('ok 33e — draw requests classify DRAW → marker emitted directly, no analysis detour');
+
+    // 33f. Tool crash = error observation, not a dead request (spec §4):
+    // switch the image provider to grok, whose fake /images/generations always
+    // 500s — the request must still answer 200, with the model told to admit
+    // the failure (and the dedupe key blocks a blind retry of the same call).
+    await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: { provider: 'grok' } }),
+    });
+    const r33f = await chat(msgFor('chanLoi', 'TOOL_VẼ vẽ cái gì cũng được nè'));
+    assert.strictEqual(r33f.status, 200, 'a tool crash must not kill the request');
+    const c33f = await r33f.json();
+    assert.strictEqual(c33f.images.length, 0, 'no artifact on backend failure');
+    // (the echo JSON escapes inner quotes, so match the unquoted parts)
+    assert.ok(c33f.text.includes('grok HTTP 500') && c33f.text.includes('did NOT get a result'),
+        'the model must be told the tool failed');
+    await fetch('http://127.0.0.1:3999/admin/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: { provider: '' } }),
+    });
+    console.log('ok 33f — tool failure degrades to an honest reply, request survives');
 
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.
