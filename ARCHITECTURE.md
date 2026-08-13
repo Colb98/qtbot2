@@ -286,9 +286,29 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   via the provider router. Runs as a follow-up task on the session's
                   queue — never delays a reply, never races a generation. Kill
                   switch: AI_COMPACTION_ENABLED=false.
-    search.js     the only LLM tool (web search), per the §4 capability rules —
-                  a two-step marker flow (works on every provider, no native
-                  function-calling needed): (1) the model replies "[[search: q]]"
+    tools.js      the TOOL REGISTRY (agent-loop spec §3/§9): the chat loop in
+                  index.js is tool-agnostic — it matches the model's reply
+                  against each registered tool's marker, enforces per-tool caps
+                  + a global step budget (AI_TOOL_MAX_STEPS) + dedupe
+                  (tool + normalized args), fences every observation (guard
+                  Layer B) and regenerates. Adding a tool = one registry entry
+                  (name, sideEffect, enabled/available, parse, echo, dedupeKey,
+                  maxPerMessage, specLine, strip, execute) — NO loop changes;
+                  the ## Tools prompt section is generated from the registry.
+                  sideEffect: 'external' tools are refused by the loop until a
+                  bot-side confirmation path exists (least privilege, §21).
+                  Multi-hop: the tool spec + the research analysis template
+                  teach decomposition (one unknown per query, later queries
+                  built from earlier answers), and the loop chains steps until
+                  the model stops asking (bounded by caps + chatBudgetMs).
+                  Sufficiency gate (spec §8, AI_SUFFICIENCY_ENABLED): when a
+                  research answer ships with no tool request, one fast-model
+                  coverage check (reasoning.checkSufficiency) verifies every
+                  part of a multi-part question was addressed; a miss buys ONE
+                  ephemeral fix-up round (may itself search again). Fails open.
+    search.js     the search/read tool implementations (registered in
+                  tools.js) — a two-step marker flow (works on every provider,
+                  no native function-calling needed): (1) the model replies "[[search: q]]"
                   → deterministic code validates the query and runs the backend
                   cascade Serper (Google) → Tavily (next backend only when the
                   previous returned < AI_SEARCH_MIN_RESULTS), returning up to
@@ -440,6 +460,8 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   path prefixes), `AI_FETCH_ENABLED`, `AI_FETCH_MAX_PAGES`,
   `AI_FETCH_TIMEOUT_MS`, `AI_FETCH_MAX_CHARS`, `AI_EXTRACT_ENABLED` (Layer C
   quarantined page-fact extraction, default false), `AI_EXTRACT_MAX_TOKENS`,
+  `AI_TOOL_MAX_STEPS` (global tool-step budget per message, default 6),
+  `AI_SUFFICIENCY_ENABLED` (research coverage check, default true),
   `JINA_API_KEY` (optional, higher
   reader limits), `FIRECRAWL_API_KEY` (optional, last-resort fetcher), plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,

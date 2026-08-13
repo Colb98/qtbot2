@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '3.26.0';
+const CURRENT_VERSION = '3.27.0';
 
 const CHANGELOG = {
+    '3.27.0': {
+        date: '2026-08-13',
+        title: 'Bot tra cứu nhiều bước, tự soát thiếu ý',
+        changes: [
+            '🔎 **Câu hỏi nhiều lớp được tách ra tra từng bước** — hỏi kiểu "build của phái X ở phiên bản nó ra mắt" thì bot tự tách: tra phiên bản trước, rồi lấy kết quả đó tra tiếp build, thay vì ném nguyên câu hỏi vào tìm kiếm rồi báo "không thấy".',
+            '✅ **Tự soát lại câu trả lời nghiên cứu** — trước khi gửi, bot kiểm tra đã trả lời đủ các phần trong câu hỏi chưa; thiếu ý nào là tự bổ sung (tra thêm nếu cần) rồi mới gửi.',
+            '🛡️ **Chống "bẫy chữ" trong trang web** — nội dung web bot đọc được lọc ký tự ẩn và đóng khung an toàn: chữ nghĩa trong trang không thể giả làm mệnh lệnh sai khiến bot.'
+        ]
+    },
     '3.26.0': {
         date: '2026-08-12',
         title: 'Bot thuộc bài thuật ngữ Nghịch Thuỷ Hàn',

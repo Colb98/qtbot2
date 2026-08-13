@@ -45,7 +45,14 @@ const config = {
     searchMaxResults: int('AI_SEARCH_MAX_RESULTS', 10),
     searchMinResults: int('AI_SEARCH_MIN_RESULTS', 3),   // fewer → cascade to next backend
     searchTimeoutMs: int('AI_SEARCH_TIMEOUT_MS', 10000),
-    searchMaxPerMessage: int('AI_SEARCH_MAX_PER_MESSAGE', 2),
+    searchMaxPerMessage: int('AI_SEARCH_MAX_PER_MESSAGE', 3), // 3: multi-hop needs hop-1 + hop-2 + one re-query
+    // Global tool-step cap per user message, across ALL tools (spec §4 budget).
+    // Per-tool caps still apply; wall-clock is bounded by chatBudgetMs anyway.
+    toolMaxSteps: int('AI_TOOL_MAX_STEPS', 6),
+    // Sufficiency gate (spec §8): before a research answer ships, one fast-model
+    // check that every part of the question was addressed; a miss triggers ONE
+    // fix-up round. Fails open, counted against the reasoning daily limit.
+    sufficiencyEnabled: process.env.AI_SUFFICIENCY_ENABLED !== 'false',
     searchDailyLimit: int('AI_SEARCH_DAILY_LIMIT', 200),
     searchBlockMaxChars: int('AI_SEARCH_BLOCK_MAX_CHARS', 15000), // hard cap per tool block
     // Video/social platforms: page fetchers cannot extract transcripts, so

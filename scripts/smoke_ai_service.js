@@ -88,6 +88,18 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
+        // Sufficiency gate (spec §8), keyed on its system prompt: fail only
+        // the draft that deliberately covers half the question (test 31b).
+        if (body.messages[0].content.includes('coverage checker')) {
+            const short = last.includes('TRẢ LỜI CỤT');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: short
+                    ? '{"covered": false, "missing": "phần B"}'
+                    : '{"covered": true}' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         // Persona-free task analysis (think/research), keyed on its header.
         if (last.includes('[Task analysis')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -152,10 +164,39 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
+        // Multi-hop drill (test 31): hop 1 asks which version the class shipped
+        // in; hop 2 builds its query FROM hop 1's result (the KQ_VERSION title),
+        // exactly the decomposition the tool spec teaches.
+        if (last.includes('HAI_BƯỚC') && !sawToolData) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '[[search: Kiếm ra mắt phiên bản nào]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        if (last.includes('KQ_VERSION') && last.includes('[Search results')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '[[search: build Kiếm 3.1]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         if (last.includes('[Search results')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
                 choices: [{ message: { content: '[[read: 1]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Sufficiency drill (test 31b): first draft answers only part A; the
+        // coverage nudge ('bỏ sót') makes the retry answer both parts.
+        if (JSON.stringify(body.messages).includes('SUFF_BAIT')) {
+            const nudged = JSON.stringify(body.messages).includes('bỏ sót');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: nudged
+                    ? 'TRẢ LỜI ĐỦ: phần A và phần B.'
+                    : 'TRẢ LỜI CỤT: chỉ có phần A.' } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
@@ -196,10 +237,23 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             ],
         }));
     });
-    // Serper (primary backend) returns nothing → cascade must fall through to
-    // Tavily. Jina reader fake serves full page content for the result URL.
-    const serperPort = await fakeProvider((req, res) => {
+    // Serper (primary backend) returns nothing for most queries → cascade must
+    // fall through to Tavily. The two multi-hop queries (test 31) get real
+    // hits so hop 2 can be built from hop 1's result.
+    const serperPort = await fakeProvider(async (req, res) => {
+        const body = await readBody(req);
+        const q = String(body.q || '');
         res.writeHead(200, { 'Content-Type': 'application/json' });
+        if (q.includes('phiên bản nào')) {
+            return res.end(JSON.stringify({ organic: [
+                { title: 'KQ_VERSION: class Kiếm ra mắt ở bản 3.1', link: 'https://example.com/ver', snippet: 'Kiếm xuất hiện từ phiên bản 3.1' },
+            ] }));
+        }
+        if (q.includes('build Kiếm 3.1')) {
+            return res.end(JSON.stringify({ organic: [
+                { title: 'KQ_BUILD: build chuẩn Kiếm bản 3.1', link: 'https://example.com/build31', snippet: 'Nội công X, chu thiên Y' },
+            ] }));
+        }
         res.end(JSON.stringify({ organic: [] }));
     });
     // The page carries a full prompt-injection payload (test 15b): hidden
@@ -590,6 +644,35 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(t18e.steps.includes('search'), `steps: ${t18e.steps}`);
     assert.ok(t18e.steps.includes('doc:nth-glossary'), `steps: ${t18e.steps}`);
     console.log('ok 18e — topic search query late-injects the glossary');
+
+    // 31. Multi-hop tool loop: a two-unknown question ("build for class X in
+    // the version it released") resolves ONE unknown per step — hop 1 finds
+    // the version, hop 2 searches the build USING hop 1's answer, then reads a
+    // page. The registry loop must chain all three steps in one message.
+    const c31 = await (await chat(msgFor('chan2buoc', 'HAI_BƯỚC build class Kiếm ở phiên bản nó ra mắt là gì?'))).json();
+    assert.deepStrictEqual(c31.searchQueries, ['Kiếm ra mắt phiên bản nào', 'build Kiếm 3.1'],
+        `expected two chained hops, got ${JSON.stringify(c31.searchQueries)}`);
+    assert.strictEqual(c31.pagesRead, 1, 'hop 2 result should be read');
+    assert.ok(c31.text.includes('KQ_VERSION'), 'hop-1 result must stay in the final context');
+    assert.ok(c31.text.includes('KQ_BUILD'), 'hop-2 result must reach the final context');
+    const t31 = (await getTraces()).traces[0];
+    assert.ok((t31.steps.match(/search/g) || []).length >= 2, `steps: ${t31.steps}`);
+    console.log('ok 31 — multi-hop: version resolved first, build searched with it, page read');
+
+    // 31b. Sufficiency gate (spec §8): a research answer that covers only part
+    // A of an A-and-B question gets ONE coverage nudge and must come back
+    // complete; the nudge turns are ephemeral (never persisted).
+    const c31b = await (await chat(msgFor('chansuff', 'SUY_LUẬN SUFF_BAIT so sánh phần A và phần B giúp tao với?'))).json();
+    assert.strictEqual(c31b.text, 'TRẢ LỜI ĐỦ: phần A và phần B.',
+        `sufficiency retry should ship the complete answer, got: ${c31b.text.slice(0, 80)}`);
+    const t31b = (await getTraces()).traces[0];
+    assert.ok(t31b.steps.includes('sufficiency:missing'), `steps: ${t31b.steps}`);
+    require('../ai-service/sessions').flushSync();
+    const disk31 = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'sessions.json'), 'utf8'));
+    assert.strictEqual(disk31['ch:g1:chansuff'].messages.length, 2, 'nudge turns must not persist');
+    assert.ok(!JSON.stringify(disk31['ch:g1:chansuff']).includes('TRẢ LỜI CỤT'),
+        'the incomplete draft must never enter the session');
+    console.log('ok 31b — sufficiency gate catches the skipped sub-question, nudge stays ephemeral');
 
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.

@@ -18,6 +18,9 @@ const { generateChatResponse } = require('./providers');
 
 const SEARCH_RE = /\[\[search:\s*([^\]\n]{1,200})\]\]/i;
 const READ_RE = /\[\[read:\s*([0-9,\s]{1,40})\]\]/i;
+// Global variants for marker stripping (tools.js strip contract).
+const SEARCH_RE_G = new RegExp(SEARCH_RE.source, 'gi');
+const READ_RE_G = new RegExp(READ_RE.source, 'gi');
 
 // In-memory daily counter — a free-tier backstop, resets on restart by design.
 // One search = one count, regardless of how deep the backend cascade went.
@@ -50,8 +53,8 @@ function extractRead(text) {
 
 function stripMarkers(text) {
     return String(text || '')
-        .replace(new RegExp(SEARCH_RE.source, 'gi'), '')
-        .replace(new RegExp(READ_RE.source, 'gi'), '')
+        .replace(SEARCH_RE_G, '')
+        .replace(READ_RE_G, '')
         .trim();
 }
 
@@ -304,4 +307,7 @@ async function extractFacts({ question, pagesBlock, trace }) {
     }
 }
 
-module.exports = { extractQuery, extractRead, stripMarkers, run, readPages, extractFacts };
+module.exports = {
+    extractQuery, extractRead, stripMarkers, run, readPages, extractFacts,
+    SEARCH_RE_G, READ_RE_G,
+};

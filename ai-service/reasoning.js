@@ -63,9 +63,22 @@ const ANALYZE_HEADER =
 const ANALYZE_TEMPLATES = {
     think: ANALYZE_HEADER,
     research: ANALYZE_HEADER + '\n' +
-        'search_query: if web facts are needed — the EXACT query and its language per the ' +
-        'search rules (official Chinese terms for CN games, text pages, no videos); else "none"',
+        'search_plan: if web facts are needed — numbered queries in DEPENDENCY order, ONE ' +
+        'unknown per query ("build for class X in the version it released" = query 1: when did ' +
+        'X release / which version; query 2: <build query using query 1\'s answer>). Never dump ' +
+        'the whole multi-part question into one query. Language per the search rules (official ' +
+        'Chinese terms for CN games, text pages, no videos); else "none"',
 };
+
+// Sufficiency gate (spec §8): a coverage check, not a quality check — sass,
+// tone and brevity are never failures; only missing SUBSTANCE is. The smoke
+// test keys on 'coverage checker' — keep in sync.
+const SUFFICIENCY_SYSTEM =
+    'You are a coverage checker for a Discord bot. Given the user\'s question and the bot\'s ' +
+    'draft answer, decide whether EVERY part of the question is addressed. The bot is sassy and ' +
+    'brief on purpose — tone, jokes and shortness are FINE; fail ONLY when a distinct part of a ' +
+    'multi-part question got no answer at all. Reply with EXACTLY one line of JSON: ' +
+    '{"covered": true} or {"covered": false, "missing": "<the unaddressed part, short>"}.';
 
 const VERIFY_SYSTEM =
     'You are a SAFETY checker for a deliberately sassy Discord bot. The bot is SUPPOSED to ' +
@@ -176,6 +189,31 @@ async function verify({ userText, draftText, trace: t }) {
     }
 }
 
+// → { covered, missing }. Runs ONCE per research message, after the tool loop
+// produced a candidate answer: the direct fix for "answered but skipped a
+// sub-question" on multi-hop questions (spec §8). Fails open — an uncheckable
+// answer ships rather than blocking the reply.
+async function checkSufficiency({ userText, draftText, trace: t }) {
+    if (!config.sufficiencyEnabled || !underDailyLimit()) return { covered: true, missing: null };
+    const s = trace.step(t, 'sufficiency');
+    daily.count++;
+    try {
+        const { text, provider, model, attempts } = await generateChatResponse([
+            { role: 'system', content: SUFFICIENCY_SYSTEM },
+            { role: 'user', content: `User question: ${clipTurn(userText, 500)}\n\nDRAFT answer: ${clipTurn(draftText, 1000)}` },
+        ], { maxTokens: config.verifyMaxTokens, temperature: 0, noThink: true, timeoutMs: config.reasoningTimeoutMs, role: 'fast' });
+        const m = /\{[\s\S]*\}/.exec(text);
+        const parsed = m ? JSON.parse(m[0]) : { covered: true };
+        const covered = parsed.covered !== false;
+        trace.endStep(t, s, { ok: true, result: covered ? 'covered' : 'missing', provider, model, attempts, detail: text });
+        if (!covered) metrics.inc('sufficiencyNudges');
+        return { covered, missing: typeof parsed.missing === 'string' ? parsed.missing.slice(0, 200) : null };
+    } catch (e) {
+        trace.endStep(t, s, { ok: false, result: 'error-pass', attempts: e.attempts, detail: e.message });
+        return { covered: true, missing: null };
+    }
+}
+
 // → analysisText | null. Persona-free by construction: index.js hands it
 // messages built on TASK_SYSTEM (rules + facts, no SOUL, no member advice).
 // Runs on the MAIN model — this IS "reason where it matters": the reasoning
@@ -200,4 +238,4 @@ async function analyzeTask({ messages, mode, trace: t }) {
     }
 }
 
-module.exports = { classify, socialReply, verify, analyzeTask };
+module.exports = { classify, socialReply, verify, analyzeTask, checkSufficiency };
