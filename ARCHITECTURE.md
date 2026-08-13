@@ -308,6 +308,32 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   Replies show "🔎 tìm web". Enabled iff SERPER_API_KEY or
                   TAVILY_API_KEY is set. Page-read kill
                   switch: AI_FETCH_ENABLED=false.
+                  Optional Layer C (AI_EXTRACT_ENABLED, default off):
+                  extractFacts() distills fetched pages through a quarantined
+                  persona-free call with a FIXED output shape {relevant,
+                  facts[], sources[]} so raw page text never reaches the reply
+                  generation; fails open to the fenced raw pages. Off by
+                  default: one extra main-model call per read round, and
+                  condensation can drop detail guide answers rely on.
+    guard.js      untrusted-input guard (agent-loop spec §7) applied to EVERY
+                  external string before it nears a prompt. Layer A sanitize():
+                  strips invisible/bidi chars, neutralizes role-marker line
+                  openers (system:/user:/assistant:/tool: → "system;"…),
+                  defuses [[...]] tool-marker lookalikes. Layer B
+                  wrapUntrusted(): per-call nonce fence <data:xxxx>…</data:xxxx>
+                  (lookalike fences inside the data are removed so content
+                  can't break out), a data-not-instructions notice, and a
+                  reassertion of the original task AFTER the block. Applied to:
+                  search titles/snippets + fetched pages (search.js), the
+                  search/read/extract tool blocks and the ambient channel
+                  block (index.js — the [[read]] instruction stays OUTSIDE the
+                  fence, it's ours), memory files on read (memory.js — they
+                  are model-written FROM member chat, an indirect injection
+                  channel), member advice (invisible strip, advice.js), and
+                  the inbound user text + display names (index.js). Search
+                  query dedupe is case-folded; htmlToText also strips HTML
+                  comments (hidden-text vector). No kill switch on purpose —
+                  deterministic string ops, never the right thing to disable.
     docs.js       on-demand reference docs (ai-service/docs/*.md, git-tracked) —
                   domain knowledge too bulky for RULES.md (which loads into
                   EVERY prompt). A doc is attached only when the message is
@@ -412,7 +438,9 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `AI_SEARCH_BLOCK_MAX_CHARS`, `AI_SEARCH_BLOCK_DOMAINS` (video/social domains
   filtered from results — fetchers can't read videos; `host/path` entries match
   path prefixes), `AI_FETCH_ENABLED`, `AI_FETCH_MAX_PAGES`,
-  `AI_FETCH_TIMEOUT_MS`, `AI_FETCH_MAX_CHARS`, `JINA_API_KEY` (optional, higher
+  `AI_FETCH_TIMEOUT_MS`, `AI_FETCH_MAX_CHARS`, `AI_EXTRACT_ENABLED` (Layer C
+  quarantined page-fact extraction, default false), `AI_EXTRACT_MAX_TOKENS`,
+  `JINA_API_KEY` (optional, higher
   reader limits), `FIRECRAWL_API_KEY` (optional, last-resort fetcher), plus per provider:
   `CLOUDFLARE_ACCOUNT_ID`+`CLOUDFLARE_API_TOKEN`+`CLOUDFLARE_MODEL`, `GROQ_API_KEY`+`GROQ_MODEL`,
   `OPENROUTER_API_KEY`+`OPENROUTER_MODEL`, `XAI_API_KEY`+`XAI_MODEL` (grok — XAI_ prefix on
@@ -423,8 +451,11 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   Kill switch: `AI_ENABLED=false` (bot ignores triggers) and/or stop `qtbot-ai`.
 - **Test:** `node scripts/smoke_ai_service.js` — offline, fakes providers, verifies
   failover/normalize/health, the search loop, the reasoning flow (fast-path, deep
-  path, fail-open), metrics, traces, and the restart-recovery drills (clean
-  restart + truncated data files).
+  path, fail-open), metrics, traces, the restart-recovery drills (clean
+  restart + truncated data files), and the prompt-injection drills (a fake page
+  and ambient chatter carrying hidden chars, fake role lines, fence breakouts
+  and tool-marker lookalikes must all arrive neutralized; Layer C extraction
+  keeps raw page text out of the reply generation).
 - **Boundary rule (do not break):** authorization, rate limiting and any future
   tool execution live on the bot side. The AI service must never gain Discord
   credentials or read/write `data.json`. AI state (future sessions/memory) stays

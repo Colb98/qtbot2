@@ -58,6 +58,12 @@ const config = {
     fetchMaxPages: int('AI_FETCH_MAX_PAGES', 4),          // max pages per [[read]] selection
     fetchTimeoutMs: int('AI_FETCH_TIMEOUT_MS', 8000),
     fetchMaxCharsPerPage: int('AI_FETCH_MAX_CHARS', 3500),
+    // Layer C (spec §7.3): quarantined strict-shape fact extraction over fetched
+    // pages, so raw page text never reaches the reply generation. OFF by default:
+    // one extra main-model call per read round, and condensing can drop the
+    // detail long guide answers rely on. Fails open to fenced raw text.
+    extractEnabled: process.env.AI_EXTRACT_ENABLED === 'true',
+    extractMaxTokens: int('AI_EXTRACT_MAX_TOKENS', 800),
     memoryEnabled: process.env.AI_MEMORY_ENABLED !== 'false',
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)

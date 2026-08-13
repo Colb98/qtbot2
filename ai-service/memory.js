@@ -15,6 +15,7 @@ const { config } = require('./config');
 const { generateChatResponse } = require('./providers');
 const { enqueue, QueueFullError } = require('./queue');
 const metrics = require('./metrics');
+const guard = require('./guard');
 
 const MEM_DIR = path.join(__dirname, 'data', 'memory');
 
@@ -37,12 +38,15 @@ const clip = (text, max) => (text.length > max ? text.slice(0, max) : text);
 
 // Scoped retrieval (§11): a message from user A in channel X sees server +
 // channel-X + user-A memory ONLY. Caps here bound worst-case prompt cost.
+// guard.sanitize on read: memory is model-written FROM member chat, so it is
+// an indirect injection channel into every future prompt — hidden chars and
+// role/tool markers that survived a rewrite die here.
 function getContext(guildId, channelId, userId) {
     if (!config.memoryEnabled) return { server: '', channel: '', user: '' };
     return {
-        server: clip(read(serverFile(guildId)), config.memoryServerMaxChars),
-        channel: clip(read(channelFile(channelId)), config.memoryScopeMaxChars),
-        user: clip(read(userFile(userId)), config.memoryScopeMaxChars),
+        server: guard.sanitize(clip(read(serverFile(guildId)), config.memoryServerMaxChars)),
+        channel: guard.sanitize(clip(read(channelFile(channelId)), config.memoryScopeMaxChars)),
+        user: guard.sanitize(clip(read(userFile(userId)), config.memoryScopeMaxChars)),
     };
 }
 

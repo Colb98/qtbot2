@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const log = require('../logger');
+const { stripInvisible } = require('./guard');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const MAX_ITEMS = parseInt(process.env.AI_ADVICE_MAX_ITEMS, 10) || 20;
@@ -50,11 +51,13 @@ function remove(guildId, index) {
     return items;
 }
 
+// Advice is permission-gated and whitespace-collapsed at add() time; the
+// invisible-char strip here covers hidden payloads in already-stored items.
 function renderForPrompt(guildId) {
     const items = load(guildId);
     if (!items.length) return '';
     return '## Member-set rules (via `!ai rule`) — follow them\n' +
-        items.map((i) => `- ${i.text}`).join('\n');
+        items.map((i) => `- ${stripInvisible(i.text)}`).join('\n');
 }
 
 module.exports = { list, add, remove, renderForPrompt };
