@@ -249,4 +249,19 @@ async function analyzeTask({ messages, mode, trace: t }) {
     }
 }
 
-module.exports = { classify, socialReply, verify, analyzeTask, checkSufficiency };
+// → how many web queries the analysis planned. The research template already
+// makes the model decompose the question into NUMBERED search_plan lines (one
+// unknown, or one listed item, per line) — so that count is a complexity
+// estimate produced by the model that will do the searching, for free. It is
+// deliberately only an ALLOCATION signal: the plan is written before any result
+// is seen, so it under-counts as often as it over-counts, and the real stop is
+// the diminishing-returns detector in the tool loop.
+function plannedQueries(analysis) {
+    const m = /search[_\s]*plan\s*:([\s\S]*)$/i.exec(analysis || '');
+    if (!m) return 0;
+    const body = m[1];
+    if (/^[\s:]*(none|không|khong|n\/a)\b/i.test(body)) return 0;
+    return body.split('\n').filter((l) => /^\s*\d+\s*[.)]\s*\S/.test(l)).length;
+}
+
+module.exports = { classify, socialReply, verify, analyzeTask, checkSufficiency, plannedQueries };

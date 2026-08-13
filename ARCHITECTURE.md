@@ -298,8 +298,22 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   (tool + normalized args), fences every observation (guard
                   Layer B) and regenerates. Adding a tool = one registry entry
                   (name, sideEffect, enabled/available, parse, echo, dedupeKey,
-                  maxPerMessage, specLine, strip, execute) — NO loop changes;
-                  the ## Tools prompt section is generated from the registry.
+                  maxPerMessage(ctx), optional throttle(args, ctx), specLine,
+                  strip, execute) — NO loop changes; the ## Tools prompt section
+                  is generated from the registry.
+                  A REFUSED call is never swallowed: the loop tells the model
+                  which wall it hit (budget / duplicate / stale / tokens) and
+                  makes it answer from what it already has — a dropped marker
+                  strips to an empty reply and ships the canned "not found".
+                  Search cost is managed in four layers, cheapest signal first:
+                  the allowance is ALLOCATED from the analysis's search_plan
+                  (a 5-item question is not the same task as "giá vàng");
+                  searching stops on DIMINISHING RETURNS (rounds whose results
+                  are mostly already-seen URLs) rather than on a counter;
+                  superseded result lists are PRUNED from context once their
+                  pages have been read; and AI_CHAT_TOKEN_BUDGET is a circuit
+                  breaker, not the controller — cost is dominated by re-sending
+                  the transcript each round, not by the searches themselves.
                   sideEffect: 'external' tools additionally need their
                   authorized(args, ctx) gate to pass — it must key on the
                   USER's own message (which fetched web content can never
@@ -484,12 +498,21 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `AI_TRACE_MAX`, `AI_TRACE_DETAIL_MAX_CHARS`, `AI_METRICS_ENABLED`,
   `AI_METRICS_RETENTION_DAYS`, `AI_SEARCH_ENABLED`, `SERPER_API_KEY`/`TAVILY_API_KEY`
   (cascade in that order), `AI_SEARCH_MAX_RESULTS`, `AI_SEARCH_MIN_RESULTS`,
-  `AI_SEARCH_TIMEOUT_MS`, `AI_SEARCH_MAX_PER_MESSAGE`, `AI_SEARCH_DAILY_LIMIT`,
+  `AI_SEARCH_TIMEOUT_MS`, `AI_SEARCH_MAX_PER_MESSAGE` (baseline allowance for
+  un-analyzed messages; research messages get one ALLOCATED from the analysis's
+  own search_plan), `AI_SEARCH_MAX_HARD` (ceiling on that allocation, default 8),
+  `AI_SEARCH_STALE_ROUNDS`/`AI_SEARCH_MIN_YIELD` (diminishing-returns stop: N
+  rounds whose results are mostly already-seen URLs end the searching),
+  `AI_CHAT_TOKEN_BUDGET` (per-request token circuit breaker over every llm call
+  in the request, default 120000, 0 disables — needs tracing on),
+  `AI_SEARCH_DAILY_LIMIT`,
   `AI_SEARCH_BLOCK_MAX_CHARS`, `AI_SEARCH_BLOCK_DOMAINS` (video/social domains
   filtered from results — fetchers can't read videos; `host/path` entries match
   path prefixes), `AI_FETCH_ENABLED`, `AI_FETCH_MAX_PAGES`,
   `AI_FETCH_TIMEOUT_MS`, `AI_FETCH_MAX_CHARS`, `AI_EXTRACT_ENABLED` (Layer C
-  quarantined page-fact extraction, default false), `AI_EXTRACT_MAX_TOKENS`,
+  quarantined page-fact extraction, default TRUE — a raw page block rides every
+  later generation in the request, which is where the token bill comes from),
+  `AI_EXTRACT_MAX_TOKENS`, `AI_EXTRACT_MAX_FACTS`,
   `AI_TOOL_MAX_STEPS` (global tool-step budget per message, default 6),
   `AI_SUFFICIENCY_ENABLED` (research coverage check, default true),
   `AI_IMAGE_ENABLED` (default true; needs an image-capable provider with creds),

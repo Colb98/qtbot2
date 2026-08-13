@@ -13,6 +13,11 @@ function int(name, def) {
     return Number.isFinite(v) ? v : def;
 }
 
+function num(name, def) {
+    const v = parseFloat(process.env[name]);
+    return Number.isFinite(v) ? v : def;
+}
+
 const config = {
     port: int('AI_SERVICE_PORT', 3001),
     host: '127.0.0.1', // never expose publicly: auth happens in the bot process
@@ -22,6 +27,13 @@ const config = {
     // rounds start and analysis is skipped — the reply must reach the bot
     // before ITS timeout (AI_REQUEST_TIMEOUT_MS), or nobody sees it.
     chatBudgetMs: int('AI_CHAT_BUDGET_MS', 90000),
+    // Token circuit breaker per /chat request, summed over EVERY llm call in it
+    // (classify, analyze, generations, extract...). NOT the primary controller —
+    // cost is dominated by re-sending the transcript each tool round, so the
+    // allowance + stale detector + context pruning do the real work; this only
+    // catches pathological loops. Past 60% no new tool step starts; past 100%
+    // the loop stops. 0 disables. Needs tracing on (it reads the trace totals).
+    chatTokenBudget: int('AI_CHAT_TOKEN_BUDGET', 120000),
     // Tiny reasoning calls (classify/verify, <100 tokens) get a short provider
     // timeout: if 8 tokens take longer than this, the provider is sick —
     // fail over fast instead of burning the full providerTimeoutMs.
@@ -45,9 +57,23 @@ const config = {
     searchMaxResults: int('AI_SEARCH_MAX_RESULTS', 10),
     searchMinResults: int('AI_SEARCH_MIN_RESULTS', 3),   // fewer → cascade to next backend
     searchTimeoutMs: int('AI_SEARCH_TIMEOUT_MS', 10000),
-    searchMaxPerMessage: int('AI_SEARCH_MAX_PER_MESSAGE', 3), // 3: multi-hop needs hop-1 + hop-2 + one re-query
+    // Baseline search allowance for a message the analysis never planned
+    // (immediate/social): hop-1 + hop-2 + one re-query.
+    searchMaxPerMessage: int('AI_SEARCH_MAX_PER_MESSAGE', 3),
+    // Research messages get an allowance ALLOCATED from the analysis's own
+    // search_plan (see reasoning.plannedQueries): a 5-item question is not the
+    // same task as "giá vàng", and a fixed 3 either starves one or overpays for
+    // the other. This is the ceiling on that allocation — the actual stop is
+    // the diminishing-returns detector below, not the counter.
+    searchMaxHard: int('AI_SEARCH_MAX_HARD', 8),
+    // Diminishing returns: a search whose results are mostly URLs already seen
+    // this request (or a read that fetched nothing) is a wasted round. N such
+    // rounds in a row → the loop stops searching and makes the model answer.
+    searchStaleRounds: int('AI_SEARCH_STALE_ROUNDS', 2),
+    searchMinYield: num('AI_SEARCH_MIN_YIELD', 0.34), // new URLs / results, below → stale round
     // Global tool-step cap per user message, across ALL tools (spec §4 budget).
     // Per-tool caps still apply; wall-clock is bounded by chatBudgetMs anyway.
+    // Scales with the allocated search allowance (a search + its read = 2 steps).
     toolMaxSteps: int('AI_TOOL_MAX_STEPS', 6),
     // Sufficiency gate (spec §8): before a research answer ships, one fast-model
     // check that every part of the question was addressed; a miss triggers ONE
@@ -66,11 +92,15 @@ const config = {
     fetchTimeoutMs: int('AI_FETCH_TIMEOUT_MS', 8000),
     fetchMaxCharsPerPage: int('AI_FETCH_MAX_CHARS', 3500),
     // Layer C (spec §7.3): quarantined strict-shape fact extraction over fetched
-    // pages, so raw page text never reaches the reply generation. OFF by default:
-    // one extra main-model call per read round, and condensing can drop the
-    // detail long guide answers rely on. Fails open to fenced raw text.
-    extractEnabled: process.env.AI_EXTRACT_ENABLED === 'true',
-    extractMaxTokens: int('AI_EXTRACT_MAX_TOKENS', 800),
+    // pages, so raw page text never reaches the reply generation. ON by default:
+    // a raw page block is ~4k tokens that then rides EVERY later generation in
+    // the request, which is where the token bill actually comes from. Costs one
+    // extra main-model call per read round. Fails open to fenced raw text.
+    extractEnabled: process.env.AI_EXTRACT_ENABLED !== 'false',
+    // Sized so the extractor can think AND emit a long fact list — guide answers
+    // need every coordinate/stat, and a truncated JSON object is a failed one.
+    extractMaxTokens: int('AI_EXTRACT_MAX_TOKENS', 1600),
+    extractMaxFacts: int('AI_EXTRACT_MAX_FACTS', 25),
     // Image generation ([[image]] tool). Uses the EXISTING provider creds; the
     // provider/model/daily-limit are dashboard-overridable (see imageProviderFor
     // & friends below). sideEffect-gated in the loop: only runs when the USER's

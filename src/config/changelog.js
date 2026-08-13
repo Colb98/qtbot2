@@ -1,6 +1,16 @@
-const CURRENT_VERSION = '3.28.1';
+const CURRENT_VERSION = '3.29.0';
 
 const CHANGELOG = {
+    '3.29.0': {
+        date: '2026-08-13',
+        title: 'Bot tự liệu cơm gắp mắm khi tra cứu',
+        changes: [
+            '🎯 **Câu hỏi càng nhiều lớp, bot càng được tra nhiều** — trước đây mọi câu hỏi đều bị khoá cứng 3 lượt tìm kiếm: hỏi "giá vàng" thì thừa, mà hỏi "chỉ tao 5 kỳ ngộ" thì thiếu đến mức trả lời cụt. Giờ bot tự lên kế hoạch tra cứu trước, rồi được cấp số lượt đúng theo kế hoạch đó (tối đa 8).',
+            '🛑 **Tra mãi không ra cái mới thì bot tự dừng** — nếu hai lượt tìm liên tiếp chỉ trả về đúng những trang đã xem, bot ngừng tìm và chốt câu trả lời bằng dữ liệu đang có, thay vì tìm lòng vòng cho hết lượt.',
+            '🧹 **Bot tự dọn ngữ cảnh cho gọn** — danh sách kết quả cũ (đã đọc trang rồi) được lược bỏ, và nội dung trang được rút thành các dữ kiện cô đọng thay vì bê nguyên cả trang. Nhẹ hơn rất nhiều, mà toạ độ/số liệu/tên riêng vẫn giữ nguyên.',
+            '🧯 **Có cầu dao an toàn** — mỗi câu hỏi có trần tài nguyên riêng; chạm trần là bot chốt trả lời ngay, không để một câu hỏi hóc búa ngốn vô tội vạ.'
+        ]
+    },
     '3.28.1': {
         date: '2026-08-13',
         title: 'Hỏi nhiều thứ một lúc, bot tra từng thứ',

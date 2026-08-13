@@ -184,9 +184,46 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             const done = (all.match(/\[\[search: hết lượt/g) || []).length;
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
+                // The final answer reports what the CONTEXT contained — these
+                // fakes return fixed text, so this is how the test sees inside.
                 choices: [{ message: { content: all.includes('KHÔNG chạy')
-                    ? 'TRẢ LỜI TỪ DỮ LIỆU ĐÃ CÓ: toạ độ 1253,1377.'
+                    ? 'TRẢ LỜI TỪ DỮ LIỆU ĐÃ CÓ: toạ độ 1253,1377.' +
+                      ` budget1=${all.includes('Budget: 1 more')} budget0=${all.includes('NO searches left')}`
                     : `[[search: hết lượt ${done + 1}]]` } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Same shape, but every query returns the SAME page (test 31d): the
+        // diminishing-returns detector must stop it before the allowance does.
+        if (JSON.stringify(body.messages).includes('LẶP_LẠI')) {
+            const all = JSON.stringify(body.messages);
+            const done = (all.match(/\[\[search: lặp lại/g) || []).length;
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: all.includes('KHÔNG chạy')
+                    ? 'TRẢ LỜI DÙ TRÙNG NGUỒN: chốt bằng dữ liệu đang có.'
+                    : `[[search: lặp lại ${done + 1}]]` } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Pruning drill (test 31e): search → read → search. Once round 1's
+        // pages have been read AND round 2 has opened, round 1's result list
+        // must be gone from context while its [[search]] echo survives.
+        if (JSON.stringify(body.messages).includes('DỌN_NGỮ_CẢNH')) {
+            const all = JSON.stringify(body.messages);
+            const done = (all.match(/\[\[search: dọn/g) || []).length;
+            const readDone = all.includes('[Page contents') || all.includes('Facts extracted');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content:
+                    done === 0 ? '[[search: dọn một]]'
+                        : done === 1 && !readDone ? '[[read: 1]]'
+                            : done === 1 ? '[[search: dọn hai]]'
+                                : 'XONG_DỌN' +
+                                  ` pruned=${all.includes('đã được lược bỏ khỏi ngữ cảnh')}` +
+                                  ` echo=${all.includes('[[search: dọn một]]')}` +
+                                  ` old=${all.includes('KQ_DON_MOT')}` +
+                                  ` new=${all.includes('KQ_DON_HAI')}` } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
@@ -313,6 +350,27 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         if (q.includes('build Kiếm 3.1')) {
             return res.end(JSON.stringify({ organic: [
                 { title: 'KQ_BUILD: build chuẩn Kiếm bản 3.1', link: 'https://example.com/build31', snippet: 'Nội công X, chu thiên Y' },
+            ] }));
+        }
+        // Budget/stale/pruning drills (tests 31c-31e). "hết lượt" and "dọn"
+        // hand back a UNIQUE url per query (full yield → the allowance is what
+        // stops the loop); "lặp lại" hands back the SAME url every time, which
+        // is what the diminishing-returns detector must catch.
+        if (q.includes('hết lượt')) {
+            const n = (q.match(/\d+/) || ['0'])[0];
+            return res.end(JSON.stringify({ organic: [
+                { title: `KQ_HL_${n}`, link: `https://example.com/hl/${n}`, snippet: `dữ liệu vòng ${n}` },
+            ] }));
+        }
+        if (q.includes('dọn')) {
+            const tag = q.includes('hai') ? 'HAI' : 'MOT';
+            return res.end(JSON.stringify({ organic: [
+                { title: `KQ_DON_${tag}`, link: `https://example.com/don/${tag}`, snippet: `dữ liệu vòng ${tag}` },
+            ] }));
+        }
+        if (q.includes('lặp lại')) {
+            return res.end(JSON.stringify({ organic: [
+                { title: 'KQ_TRÙNG: vẫn trang cũ', link: 'https://example.com/trung', snippet: 'không có gì mới' },
             ] }));
         }
         res.end(JSON.stringify({ organic: [] }));
@@ -525,6 +583,11 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     // with full page content as labeled untrusted context. Final answer
     // (echo) proves the result list, the selected page's content and the
     // original question were all in the last generation's context.
+    // Extraction is ON by default now (it is the main token lever), so this
+    // drill explicitly exercises the fail-open RAW-page path — which 15b's
+    // injection assertions depend on, since they inspect the page text itself.
+    const svcConfig = require('../ai-service/config').config;
+    svcConfig.extractEnabled = false;
     const c15 = await (await chat(msgFor('chanH', 'DÙNG_SEARCH giá vàng bao nhiêu?'))).json();
     assert.deepStrictEqual(c15.searchQueries, ['giá vàng hôm nay']);
     assert.strictEqual(c15.pagesRead, 1, 'exactly one page should have been read');
@@ -561,13 +624,11 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     // test 15 already pinned searchQueries to exactly ['giá vàng hôm nay'].
     console.log('ok 15b — page injection neutralized: sanitize + nonce fence + task reassert');
 
-    // 15c. Layer C (optional, AI_EXTRACT_ENABLED): with extraction on, raw page
-    // text never reaches the reply generation — only the strict-shape facts do
-    // (still fenced as untrusted).
-    const svcConfig = require('../ai-service/config').config;
+    // 15c. Layer C (AI_EXTRACT_ENABLED, now the default): raw page text never
+    // reaches the reply generation — only the strict-shape facts do (still
+    // fenced as untrusted). Left ON afterwards: that is production's default.
     svcConfig.extractEnabled = true;
     const c15c = await (await chat(msgFor('chanExtract', 'DÙNG_SEARCH giá vàng bao nhiêu thế?'))).json();
-    svcConfig.extractEnabled = false;
     assert.strictEqual(c15c.pagesRead, 1, 'extraction path still reads the page');
     assert.ok(c15c.text.includes('Facts extracted from the pages'), 'extracted facts should reach the model');
     assert.ok(c15c.text.includes('88,5 triệu'), 'exact figures survive extraction');
@@ -735,20 +796,63 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         'the incomplete draft must never enter the session');
     console.log('ok 31b — sufficiency gate catches the skipped sub-question, nudge stays ephemeral');
 
-    // 31c. Spent tool budget: the model asks for a 4th search when only 3 are
-    // allowed. The loop must not swallow the marker — a swallowed marker is a
-    // reply made of nothing, which stripAll() turns into the canned "couldn't
-    // find it" even though pages were already read. It gets told, and answers.
+    // 31c. Allocated budget + spent budget. Research messages get an allowance
+    // sized from the analysis plan (fake analysis plans nothing → the floor,
+    // searchMaxPerMessage + 1 = 4), not the flat cap. When it runs out the
+    // marker must not be swallowed — a swallowed marker is a reply made of
+    // nothing, which stripAll() turns into the canned "couldn't find it".
     const c31c = await (await chat(msgFor('chanhet', 'SUY_LUẬN HẾT_LƯỢT chỉ tao 5 kỳ ngộ trong bản mới đi'))).json();
-    assert.strictEqual(c31c.searchQueries.length, 3,
-        `budget is 3 searches, got ${JSON.stringify(c31c.searchQueries)}`);
+    assert.strictEqual(c31c.searchQueries.length, 4,
+        `research floor is 4 searches, got ${JSON.stringify(c31c.searchQueries)}`);
     assert.ok(c31c.text.includes('TRẢ LỜI TỪ DỮ LIỆU ĐÃ CÓ'),
         `blocked model must answer from what it has, got: ${c31c.text.slice(0, 120)}`);
     assert.ok(!c31c.text.includes('Mình tìm chưa ra thông tin'),
         'a spent budget must never fall through to the canned no-result reply');
+    assert.ok(c31c.text.includes('budget1=true budget0=true'),
+        `the model must be told what is left, and when nothing is: ${c31c.text.slice(0, 160)}`);
     const t31c = (await getTraces()).traces[0];
-    assert.ok(t31c.steps.includes('blocked:search'), `steps: ${t31c.steps}`);
-    console.log('ok 31c — a refused tool call is reported to the model, not silently dropped');
+    assert.ok(t31c.steps.includes('budget:4 searches'), `steps: ${t31c.steps}`);
+    assert.ok(t31c.steps.includes('blocked:search(budget)'), `steps: ${t31c.steps}`);
+    console.log('ok 31c — search budget allocated from the plan, exhaustion reported not swallowed');
+
+    // 31d. Diminishing returns: every query returns the SAME page. The loop
+    // must stop searching on the stale streak (2 rounds) rather than spend the
+    // whole allowance discovering nothing — the cheap, LLM-free stop.
+    const c31d = await (await chat(msgFor('chanlap', 'SUY_LUẬN LẶP_LẠI tra giúp tao cái này'))).json();
+    assert.strictEqual(c31d.searchQueries.length, 3,
+        `stale streak should stop at 3 of 4, got ${JSON.stringify(c31d.searchQueries)}`);
+    assert.ok(c31d.text.includes('TRẢ LỜI DÙ TRÙNG NGUỒN'),
+        `stalled model must still answer, got: ${c31d.text.slice(0, 120)}`);
+    const t31d = (await getTraces()).traces[0];
+    assert.ok(t31d.steps.includes('blocked:search(stale)'), `steps: ${t31d.steps}`);
+    console.log('ok 31d — repeat-yield searching is cut off before the allowance runs out');
+
+    // 31e. Context pruning: once round 1's pages are read AND round 2 opens,
+    // round 1's result list is dropped from context (its facts live in the page
+    // block now) while its [[search]] echo survives so the model still knows
+    // what it already ran.
+    const c31e = await (await chat(msgFor('chandon', 'SUY_LUẬN DỌN_NGỮ_CẢNH tra hai vòng giúp tao'))).json();
+    assert.deepStrictEqual(c31e.searchQueries, ['dọn một', 'dọn hai'], 'two rounds should run');
+    assert.strictEqual(c31e.pagesRead, 1, 'round 1 should have been read');
+    assert.ok(c31e.text.includes('pruned=true'), `round 1 list should be stubbed: ${c31e.text}`);
+    assert.ok(c31e.text.includes('old=false'), `the superseded result list must be gone: ${c31e.text}`);
+    assert.ok(c31e.text.includes('echo=true'), `the query echo must survive the prune: ${c31e.text}`);
+    assert.ok(c31e.text.includes('new=true'), `the current result list must be intact: ${c31e.text}`);
+    console.log('ok 31e — superseded search results pruned, query history and current round kept');
+
+    // 31f. Token circuit breaker: with a tiny per-request token budget the loop
+    // must stop opening tool steps well before the search allowance is spent,
+    // and still ship a real answer rather than a swallowed marker.
+    svcConfig.chatTokenBudget = 12; // fake usage is 1 in + 1 out per llm call
+    const c31f = await (await chat(msgFor('chantoken', 'SUY_LUẬN HẾT_LƯỢT tra giúp tao vụ này'))).json();
+    svcConfig.chatTokenBudget = 120000;
+    assert.ok(c31f.searchQueries.length >= 1 && c31f.searchQueries.length < 4,
+        `breaker should cut in below the allowance, got ${JSON.stringify(c31f.searchQueries)}`);
+    assert.ok(c31f.text.includes('TRẢ LỜI TỪ DỮ LIỆU ĐÃ CÓ'),
+        `breaker must still produce an answer, got: ${c31f.text.slice(0, 120)}`);
+    const t31f = (await getTraces()).traces[0];
+    assert.ok(t31f.steps.includes('blocked:search(tokens)'), `steps: ${t31f.steps}`);
+    console.log('ok 31f — token circuit breaker stops new tool steps, answer still ships');
 
     // 33. Image tool: user asks to draw → model emits [[image: ...]] → prompt
     // craft (stage 1) → openrouter adapter (stage 2) → the PNG rides the

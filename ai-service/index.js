@@ -44,6 +44,18 @@ const TASK_SYSTEM =
     'users; you produce working notes for the reply engine.' +
     (RULES ? `\n\n${RULES}` : '') + CHAT_NOTES + TOOL_SPEC;
 
+// Why a matched tool call was refused, in the model's language. Each of these
+// means the same thing operationally — no more data is coming — but the model
+// answers better when it knows WHICH wall it hit (a spent budget is not the
+// same lesson as "you keep re-searching the same thing").
+const BLOCK_REASONS = {
+    budget: 'Bạn đã dùng hết lượt công cụ cho tin nhắn này.',
+    duplicate: 'Bạn đã gọi đúng lệnh này rồi, gọi lại cũng không ra thêm gì.',
+    stale: 'Mấy lần tìm gần nhất không ra nguồn nào mới so với những gì bạn đã có — ' +
+        'tìm thêm nữa cũng không khá hơn.',
+    tokens: 'Yêu cầu này đã tiêu quá nhiều tài nguyên, không chạy thêm công cụ nữa.',
+};
+
 function readJsonBody(req, limit = 64 * 1024) {
     return new Promise((resolve, reject) => {
         let size = 0;
@@ -168,6 +180,10 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     const toolCtx = {
         userText, name, sessionKey, history, trace: t,
         lastResults: [], searchQueries: [], pagesRead: 0, images: [],
+        // Allocated from the analysis plan below; until then, the flat cap.
+        searchAllowance: config.searchMaxPerMessage,
+        // Diminishing-returns state (layer 2), owned by the tools that update it.
+        seenUrls: new Set(), staleRounds: 0,
         // Wall-clock left in this request's budget — slow tools (image gen)
         // must clamp their own timeouts to it instead of overshooting into
         // territory where the bot has already stopped listening.
@@ -208,6 +224,20 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
                 ...historyTurns, userTurn,
             ];
             const analysis = await reasoning.analyzeTask({ messages: analysisMessages, mode, trace: t });
+            // Layer 1 — allocate the search budget instead of fixing it. The
+            // plan's numbered queries are the model's own decomposition of the
+            // question, so a 5-item ask gets room a "giá vàng" ask does not.
+            // Padded (+3) because the plan is written blind — it routinely
+            // starts with one broad query and only discovers the per-item work
+            // after seeing results — and floored at the flat cap so this can
+            // only ever widen the budget, never starve a request below today's.
+            if (mode === 'research') {
+                const planned = reasoning.plannedQueries(analysis);
+                toolCtx.searchAllowance = Math.min(config.searchMaxHard,
+                    Math.max(config.searchMaxPerMessage + 1, planned + 3));
+                const s = trace.step(t, 'budget', { planned });
+                trace.endStep(t, s, { ok: true, result: `${toolCtx.searchAllowance} searches` });
+            }
             if (analysis) {
                 // Ephemeral like the search turns: grounds every generation
                 // below but never enters the session or reaches Discord.
@@ -247,7 +277,48 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     let toolSteps = 0;            // global step budget across all tools
     let sufficiencyChecked = false;
     let blockedNudges = 0;        // "your budget is spent, answer now" pushes
-    while (!shipped && !overBudget()) {
+    // Layer 3 — token circuit breaker. The trace already sums tokensIn/out over
+    // every llm call in this request, so the accounting is free; with tracing
+    // off the breaker simply stays inactive and wall-clock still bounds us.
+    const spentTokens = () => {
+        if (!t) return 0;
+        const { tokensIn, tokensOut } = trace.tokenTotals(t);
+        return tokensIn + tokensOut;
+    };
+    const overTokens = (fraction = 1) =>
+        config.chatTokenBudget > 0 && spentTokens() > config.chatTokenBudget * fraction;
+    // Why the loop is refusing a matched tool call — one place, so the model
+    // gets told the actual reason instead of having its marker swallowed.
+    const stepCap = () => Math.max(config.toolMaxSteps, toolCtx.searchAllowance * 2);
+    const blockReason = ({ tool, args }) => {
+        if (dedupe.has(tool.dedupeKey(args, toolCtx))) return 'duplicate';
+        if ((toolCounts[tool.name] || 0) >= tool.maxPerMessage(toolCtx)) return 'budget';
+        if (toolSteps >= stepCap()) return 'budget';
+        if (overTokens(0.6)) return 'tokens';
+        return (tool.throttle && tool.throttle(args, toolCtx)) || null;
+    };
+    // Layer 4 — context pruning. A result list is ~2-4k tokens that then rides
+    // along in EVERY later generation of the request, which is where the token
+    // bill actually comes from. A list is dropped only when it is provably
+    // redundant: its pages were READ (the page contents/facts supersede the
+    // snippets) AND the round is over ([[read]] resolves indices against
+    // ctx.lastResults, so an older round can no longer be read from anyway).
+    // A round that was never read keeps its snippets — for a search whose pages
+    // all failed to fetch, those snippets are the only data we got.
+    const searchBlocks = [];      // { index, query, round, read } per result list
+    const prunePriorSearchBlocks = () => {
+        for (const b of searchBlocks.filter((x) => x.read)) {
+            messages[b.index] = {
+                role: 'user',
+                content: `[Danh sách kết quả cho "${b.query}" đã được lược bỏ khỏi ngữ cảnh — ` +
+                    'bạn đã đọc các trang của nó rồi, nội dung nằm ở khối bên dưới. ' +
+                    'Đừng tìm lại truy vấn này.]',
+            };
+            metrics.inc('contextPruned');
+        }
+        searchBlocks.length = 0;
+    };
+    while (!shipped && !overBudget() && !overTokens()) {
         // All tools whose marker matches, registry order; take the first one
         // that is allowed to run. A blocked candidate (dupe/cap/unauthorized)
         // falls through to the next — a duped [[search]] must not shadow a
@@ -256,10 +327,8 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
         // web content can never rewrite — says the user asked for it.
         const candidates = tools.match(text, toolCtx).filter(({ tool, args }) =>
             tool.sideEffect === 'none' || (tool.authorized && tool.authorized(args, toolCtx)));
-        const act = candidates.find(({ tool, args }) =>
-            !dedupe.has(tool.dedupeKey(args, toolCtx)) &&
-            (toolCounts[tool.name] || 0) < tool.maxPerMessage());
-        if (act && toolSteps < config.toolMaxSteps) {
+        const act = candidates.find((c) => !blockReason(c));
+        if (act) {
             const { tool, args } = act;
             dedupe.add(tool.dedupeKey(args, toolCtx));
             toolCounts[tool.name] = (toolCounts[tool.name] || 0) + 1;
@@ -286,6 +355,9 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
                 continue;
             }
             trace.endStep(t, s, { ok: result.ok, ...result.meta, detail: result.observation });
+            // A new result list supersedes every earlier one — drop them before
+            // this one lands, so context grows with FACTS, not with dead lists.
+            if (tool.name === 'search') prunePriorSearchBlocks();
             // The canonical marker (not the raw reply — it may carry chatter)
             // is what enters the ephemeral transcript as the model's request.
             messages.push({ role: 'assistant', content: tool.echo(args) });
@@ -296,6 +368,15 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
                 content: guard.wrapUntrusted(result.observation, { source: result.source, task: taskInvariant }) +
                     (result.followup ? `\n${result.followup}` : ''),
             });
+            if (tool.name === 'search') {
+                searchBlocks.push({ index: messages.length - 1, query: args.query, round: toolCtx.searchQueries.length, read: false });
+            } else if (tool.name === 'read') {
+                // This round's snippets are now superseded by its page contents;
+                // they get dropped when the NEXT search closes the round (until
+                // then the model may still pick more indices from the list).
+                const b = searchBlocks.find((x) => x.round === toolCtx.searchQueries.length);
+                if (b) b.read = true;
+            }
             // Late doc trigger: any tool can expose its subject (e.g. a search
             // query) — an immediate-mode message that turns into topic research
             // (a Chinese 逆水寒 query) gets the reference doc attached next to
@@ -319,16 +400,15 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
         if (!act && candidates.length && blockedNudges < 2) {
             blockedNudges++;
             const { tool, args } = candidates[0];
-            const spent = (toolCounts[tool.name] || 0) >= tool.maxPerMessage() || toolSteps >= config.toolMaxSteps;
+            const reason = blockReason(candidates[0]);
             const s = trace.step(t, 'blocked', { name: tool.name });
-            trace.endStep(t, s, { ok: false, result: spent ? 'budget' : 'duplicate', detail: tool.echo(args) });
+            trace.endStep(t, s, { ok: false, result: reason, detail: tool.echo(args) });
             metrics.inc('toolBlocked');
             messages.push({ role: 'assistant', content: tool.echo(args) });
             messages.push({
                 role: 'user',
                 content: `[Hệ thống — người dùng KHÔNG thấy: công cụ "${tool.name}" KHÔNG chạy. ` +
-                    (spent ? `Bạn đã dùng hết lượt "${tool.name}" cho tin nhắn này.`
-                        : 'Bạn đã gọi đúng lệnh này rồi, gọi lại cũng không ra thêm gì.') +
+                    (BLOCK_REASONS[reason] || BLOCK_REASONS.budget) +
                     ' Sẽ KHÔNG có thêm dữ liệu mới nào nữa. TRẢ LỜI NGAY bằng đúng những gì đã tìm và ' +
                     'đọc được ở trên: nêu hết các chi tiết cụ thể bạn ĐÃ có, ' +
                     'rồi nói ngắn gọn phần nào chưa tra được. KHÔNG viết marker công cụ nữa. ' +
@@ -348,7 +428,11 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
                 // Only offer another search when one is actually left: inviting
                 // [[search]] with an empty budget makes the model spend its
                 // fix-up turn on a marker the loop will refuse.
-                const searchesLeft = Math.max(0, config.searchMaxPerMessage - (toolCounts.search || 0));
+                // "Left" means actually runnable: allowance minus spend, and
+                // zero once the stale/token gates have closed searching anyway.
+                const searchesLeft = (toolCtx.staleRounds >= config.searchStaleRounds || overTokens(0.6))
+                    ? 0
+                    : Math.max(0, toolCtx.searchAllowance - (toolCounts.search || 0));
                 messages.push({ role: 'assistant', content: text });
                 messages.push({
                     role: 'user',

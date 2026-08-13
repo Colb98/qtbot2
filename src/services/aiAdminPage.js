@@ -411,7 +411,9 @@ function stepMeta(s) {
   if (s.reason && s.reason !== 'classified') bits.push(s.reason);
   if (s.query) bits.push('"' + s.query + '"');
   if (s.backends && s.backends.length) bits.push(s.backends.join(', '));
-  if (s.results != null) bits.push(s.results + ' kết quả');
+  if (s.results != null) bits.push(s.results + ' kết quả' + (s.fresh != null ? ' (' + s.fresh + ' mới)' : ''));
+  if (s.stale) bits.push('⚠ trùng nguồn cũ');
+  if (s.planned != null) bits.push('kế hoạch ' + s.planned + ' truy vấn');
   if (s.pages) bits.push('trang ' + s.pages.join(','));
   if (s.fetched != null) bits.push('đọc được ' + s.fetched + '/' + s.total);
   if (s.style) bits.push('style: ' + s.style);

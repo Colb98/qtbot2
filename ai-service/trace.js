@@ -58,7 +58,8 @@ function stepLabel(s) {
     if (s.type === 'classify') return `classify:${s.result || '?'}`;
     if (s.type === 'sufficiency') return `sufficiency:${s.result || '?'}`;
     if (s.type === 'doc') return `doc:${s.name || '?'}`;
-    if (s.type === 'blocked') return `blocked:${s.name || '?'}`;
+    if (s.type === 'blocked') return `blocked:${s.name || '?'}(${s.result || '?'})`;
+    if (s.type === 'budget') return `budget:${s.result || '?'}`;
     return s.type;
 }
 
@@ -88,4 +89,4 @@ function get(id) {
     return ring.find((t) => t.id === id) || null;
 }
 
-module.exports = { start, step, endStep, finish, list, get };
+module.exports = { start, step, endStep, finish, list, get, tokenTotals };
