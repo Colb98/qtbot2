@@ -78,7 +78,10 @@ const config = {
     imageEnabled: process.env.AI_IMAGE_ENABLED !== 'false',
     imageMaxPerMessage: int('AI_IMAGE_MAX_PER_MESSAGE', 1),
     imagePromptMaxTokens: int('AI_IMAGE_PROMPT_MAX_TOKENS', 400), // prompt-craft call
-    imageTimeoutMs: int('AI_IMAGE_TIMEOUT_MS', 45000),
+    // Free-tier image models routinely need >45s (queueing + render), so the
+    // default is generous — the tool clamps it to the remaining request
+    // budget anyway, so a big value here can never outlive the request.
+    imageTimeoutMs: int('AI_IMAGE_TIMEOUT_MS', 120000),
     memoryEnabled: process.env.AI_MEMORY_ENABLED !== 'false',
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)
