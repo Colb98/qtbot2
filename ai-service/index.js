@@ -208,11 +208,19 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
                 // Ephemeral like the search turns: grounds every generation
                 // below but never enters the session or reaches Discord.
                 messages.push({ role: 'assistant', content: `[Task analysis]\n${analysis}` });
+                // The marker rule is spelled out here because this is the last
+                // instruction before generation (recency): a model that "planned"
+                // a tool call in its analysis must EMIT the marker now — not
+                // narrate the tool's result as if the call already happened.
                 messages.push({
                     role: 'user',
-                    content: '[Phân tích tác vụ ở trên là ghi chú nội bộ — người dùng KHÔNG thấy. ' +
-                        `Dùng nó để trả lời ${name} cho ĐÚNG; giọng điệu theo SOUL của bạn, tiếng Việt. ` +
-                        'Vẫn có thể dùng [[search: ...]] nếu cần.]',
+                    content: '[Phân tích tác vụ ở trên là ghi chú nội bộ — người dùng KHÔNG thấy, ' +
+                        'và CHƯA có công cụ nào chạy cả. ' +
+                        'Nếu bước tiếp theo cần công cụ (tìm web, vẽ hình...), reply của bạn phải là ' +
+                        'CHÍNH XÁC một dòng marker công cụ đó (vd [[search: ...]] hoặc [[image: ...]]), ' +
+                        'không thêm chữ nào — KHÔNG được kể kết quả khi công cụ chưa chạy. ' +
+                        `Nếu không cần công cụ, dùng phân tích để trả lời ${name} cho ĐÚNG; ` +
+                        'giọng điệu theo SOUL của bạn, tiếng Việt.]',
                 });
             }
         }

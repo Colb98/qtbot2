@@ -58,7 +58,8 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
                     usage: { prompt_tokens: 1, completion_tokens: 8 },
                 }));
             }
-            const label = last.includes('SUY_LUẬN') ? 'RESEARCH' : last.includes('TÌNH_HUỐNG') ? 'SOCIAL' : 'NOW';
+            const label = last.includes('SUY_LUẬN') ? 'RESEARCH' : last.includes('TÌNH_HUỐNG') ? 'SOCIAL'
+                : last.includes('TOOL_VẼ') ? 'DRAW' : 'NOW';
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
                 choices: [{ message: { content: label } }],
@@ -774,6 +775,17 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     });
     assert.strictEqual(bad33.status, 400, 'groq is not an image provider');
     console.log('ok 33d — daily limit enforced + dashboard config roundtrip validated');
+
+    // 33e. DRAW classification: a long draw request must route to 'immediate'
+    // (the reply engine emits [[image]] directly) — NOT into the research
+    // analysis detour, which made models narrate an image that never rendered.
+    const c33e = await (await chat(msgFor('chanVeDai', 'TOOL_VẼ vẽ giúp tao con mèo đen mặc kimono cầm kiếm ngầu nhé?'))).json();
+    assert.strictEqual(c33e.images.length, 1, 'DRAW-classified request must produce an image');
+    const t33e = (await getTraces()).traces[0];
+    assert.ok(t33e.steps.includes('classify:immediate'), `steps: ${t33e.steps}`);
+    assert.ok(!t33e.steps.includes('analyze'), 'draw requests must not pay the analysis detour');
+    assert.ok(t33e.steps.includes('image'), `steps: ${t33e.steps}`);
+    console.log('ok 33e — draw requests classify DRAW → marker emitted directly, no analysis detour');
 
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.

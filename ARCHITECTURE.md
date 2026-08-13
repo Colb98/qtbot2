@@ -226,8 +226,12 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   user turns stored/sent as "DisplayName: content" (multi-speaker)
     reasoning.js  adaptive reasoning, personality applied exactly ONCE (at
                   reply time). A tiny classifier (max ~8 tokens) routes each
-                  message: NOW (banter — answer directly), SOCIAL, THINK or
-                  RESEARCH. SOCIAL = one persona pass whose output IS the final
+                  message: NOW (banter — answer directly), SOCIAL, DRAW
+                  (image request → 'immediate', so the reply engine emits the
+                  [[image]] marker directly — the analysis detour made models
+                  "plan" the marker in notes and then narrate an image that
+                  never rendered), THINK or RESEARCH.
+                  SOCIAL = one persona pass whose output IS the final
                   reply, gated by verify() — a PASS/FAIL checker (never a
                   rewriter; polish passes flatten replies): PASS ships the
                   draft verbatim (no second generation, no search loop), FAIL

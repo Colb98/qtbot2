@@ -29,6 +29,7 @@ const CLASSIFIER_SYSTEM =
     'NOW — banter, greetings, reactions, simple known facts, short follow-ups.\n' +
     'SOCIAL — refusals, boundaries, drama, roasts, requests aimed at the bot itself ' +
     '(kick/ban someone, give money/roles, do admin things), sensitive social situations.\n' +
+    'DRAW — the user asks the bot to draw/create an image or picture.\n' +
     'THINK — logic, math, comparisons, planning that can be answered from the conversation ' +
     'without looking anything up.\n' +
     'RESEARCH — needs facts you may not have: news, prices, game builds/meta/guides, ' +
@@ -52,7 +53,9 @@ const SOCIAL_INSTRUCTION =
 // '[Task analysis' — keep in sync.
 const ANALYZE_HEADER =
     '[Task analysis — NOT a reply. Do NOT draft the response. Do NOT imitate the ' +
-    'bot\'s personality. Do NOT write anything addressed to the user.] ' +
+    'bot\'s personality. Do NOT write anything addressed to the user. Do NOT write ' +
+    'tool markers ("[[...]]") — markers only work when the REPLY engine emits them, ' +
+    'so plan tool use in plain words.] ' +
     'Analyze only what is necessary to answer correctly. Return concise telegraphic ' +
     'lines in ENGLISH:\n' +
     'intent: what the user actually needs\n' +
@@ -117,7 +120,11 @@ async function classify({ history, summary, userText, name, trace: t }) {
         return { mode: 'immediate', reason };
     }
 
-    const MODES = { NOW: 'immediate', SOCIAL: 'social', THINK: 'think', RESEARCH: 'research' };
+    // DRAW routes to 'immediate' on purpose: a draw request needs the reply
+    // engine to emit the [[image]] marker DIRECTLY (the tool loop handles the
+    // rest) — the research/analysis detour made models "plan" the marker in
+    // their notes and then describe the image instead of requesting it.
+    const MODES = { NOW: 'immediate', SOCIAL: 'social', DRAW: 'immediate', THINK: 'think', RESEARCH: 'research' };
 
     const recent = history.slice(-config.reasoningContextTurns)
         .map((m) => `${m.role === 'user' ? (m.name || 'user') : 'bot'}: ${clipTurn(m.content, 200)}`)
@@ -133,7 +140,7 @@ async function classify({ history, summary, userText, name, trace: t }) {
             { role: 'system', content: CLASSIFIER_SYSTEM },
             { role: 'user', content },
         ], { maxTokens: config.reasoningClassifierMaxTokens, temperature: 0, noThink: true, timeoutMs: config.reasoningTimeoutMs, role: 'fast' });
-        const m = /\b(RESEARCH|SOCIAL|THINK|NOW)\b/i.exec(text);
+        const m = /\b(RESEARCH|SOCIAL|DRAW|THINK|NOW)\b/i.exec(text);
         const mode = m ? MODES[m[1].toUpperCase()] : 'immediate'; // garbage → immediate
         trace.endStep(t, s, { ok: true, result: mode, reason: 'classified', provider, model, attempts, detail: text });
         metrics.inc(`classify${mode[0].toUpperCase()}${mode.slice(1)}`);
