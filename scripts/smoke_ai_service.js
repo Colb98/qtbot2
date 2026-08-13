@@ -175,6 +175,21 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         // turns too — only treat them as "start a search" while no tool data
         // (results/pages) has arrived yet.
         const sawToolData = last.includes('Search results') || last.includes('[Page contents') || last.includes('Facts extracted');
+        // Blocked-tool drill (test 31c): the model keeps asking for a NEW
+        // search after its per-message budget is spent. The loop must TELL it
+        // ("KHÔNG chạy") rather than drop the marker — a dropped marker strips
+        // to '' and ships the canned "couldn't find it" on top of data we had.
+        if (JSON.stringify(body.messages).includes('HẾT_LƯỢT')) {
+            const all = JSON.stringify(body.messages);
+            const done = (all.match(/\[\[search: hết lượt/g) || []).length;
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: all.includes('KHÔNG chạy')
+                    ? 'TRẢ LỜI TỪ DỮ LIỆU ĐÃ CÓ: toạ độ 1253,1377.'
+                    : `[[search: hết lượt ${done + 1}]]` } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
         if (last.includes('DÙNG_SEARCH_GAME') && !sawToolData) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
@@ -719,6 +734,21 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
     assert.ok(!JSON.stringify(disk31['ch:g1:chansuff']).includes('TRẢ LỜI CỤT'),
         'the incomplete draft must never enter the session');
     console.log('ok 31b — sufficiency gate catches the skipped sub-question, nudge stays ephemeral');
+
+    // 31c. Spent tool budget: the model asks for a 4th search when only 3 are
+    // allowed. The loop must not swallow the marker — a swallowed marker is a
+    // reply made of nothing, which stripAll() turns into the canned "couldn't
+    // find it" even though pages were already read. It gets told, and answers.
+    const c31c = await (await chat(msgFor('chanhet', 'SUY_LUẬN HẾT_LƯỢT chỉ tao 5 kỳ ngộ trong bản mới đi'))).json();
+    assert.strictEqual(c31c.searchQueries.length, 3,
+        `budget is 3 searches, got ${JSON.stringify(c31c.searchQueries)}`);
+    assert.ok(c31c.text.includes('TRẢ LỜI TỪ DỮ LIỆU ĐÃ CÓ'),
+        `blocked model must answer from what it has, got: ${c31c.text.slice(0, 120)}`);
+    assert.ok(!c31c.text.includes('Mình tìm chưa ra thông tin'),
+        'a spent budget must never fall through to the canned no-result reply');
+    const t31c = (await getTraces()).traces[0];
+    assert.ok(t31c.steps.includes('blocked:search'), `steps: ${t31c.steps}`);
+    console.log('ok 31c — a refused tool call is reported to the model, not silently dropped');
 
     // 33. Image tool: user asks to draw → model emits [[image: ...]] → prompt
     // craft (stage 1) → openrouter adapter (stage 2) → the PNG rides the

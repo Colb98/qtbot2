@@ -7,6 +7,8 @@ const CHANGELOG = {
         changes: [
             '🔍 **Hỏi một lượt nhiều mục là bot tách ra tra** — kiểu "chỉ tao làm 5 kỳ ngộ A, B, C, D, E" thì trước đây bot nhồi cả 5 cái tên vào một câu tìm kiếm rồi ra con số không. Giờ bot nhận ra đây là một danh sách: nếu cả 5 cùng một bản đồ/phiên bản thì tra thẳng cái "gốc" đó rồi đọc guide bao trọn, không thì tra lần lượt từng cái.',
             '🗒️ **Tra không đủ thì nói thẳng còn thiếu mục nào** — thay vì báo "không tìm thấy" cho cả cụm, bot trả lời những mục đã tra được và ghi rõ mục nào chưa có.',
+            '🐛 **Hết lượt tìm kiếm không còn "nuốt" luôn câu trả lời** — trước đây khi bot xài hết lượt tra cứu mà vẫn đòi tra tiếp, hệ thống lặng lẽ bỏ qua và bot trả về đúng một câu "tìm chưa ra thông tin" — dù trước đó đã đọc được cả trang có toạ độ. Giờ bot được báo là hết lượt và phải trả lời bằng đúng những gì đã tra được, thiếu chỗ nào thì nói rõ chỗ đó.',
+            '📊 **Bot biết mình còn mấy lượt tra** — sau mỗi lần tìm kiếm bot được cho biết còn bao nhiêu lượt, nên bớt xài phí vào những câu tìm gần trùng nhau.',
             '🧰 **Trang quản trị AI: nút Copy JSON cho từng yêu cầu** — admin mở chi tiết một yêu cầu là copy được toàn bộ nhật ký các bước dưới dạng JSON nén một dòng, dán thẳng đi soi lỗi.'
         ]
     },

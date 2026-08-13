@@ -58,6 +58,7 @@ function stepLabel(s) {
     if (s.type === 'classify') return `classify:${s.result || '?'}`;
     if (s.type === 'sufficiency') return `sufficiency:${s.result || '?'}`;
     if (s.type === 'doc') return `doc:${s.name || '?'}`;
+    if (s.type === 'blocked') return `blocked:${s.name || '?'}`;
     return s.type;
 }
 

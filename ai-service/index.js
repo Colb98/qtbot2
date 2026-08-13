@@ -246,6 +246,7 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     const toolCounts = {};        // per-tool call counts (per-tool caps)
     let toolSteps = 0;            // global step budget across all tools
     let sufficiencyChecked = false;
+    let blockedNudges = 0;        // "your budget is spent, answer now" pushes
     while (!shipped && !overBudget()) {
         // All tools whose marker matches, registry order; take the first one
         // that is allowed to run. A blocked candidate (dupe/cap/unauthorized)
@@ -253,8 +254,9 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
         // fresh [[read]]. Least privilege (§6): a sideEffect tool runs only
         // when its authorized() gate — keyed on the USER's own message, which
         // web content can never rewrite — says the user asked for it.
-        const act = tools.match(text, toolCtx).find(({ tool, args }) =>
-            (tool.sideEffect === 'none' || (tool.authorized && tool.authorized(args, toolCtx))) &&
+        const candidates = tools.match(text, toolCtx).filter(({ tool, args }) =>
+            tool.sideEffect === 'none' || (tool.authorized && tool.authorized(args, toolCtx)));
+        const act = candidates.find(({ tool, args }) =>
             !dedupe.has(tool.dedupeKey(args, toolCtx)) &&
             (toolCounts[tool.name] || 0) < tool.maxPerMessage());
         if (act && toolSteps < config.toolMaxSteps) {
@@ -308,6 +310,33 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
             ({ text, provider } = await generateChatResponse(messages, { trace: t }));
             continue;
         }
+        // The model DID ask for a tool, but the loop refuses to run it (budget
+        // spent, or this exact call already ran). Dropping the marker silently
+        // is how a good request dies: the reply IS the marker, stripAll() turns
+        // it into '', and the user gets the canned "couldn't find it" on top of
+        // pages we already read. The model cannot see its own budget — so tell
+        // it, and make it answer from what it already has.
+        if (!act && candidates.length && blockedNudges < 2) {
+            blockedNudges++;
+            const { tool, args } = candidates[0];
+            const spent = (toolCounts[tool.name] || 0) >= tool.maxPerMessage() || toolSteps >= config.toolMaxSteps;
+            const s = trace.step(t, 'blocked', { name: tool.name });
+            trace.endStep(t, s, { ok: false, result: spent ? 'budget' : 'duplicate', detail: tool.echo(args) });
+            metrics.inc('toolBlocked');
+            messages.push({ role: 'assistant', content: tool.echo(args) });
+            messages.push({
+                role: 'user',
+                content: `[Hệ thống — người dùng KHÔNG thấy: công cụ "${tool.name}" KHÔNG chạy. ` +
+                    (spent ? `Bạn đã dùng hết lượt "${tool.name}" cho tin nhắn này.`
+                        : 'Bạn đã gọi đúng lệnh này rồi, gọi lại cũng không ra thêm gì.') +
+                    ' Sẽ KHÔNG có thêm dữ liệu mới nào nữa. TRẢ LỜI NGAY bằng đúng những gì đã tìm và ' +
+                    'đọc được ở trên: nêu hết các chi tiết cụ thể bạn ĐÃ có, ' +
+                    'rồi nói ngắn gọn phần nào chưa tra được. KHÔNG viết marker công cụ nữa. ' +
+                    'KHÔNG nói "không tìm thấy" khi bạn đã có dù chỉ một phần thông tin.]',
+            });
+            ({ text, provider } = await generateChatResponse(messages, { trace: t }));
+            continue;
+        }
         // No tool request → this is a candidate final answer. Research mode
         // gets ONE sufficiency check (spec §8): the direct fix for "answered
         // but skipped a sub-question" on multi-part questions. A miss buys one
@@ -316,12 +345,20 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
             sufficiencyChecked = true;
             const { covered, missing } = await reasoning.checkSufficiency({ userText, draftText: text, trace: t });
             if (!covered) {
+                // Only offer another search when one is actually left: inviting
+                // [[search]] with an empty budget makes the model spend its
+                // fix-up turn on a marker the loop will refuse.
+                const searchesLeft = Math.max(0, config.searchMaxPerMessage - (toolCounts.search || 0));
                 messages.push({ role: 'assistant', content: text });
                 messages.push({
                     role: 'user',
                     content: '[Kiểm tra nội bộ — người dùng KHÔNG thấy: câu trả lời trên bỏ sót: ' +
                         `${missing || 'một phần câu hỏi'}. Trả lời lại ĐẦY ĐỦ các phần; ` +
-                        'có thể dùng [[search: ...]] với từ khoá mới nếu thiếu dữ kiện.]',
+                        (searchesLeft > 0
+                            ? 'có thể dùng [[search: ...]] với từ khoá mới nếu thiếu dữ kiện.]'
+                            : 'bạn đã HẾT lượt tìm kiếm — viết câu trả lời đầy đủ từ dữ liệu đã đọc ' +
+                              'ở trên, phần nào không có thì nói ngắn gọn là chưa tra được. ' +
+                              'KHÔNG viết marker công cụ nữa.]'),
                 });
                 ({ text, provider } = await generateChatResponse(messages, { trace: t }));
                 continue;

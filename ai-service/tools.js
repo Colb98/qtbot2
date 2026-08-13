@@ -49,6 +49,20 @@ const search = require('./search');
 const images = require('./images');
 const metrics = require('./metrics');
 
+// The model cannot see its own budget, so it burns searches on near-repeats and
+// then keeps asking for calls the loop refuses. Every search/read follow-up ends
+// with the count that is actually left (index.js hard-stops it at zero).
+function searchesLeft(ctx) {
+    return Math.max(0, config.searchMaxPerMessage - ctx.searchQueries.length);
+}
+
+function budgetNote(ctx) {
+    const left = searchesLeft(ctx);
+    return left > 0
+        ? ` [Budget: ${left} more [[search]] this message — make each one count, never repeat a query you already ran.]`
+        : ' [Budget: NO searches left. Answer NOW from what you already have; name the parts you could not cover.]';
+}
+
 const TOOLS = [
     {
         name: 'search',
@@ -74,7 +88,7 @@ const TOOLS = [
             return {
                 observation: block,
                 source: 'web search results',
-                followup,
+                followup: (followup + budgetNote(ctx)).trim(), // followup is '' on empty/video-only results
                 topic: args.query,
                 ok: results.length > 0,
                 meta: { query: args.query, backends: used, results: results.length },
@@ -119,8 +133,10 @@ const TOOLS = [
             return {
                 observation,
                 source,
-                followup: 'If a part of the question is still unanswered, you may [[search: ...]] again ' +
-                    'using what you just learned; otherwise answer now.',
+                followup: (searchesLeft(ctx) > 0
+                    ? 'If a part of the question is still unanswered, you may [[search: ...]] again ' +
+                      'using what you just learned; otherwise answer now.'
+                    : 'Write the final answer now.') + budgetNote(ctx),
                 ok: fetched > 0,
                 meta: { pages: args.indices, fetched, total },
             };
