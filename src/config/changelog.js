@@ -1,6 +1,13 @@
-const CURRENT_VERSION = '3.29.0';
+const CURRENT_VERSION = '3.29.1';
 
 const CHANGELOG = {
+    '3.29.1': {
+        date: '2026-08-14',
+        title: 'Bot hết loạn xưng hô',
+        changes: [
+            '🗣️ **Một câu trả lời chỉ dùng đúng một cặp xưng hô** — trước đây bot hay nói kiểu "chịu hết rồi sếp ơi" xong quay ra "cậu cũng rảnh thật", nghe như hai người khác nhau. Giờ bot chọn đúng một cặp (tao–mày, tớ–cậu hoặc em–sếp) theo cách người đang chat xưng hô, và giữ nguyên từ đầu đến cuối câu.'
+        ]
+    },
     '3.29.0': {
         date: '2026-08-13',
         title: 'Bot tự liệu cơm gắp mắm khi tra cứu',
