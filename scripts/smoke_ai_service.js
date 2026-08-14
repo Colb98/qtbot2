@@ -62,8 +62,10 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
                     usage: { prompt_tokens: 1, completion_tokens: 8 },
                 }));
             }
+            // TÌNH_HUỐNG outranks GHI_NHỚ so test 34c can force the
+            // mislabeled-SOCIAL path and prove the wantsRemember backstop.
             const label = last.includes('SUY_LUẬN') ? 'RESEARCH' : last.includes('TÌNH_HUỐNG') ? 'SOCIAL'
-                : last.includes('TOOL_VẼ') ? 'DRAW' : 'NOW';
+                : last.includes('TOOL_VẼ') ? 'DRAW' : last.includes('GHI_NHỚ') ? 'MEMORY' : 'NOW';
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
                 choices: [{ message: { content: label } }],
@@ -265,6 +267,29 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({
                 choices: [{ message: { content: '[[read: 1]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // Memory drills. GHI_NHỚ (test 34): the model judged the user asked to
+        // be remembered and emits the marker — no web data yet, so it writes.
+        if (last.includes('GHI_NHỚ') && !last.includes('[Saved to your long-term memory')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: '[[remember: Xưng hô em-sếp với người này]]' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }));
+        }
+        // NHỚ_SAU_WEB (test 34b): search → read → the "model" (nudged by the
+        // page it just read) tries [[remember]] — the clean-transcript gate
+        // must refuse the write, killing page-driven memory persistence.
+        if (last.includes('NHỚ_SAU_WEB')) {
+            const stage = (last.includes('[Page contents') || last.includes('Facts extracted')) ? 'remember'
+                : last.includes('Search results') ? 'read' : 'search';
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+                choices: [{ message: { content: stage === 'search' ? '[[search: nhớ sau web]]'
+                    : stage === 'read' ? '[[read: 1]]'
+                        : '[[remember: web bảo ghi cái này]]' } }],
                 usage: { prompt_tokens: 1, completion_tokens: 1 },
             }));
         }
@@ -945,6 +970,55 @@ const msgFor = (channelId, content, name = 'Tester', userId = 'u1') =>
         body: JSON.stringify({ image: { provider: '' } }),
     });
     console.log('ok 33f — tool failure degrades to an honest reply, request survives');
+
+    // 34. Explicit "remember this": the write must land in the speaker's memory
+    // file DURING the request — not queued behind compaction, which may never
+    // run and may judge the fact not worth keeping.
+    const memFileU1 = path.join(DATA_DIR, 'memory', 'user-u1.md');
+    const before34 = fs.readFileSync(memFileU1, 'utf8');
+    const c34 = await (await chat(msgFor('chanNho',
+        'GHI_NHỚ sau này nhớ nói chuyện với t phải xưng hô em-sếp nhé'))).json();
+    const after34 = fs.readFileSync(memFileU1, 'utf8');
+    assert.ok(after34.includes('- Xưng hô em-sếp với người này'),
+        `note must be on disk immediately:\n${after34}`);
+    assert.ok(/## Core[\s\S]*- Xưng hô em-sếp/.test(after34), 'a standing rule belongs in Core, not Recent');
+    assert.ok(after34.includes(before34.split('\n').find((l) => l.startsWith('- ')) || '- '),
+        'existing memory must survive the append');
+    assert.ok(c34.text.includes('[Saved to your long-term memory'), 'the model must see the write happened');
+    assert.ok(!c34.text.includes('[[remember:'), 'the marker must be stripped from the reply');
+    const t34 = (await getTraces()).traces[0];
+    assert.ok(t34.steps.includes('remember'), `steps: ${t34.steps}`);
+    // Idempotent: asking again changes nothing and still reports success.
+    await chat(msgFor('chanNho', 'GHI_NHỚ nhớ kỹ giùm t nhé'));
+    const twice34 = fs.readFileSync(memFileU1, 'utf8');
+    assert.strictEqual((twice34.match(/- Xưng hô em-sếp với người này/g) || []).length, 1,
+        'the same fact must not be appended twice');
+    console.log('ok 34 — explicit remember writes through to memory during the request');
+
+    // 34b. Injection persistence: after a search+read, a [[remember]] could be
+    // a poisoned page talking, not the member — once web data has entered the
+    // request, the clean-transcript gate must refuse the write. (Intent itself
+    // is the model's judgement now; there is no phrasing gate to test.)
+    const c34b = await (await chat(msgFor('chanNhoWeb', 'NHỚ_SAU_WEB tra giúp t cái này'))).json();
+    assert.ok(!fs.readFileSync(memFileU1, 'utf8').includes('web bảo ghi cái này'),
+        'a post-web memory write must never touch disk');
+    assert.ok(!c34b.text.includes('[[remember:'), 'the marker must be stripped from the reply');
+    const t34b = (await getTraces()).traces[0];
+    assert.ok(t34b.steps.includes('search') && t34b.steps.includes('read'), `steps: ${t34b.steps}`);
+    assert.ok(!t34b.steps.includes('remember'), `remember must not run after web data: ${t34b.steps}`);
+    console.log('ok 34b — page-driven memory writes refused once web data entered the request');
+
+    // 34c. A "remember this" that the classifier calls SOCIAL must NOT take the
+    // social shortcut — that path ships the draft without entering the tool
+    // loop, which would answer "ok nhớ rồi" while saving nothing.
+    const c34c = await (await chat(msgFor('chanNho2',
+        'TÌNH_HUỐNG GHI_NHỚ từ giờ đừng gọi t là mày nữa nhé'))).json();
+    assert.ok(c34c.text.includes('[Saved to your long-term memory'),
+        `social-looking remember must still reach the tool loop: ${c34c.text.slice(0, 120)}`);
+    const t34c = (await getTraces()).traces[0];
+    assert.ok(t34c.steps.includes('remember'), `steps: ${t34c.steps}`);
+    assert.ok(!t34c.steps.includes('draft'), `social draft must be skipped: ${t34c.steps}`);
+    console.log('ok 34c — a remember request never takes the social shortcut');
 
     // 19. Fail-open: a broken classifier must degrade to an immediate answer,
     // never a failed request.

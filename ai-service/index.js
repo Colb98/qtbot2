@@ -178,7 +178,7 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
     // results without the loop knowing either tool. `images` collects
     // artifacts (spec §5): bytes for the user, never for the model.
     const toolCtx = {
-        userText, name, sessionKey, history, trace: t,
+        userText, name, userId, sessionKey, history, trace: t,
         lastResults: [], searchQueries: [], pagesRead: 0, images: [],
         // Allocated from the analysis plan below; until then, the flat cap.
         searchAllowance: config.searchMaxPerMessage,
@@ -190,7 +190,11 @@ async function runChatSteps(t, sessionKey, { guildId, channelId, userId, name, u
         remainingMs: () => Math.max(0, config.chatBudgetMs - (Date.now() - started)),
     };
 
-    if (mode === 'social') {
+    // A social draft SHIPS — it never enters the tool loop. So a message that
+    // asks to be remembered must not take that shortcut, however social it
+    // looks to the classifier, or the bot answers "ok nhớ rồi" and saves
+    // nothing. Deterministic gate on the user's own words, not a prompt tweak.
+    if (mode === 'social' && !tools.wantsRemember(userText)) {
         const draft = await reasoning.socialReply({ messages, trace: t });
         if (draft) {
             const { pass, reason } = await reasoning.verify({ userText, draftText: draft.text, trace: t });

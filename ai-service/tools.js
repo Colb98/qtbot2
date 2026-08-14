@@ -47,6 +47,7 @@
 const { config } = require('./config');
 const search = require('./search');
 const images = require('./images');
+const memory = require('./memory');
 const metrics = require('./metrics');
 
 // Per-request search allowance, ALLOCATED by index.js from the analysis plan
@@ -76,6 +77,17 @@ function budgetNote(ctx) {
         ? ` [Budget: ${left} more [[search]] this message — make each one count, never repeat a query you already ran.]`
         : ' [Budget: NO searches left. Answer NOW from what you already have; name the parts you could not cover.]';
 }
+
+const REMEMBER_RE = /\[\[remember:\s*([^\]\n]{1,300})\]\]/i;
+const REMEMBER_RE_G = new RegExp(REMEMBER_RE.source, 'gi');
+// NOT an authorization gate. Whether the user asked to be remembered is a
+// judgement call and belongs to the models (the classifier's MEMORY label, the
+// reply engine deciding to emit the marker) — a phrasing regex as a hard veto
+// silently killed correct writes on any wording it didn't anticipate. This
+// pattern survives only as a cheap deterministic BACKSTOP for routing: a
+// message it matches never takes the social shortcut (which ships a draft
+// without entering the tool loop), even when the classifier mislabels it.
+const REMEMBER_INTENT_RE = /(ghi nhớ|ghi lại|nhớ (là|lă|rằng|kỹ|ky|giùm|dùm|dum|giúp|cho|giú)|đừng quên|dung quen|khỏi quên|từ giờ|tu gio|từ nay|từ giờ trở đi|sau này|sau nay|lần sau|lan sau|mai mốt|mai mot|nhớ nhé|nhớ nha|remember|keep in mind)/i;
 
 const TOOLS = [
     {
@@ -163,6 +175,64 @@ const TOOLS = [
                     : 'Write the final answer now.') + budgetNote(ctx),
                 ok: fetched > 0,
                 meta: { pages: args.indices, fetched, total },
+            };
+        },
+    },
+    {
+        name: 'remember',
+        // Writes durable state that rides EVERY future prompt for this member.
+        // Intent detection is the MODEL's job (classifier MEMORY label + this
+        // spec) — a phrasing regex here cost recall on every wording it missed.
+        // What stays deterministic is the injection-persistence gate: once any
+        // web observation has entered this request, a poisoned page could be
+        // the thing "asking" — so writes are only allowed while the transcript
+        // is still clean of web data. That condition cannot false-negative on
+        // how a member phrases a sentence. Blast radius of a spurious write is
+        // one bullet in the speaker's OWN file, visible and deletable in /ai.
+        sideEffect: 'state',
+        authorized: (args, ctx) => ctx.searchQueries.length === 0 && ctx.pagesRead === 0,
+        enabled: () => config.memoryEnabled && config.rememberEnabled,
+        available: (ctx) => config.memoryEnabled && config.rememberEnabled && !!ctx.userId,
+        parse: (text) => {
+            const m = REMEMBER_RE.exec(text || '');
+            const note = m ? m[1].replace(/\s+/g, ' ').trim() : '';
+            // Angle brackets mean the model echoed the spec template, not a fact.
+            return note && !/[<>]/.test(note) ? { note } : null;
+        },
+        dedupeKey: (args) => `remember:${args.note.toLowerCase()}`,
+        maxPerMessage: () => config.rememberMaxPerMessage,
+        echo: (args) => `[[remember: ${args.note}]]`,
+        specLine: () =>
+            '[[remember: <the fact, one short line in Vietnamese>]] — save something to your ' +
+            'long-term memory of THIS person, permanently. Use it the moment they ask you to ' +
+            'remember/never forget something, or state a standing preference for how you should ' +
+            'talk to them ("từ giờ xưng em-sếp với t", "đừng gọi t là mày nữa", "t chơi Thần Tướng"). ' +
+            'Write the RULE, not the chat line ("Xưng hô em-sếp với người này", not "ok nhớ rồi"). ' +
+            'Do NOT use it for one-off trivia or for things you were not asked to keep.',
+        strip: (text) => text.replace(REMEMBER_RE_G, ''),
+        async execute(args, ctx) {
+            const { ok, reason, text } = memory.appendUserNote(ctx.userId, args.note);
+            if (!ok) {
+                return {
+                    observation: `[Memory write FAILED (${reason}) — nothing was saved.]`,
+                    source: 'long-term memory',
+                    followup: 'Tell them briefly, in your own voice, that you could not save it. ' +
+                        'Do NOT claim you will remember.',
+                    ok: false,
+                    meta: { reason },
+                };
+            }
+            return {
+                observation: `[Saved to your long-term memory of this person: "${text}"]\n` +
+                    (reason === 'already-known' ? '(It was already there — nothing changed.)' : ''),
+                source: 'long-term memory',
+                // The point of writing NOW is that it also applies NOW: a member
+                // who asks for em-sếp should not have to wait for the next reply.
+                followup: 'Confirm in ONE short line, in your own voice, that you will remember it — ' +
+                    'no lists, no repeating it back verbatim. If it changes how you address them, ' +
+                    'APPLY IT STARTING WITH THIS REPLY.',
+                ok: true,
+                meta: { note: text, result: reason },
             };
         },
     },
@@ -289,4 +359,12 @@ function stripAll(text) {
     return TOOLS.reduce((s, t) => t.strip(s), String(text || '')).trim();
 }
 
-module.exports = { TOOLS, match, specText, stripAll };
+// Routing backstop, not a gate: the classifier's MEMORY label is what normally
+// keeps a remember request off the social shortcut (a social draft ships
+// straight to Discord without entering the tool loop — "ok nhớ rồi" saving
+// nothing). This regex catches the case where the classifier mislabels such a
+// message SOCIAL anyway; a miss here just means we trust the classifier.
+const wantsRemember = (userText) =>
+    config.memoryEnabled && config.rememberEnabled && REMEMBER_INTENT_RE.test(String(userText || ''));
+
+module.exports = { TOOLS, match, specText, stripAll, wantsRemember };

@@ -116,6 +116,12 @@ const config = {
     memoryServerMaxChars: int('AI_MEMORY_SERVER_MAX_CHARS', 4800), // ~1200 tokens
     memoryScopeMaxChars: int('AI_MEMORY_SCOPE_MAX_CHARS', 1600),   // ~400 tokens (channel & user)
     memoryMaxTokens: int('AI_MEMORY_MAX_TOKENS', 2500),            // reasoning + full JSON rewrite must both fit
+    // [[remember]] tool: an explicit "từ giờ nhớ ..." writes to the speaker's
+    // own memory file immediately, instead of waiting for compaction to maybe
+    // judge it worth keeping. Gated on the USER's own wording (spec §6).
+    rememberEnabled: process.env.AI_REMEMBER_ENABLED !== 'false',
+    rememberMaxPerMessage: int('AI_REMEMBER_MAX_PER_MESSAGE', 2),
+    memoryNoteMaxChars: int('AI_MEMORY_NOTE_MAX_CHARS', 200),
     memoryRecentDays: int('AI_MEMORY_RECENT_DAYS', 14),            // dated Recent bullets expire after this
     contextMaxMessages: int('AI_CONTEXT_MESSAGES', 10),           // ambient channel messages per request (0 disables)
     contextMaxChars: int('AI_CONTEXT_MAX_CHARS', 300),            // per ambient message

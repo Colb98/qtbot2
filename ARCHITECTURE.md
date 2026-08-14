@@ -423,7 +423,25 @@ qtbot-ai (ai-service/, 127.0.0.1:3001 — must NEVER bind publicly)
                   AI_MEMORY_RECENT_DAYS unless the topic recurs → promoted to
                   Core). pruneExpired() enforces the expiry in code even when
                   the model ignores it. The model may only write files of users
-                  who spoke in the chunk. Retrieval per message: server + this
+                  who spoke in the chunk.
+                  SECOND write path — appendUserNote(), behind the [[remember]]
+                  tool: compaction is a LATER judgement call that may drop the
+                  fact and may not run for a long time, which is the wrong
+                  answer to "từ giờ nhớ xưng em-sếp với t". That write is
+                  synchronous, deterministic (no LLM decides whether to keep
+                  it), appends one ## Core bullet to the SPEAKER'S OWN file,
+                  dedupes, and evicts the oldest dated Recent bullets if the
+                  scope cap is in the way. INTENT is model judgement (the
+                  classifier's MEMORY label + the reply engine emitting the
+                  marker) — a phrasing regex as a hard veto cost recall on any
+                  wording it missed. The deterministic gate that remains is
+                  about injection persistence, not wording: [[remember]] only
+                  runs while the request's transcript is still clean of web
+                  data (no search/read yet), so a poisoned page can never be
+                  the thing "asking" to plant a durable memory. MEMORY-labeled
+                  (or remember-phrased, as backstop) messages are kept off the
+                  social shortcut, which ships a reply without entering the
+                  tool loop. Retrieval per message: server + this
                   channel + the speaker ONLY — other users' memory never enters
                   the prompt. Updates serialize per guild; failures skip
                   harmlessly. Admin CRUD via GET|PUT|DELETE /admin/memory (name
@@ -487,7 +505,12 @@ exposure). Trace/LLM text is rendered with `textContent` only — never innerHTM
   `AI_PROVIDER_COOLDOWN_MS`, `AI_PROVIDER_ORDER`, `AI_SESSION_MAX_MESSAGES`,
   `AI_SESSION_MAX_TOKENS`, `AI_SESSION_QUEUE_DEPTH`, `AI_COMPACTION_ENABLED`,
   `AI_COMPACT_THRESHOLD_TOKENS`, `AI_COMPACT_MAX_MESSAGES`, `AI_COMPACT_KEEP_RECENT`, `AI_SUMMARY_MAX_TOKENS`,
-  `AI_MEMORY_ENABLED`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
+  `AI_MEMORY_ENABLED`, `AI_REMEMBER_ENABLED` (the [[remember]] tool: an explicit
+  "từ giờ nhớ ..." — any wording, intent judged by the classifier's MEMORY
+  label — writes to the speaker's own memory file synchronously instead of
+  waiting for compaction to maybe keep it; refused once the request has read
+  web data), `AI_REMEMBER_MAX_PER_MESSAGE`,
+  `AI_MEMORY_NOTE_MAX_CHARS`, `AI_MEMORY_SERVER_MAX_CHARS`, `AI_MEMORY_SCOPE_MAX_CHARS`,
   `AI_MEMORY_MAX_TOKENS`, `AI_MEMORY_RECENT_DAYS`, `AI_CONTEXT_MESSAGES` (ambient channel messages per
   request, 0 disables — read by both bot and service), `AI_CONTEXT_MAX_CHARS`,
   `AI_DOCS_ENABLED` (on-demand reference docs), `AI_REASONING_ENABLED`, `AI_REASONING_MIN_CHARS`,

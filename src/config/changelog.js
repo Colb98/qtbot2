@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '3.29.1';
+const CURRENT_VERSION = '3.30.0';
 
 const CHANGELOG = {
+    '3.30.0': {
+        date: '2026-08-14',
+        title: 'Nhờ bot nhớ là bot nhớ thật',
+        changes: [
+            '🧠 **Bảo bot ghi nhớ là nó ghi ngay lúc đó** — nói kiểu "từ giờ nhớ xưng em-sếp với t nhé", "đừng gọi t là mày nữa", "nhớ giùm t là t chơi Thần Tướng" là bot lưu thẳng vào trí nhớ dài hạn của riêng sếp ngay trong câu trả lời đó, và áp dụng luôn từ câu đó. Trước đây bot chỉ "ừ nhớ rồi" cho có, còn nhớ thật hay không thì phải chờ đến lúc nén hội thoại — mà nén xong vẫn có thể bỏ qua.',
+            '🔒 **Nói kiểu gì bot cũng hiểu, nhưng web không lừa được** — không cần câu lệnh cố định, bot tự nhận ra ý "nhớ giùm" trong câu nói tự nhiên. Ngược lại, nội dung web bot đọc trong lúc tra cứu không bao giờ được phép "dặn" bot ghi nhớ hộ — mỗi người một cuốn sổ riêng, chỉ chính chủ nhờ mới ghi.',
+            '📌 **Điều đã nhờ thì khỏi nhờ lại** — cách xưng hô sếp đã dặn được ưu tiên hơn thói quen bắt chước cách nói của sếp, nên bot không "quên" giữa chừng nữa.'
+        ]
+    },
     '3.29.1': {
         date: '2026-08-14',
         title: 'Bot hết loạn xưng hô',

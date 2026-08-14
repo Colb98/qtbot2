@@ -30,6 +30,9 @@ const CLASSIFIER_SYSTEM =
     'SOCIAL — refusals, boundaries, drama, roasts, requests aimed at the bot itself ' +
     '(kick/ban someone, give money/roles, do admin things), sensitive social situations.\n' +
     'DRAW — the user asks the bot to draw/create an image or picture.\n' +
+    'MEMORY — the user asks the bot to remember/note something for the future, or states a ' +
+    'standing preference for how the bot should treat or address them ("từ giờ...", ' +
+    '"sau này nhớ...", "đừng gọi t là ... nữa"), in ANY wording.\n' +
     'THINK — logic, math, comparisons, planning that can be answered from the conversation ' +
     'without looking anything up.\n' +
     'RESEARCH — needs facts you may not have: news, prices, game builds/meta/guides, ' +
@@ -124,11 +127,13 @@ async function classify({ history, summary, userText, name, trace: t }) {
         return { mode: 'immediate', reason };
     }
 
-    // DRAW routes to 'immediate' on purpose: a draw request needs the reply
-    // engine to emit the [[image]] marker DIRECTLY (the tool loop handles the
-    // rest) — the research/analysis detour made models "plan" the marker in
-    // their notes and then describe the image instead of requesting it.
-    const MODES = { NOW: 'immediate', SOCIAL: 'social', DRAW: 'immediate', THINK: 'think', RESEARCH: 'research' };
+    // DRAW and MEMORY route to 'immediate' on purpose: both need the reply
+    // engine to emit their marker DIRECTLY (the tool loop handles the rest) —
+    // the research/analysis detour made models "plan" the marker in their
+    // notes and then narrate the result instead of requesting it. For MEMORY
+    // the label's real job is keeping the message OFF the social shortcut,
+    // which ships a draft without ever entering the tool loop.
+    const MODES = { NOW: 'immediate', SOCIAL: 'social', DRAW: 'immediate', MEMORY: 'immediate', THINK: 'think', RESEARCH: 'research' };
 
     const recent = history.slice(-config.reasoningContextTurns)
         .map((m) => `${m.role === 'user' ? (m.name || 'user') : 'bot'}: ${clipTurn(m.content, 200)}`)
@@ -144,7 +149,7 @@ async function classify({ history, summary, userText, name, trace: t }) {
             { role: 'system', content: CLASSIFIER_SYSTEM },
             { role: 'user', content },
         ], { maxTokens: config.reasoningClassifierMaxTokens, temperature: 0, noThink: true, timeoutMs: config.reasoningTimeoutMs, role: 'fast' });
-        const m = /\b(RESEARCH|SOCIAL|DRAW|THINK|NOW)\b/i.exec(text);
+        const m = /\b(RESEARCH|SOCIAL|DRAW|MEMORY|THINK|NOW)\b/i.exec(text);
         const mode = m ? MODES[m[1].toUpperCase()] : 'immediate'; // garbage → immediate
         trace.endStep(t, s, { ok: true, result: mode, reason: 'classified', provider, model, attempts, detail: text });
         metrics.inc(`classify${mode[0].toUpperCase()}${mode.slice(1)}`);

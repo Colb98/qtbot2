@@ -142,6 +142,66 @@ async function updateFromTranscript(guildId, channelId, messages) {
     log.info(`[ai] memory write guild=${guildId} channel=${channelId} scopes=[${wrote.join(', ')}]`);
 }
 
+// ------------------------------------------------------- explicit remember
+// Compaction-driven memory is a JUDGEMENT call made later, on messages being
+// folded away: it can decide a fact is not worth keeping, and it does not run
+// until the session is long enough. When a member says "từ giờ nhớ xưng em-sếp
+// với t", none of that is acceptable — the write must happen NOW and must not
+// be second-guessed. This is that path: deterministic, synchronous, appended
+// to the SPEAKER'S OWN file only.
+//
+// Notes land in ## Core, never ## Recent: a standing instruction is a stable
+// preference, and Recent bullets are pruned after memoryRecentDays.
+function appendUserNote(userId, note) {
+    if (!config.memoryEnabled) return { ok: false, reason: 'disabled' };
+    // The note comes from member chat via the model — it enters EVERY future
+    // prompt for this user, exactly the indirect-injection channel getContext()
+    // sanitizes on read. Sanitize on write too so the file itself stays clean.
+    const clean = guard.sanitize(String(note || '')).replace(/\s+/g, ' ').trim();
+    if (clean.length < 3) return { ok: false, reason: 'empty' };
+    const bullet = `- ${clip(clean, config.memoryNoteMaxChars)}`;
+
+    const file = userFile(userId);
+    const current = read(file);
+    // Same fact twice is a no-op, not a duplicate bullet.
+    if (current.split('\n').some((l) => l.trim().toLowerCase() === bullet.toLowerCase())) {
+        return { ok: true, reason: 'already-known', text: clean };
+    }
+
+    let next;
+    if (/^##\s*Core\s*$/im.test(current)) {
+        // Append as the LAST Core bullet, keeping the ## Recent section intact.
+        const lines = current.split('\n');
+        const coreAt = lines.findIndex((l) => /^##\s*Core\s*$/i.test(l.trim()));
+        let end = lines.findIndex((l, i) => i > coreAt && /^##\s/.test(l.trim()));
+        if (end === -1) end = lines.length;
+        while (end > coreAt + 1 && !lines[end - 1].trim()) end--; // keep the blank line before ## Recent
+        lines.splice(end, 0, bullet);
+        next = lines.join('\n');
+    } else {
+        next = current ? `## Core\n${bullet}\n\n${current}` : `## Core\n${bullet}`;
+    }
+
+    // The scope cap is a hard budget: rather than refuse the member's request,
+    // make room by dropping the OLDEST dated Recent bullets — episodic trivia
+    // is exactly what should lose to an explicit "remember this".
+    while (next.length > config.memoryScopeMaxChars) {
+        const lines = next.split('\n');
+        const oldest = lines.reduce((best, l, i) => {
+            const m = /^\s*-\s*\((\d{4}-\d{2}-\d{2})\)/.exec(l);
+            return m && (best === -1 || m[1] < /\((\d{4}-\d{2}-\d{2})\)/.exec(lines[best])[1]) ? i : best;
+        }, -1);
+        if (oldest === -1) return { ok: false, reason: 'full' };
+        lines.splice(oldest, 1);
+        next = lines.join('\n');
+    }
+
+    write(file, next);
+    metrics.inc('memoryNotes');
+    log.info(`[ai] memory note user=${userId} chars=${clean.length}`);
+    return { ok: true, reason: 'written', text: clean };
+}
+
 // ------------------------------------------------------------- admin CRUD
 // For the /ai dashboard (localhost-only service, session-auth at the proxy).
 // The name whitelist is the security-critical line: nothing outside
@@ -199,4 +259,7 @@ function scheduleUpdate(guildId, channelId, messages) {
     }
 }
 
-module.exports = { getContext, scheduleUpdate, adminList, adminRead, adminWrite, adminDelete };
+module.exports = {
+    getContext, scheduleUpdate, appendUserNote,
+    adminList, adminRead, adminWrite, adminDelete,
+};

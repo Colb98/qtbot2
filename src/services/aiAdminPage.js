@@ -417,6 +417,7 @@ function stepMeta(s) {
   if (s.pages) bits.push('trang ' + s.pages.join(','));
   if (s.fetched != null) bits.push('đọc được ' + s.fetched + '/' + s.total);
   if (s.style) bits.push('style: ' + s.style);
+  if (s.note) bits.push('ghi nhớ: "' + s.note + '"');
   if (s.tokensIn != null) bits.push('tokens ' + s.tokensIn + ' → ' + s.tokensOut);
   if (s.chars != null) bits.push(s.chars + ' ký tự');
   return bits.join(' · ');
