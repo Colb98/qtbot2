@@ -1,3 +1,4 @@
+const lotteryInteractions = require('../services/lotteryInteractions');
 const { Events, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const path = require('path');
 const log = require('../../logger');
@@ -35,6 +36,10 @@ module.exports = {
             if (interaction.isRepliable && interaction.isRepliable()) {
                 await interaction.reply({ content: '🔧 Bot đang bảo trì, vui lòng thử lại sau ít phút.', flags: MessageFlags.Ephemeral }).catch(() => {});
             }
+            return;
+        }
+        if ((interaction.isButton() || interaction.isModalSubmit?.()) && interaction.customId.startsWith('lottery:')) {
+            await lotteryInteractions.handleComponent(interaction);
             return;
         }
         if (interaction.isStringSelectMenu()) {

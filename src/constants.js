@@ -1,8 +1,8 @@
 const CLASS_NAMES = [
-    'Cửu Linh', 'Huyết Hà', 'Toái Mộng', 'Thần Tương', 'Tố Vấn', 'Thiết Y', 'Long Ngâm'
+    'Cửu Linh', 'Huyết Hà', 'Toái Mộng', 'Thần Tương', 'Tố Vấn', 'Thiết Y', 'Long Ngâm', 'Hồng Âm', 'Huyền Cơ', 'Thương Lan'
 ];
 
-const CLASS_SHORT = ['CL', 'HH', 'TM', 'TT', 'TV', 'TY', 'LN'];
+const CLASS_SHORT = ['CL', 'HH', 'TM', 'TT', 'TV', 'TY', 'LN', 'HA', 'HC', 'TL'];
 
 const EMOTE_FILES = [
     'emotes/CL.png',
@@ -11,11 +11,14 @@ const EMOTE_FILES = [
     'emotes/TT.png',
     'emotes/TV.png',
     'emotes/TY.png',
-    'emotes/LN.png'
+    'emotes/LN.png',
+    'emotes/HA.png',
+    'emotes/HC.png',
+    'emotes/TL.png'
 ];
 
 const CLASS_COLOR = [
-    0x706BBB, 0xBB0000, 0x869FBC, 0x1781C6, 0xEA91A7, 0xFEA81C, 0x3EE5B0
+    0x706BBB, 0xBB0000, 0x869FBC, 0x1781C6, 0xEA91A7, 0xFEA81C, 0x3EE5B0, 0xD7AC45, 0x247B78, 0x328DCE
 ];
 
 const MANAGER_ID = '391292771211804673';

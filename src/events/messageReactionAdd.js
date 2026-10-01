@@ -91,14 +91,7 @@ module.exports = {
             }
 
             if (data.registrations && data.classVoteMessages && data.classVoteMessages.indexOf(reaction.message.id) !== -1) {
-                let classIndex = -1;
-                const emoteIds = data.emoteIds || [];
-                if (emoteIds.length === CLASS_NAMES.length) {
-                    if (reaction.emoji.id) classIndex = emoteIds.indexOf(reaction.emoji.id);
-                } else {
-                    const numeric = { '1️⃣': 0, '2️⃣': 1, '3️⃣': 2, '4️⃣': 3, '5️⃣': 4, '6️⃣': 5 };
-                    classIndex = numeric[reaction.emoji.name] ?? -1;
-                }
+                const classIndex = require('../services/classSelection').getClassIndex(reaction.emoji);
 
                 if (classIndex === -1) return;
 
@@ -109,7 +102,7 @@ module.exports = {
                     data.registrations[guildId][user.id] = { tag: user.tag, displayName: member.displayName };
                 }
                 data.registrations[guildId][user.id].class = clsName;
-                setUserRole(member, classIndex, reaction.message.guild);
+                await setUserRole(member, classIndex, reaction.message.guild);
                 saveData();
                 return;
             }

@@ -405,7 +405,7 @@ const DEFAULTS = {
     // reserve no matter how TICKET_PRICE is retuned.
     LOTTERY: {
         TICKET_PRICE: 500,
-        MAX_TICKETS_PER_DRAW: 5,
+        MAX_TICKETS_PER_DRAW: 7,
         SEED_POOL: 100000,        // jackpot floor / reset value
         CONSOLATION_SHARE: 125,   // per ticket → consolation reserve (pool gets the rest)
         PRIZE_3_OF_4: 1000,

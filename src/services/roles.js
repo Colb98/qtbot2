@@ -4,14 +4,34 @@ const { CLASS_NAMES, CLASS_COLOR, EMOTE_FILES, ROLE_CHANGE_DELAY_MS } = require(
 
 let lastChangeRoleTime = 0;
 
-async function setUserRole(member, classIndex, guild) {
+// Serialize role changes per member so rapid re-selection cannot leave two faction roles.
+const roleChanges = new Map();
+function queueRoleChange(member, guild, action) {
+    const key = `${guild.id}:${member.id}`;
+    const pending = (roleChanges.get(key) || Promise.resolve()).catch(() => {}).then(action);
+    roleChanges.set(key, pending);
+    return pending.finally(() => {
+        if (roleChanges.get(key) === pending) roleChanges.delete(key);
+    });
+}
+function setUserRole(member, classIndex, guild) {
+    return queueRoleChange(member, guild, () => applyUserRole(member, classIndex, guild));
+}
+function removeUserRole(member, guild) {
+    return queueRoleChange(member, guild, () => applyRemoveUserRole(member, guild));
+}
+
+async function applyUserRole(member, classIndex, guild) {
     log.info(`Add role for user ${member.id} in guild ${guild.id}, check timeout ${lastChangeRoleTime + ROLE_CHANGE_DELAY_MS - Date.now()} ms`);
     while (lastChangeRoleTime + ROLE_CHANGE_DELAY_MS > Date.now()) {
         await new Promise(resolve => setTimeout(resolve, ROLE_CHANGE_DELAY_MS));
     }
 
+    if (!CLASS_NAMES[classIndex]) return;
     const existingRole = guild.roles.cache.find(r => r.name === CLASS_NAMES[classIndex]);
     if (member.roles.cache.has(existingRole?.id)) {
+        const staleRoles = member.roles.cache.filter(r => CLASS_NAMES.includes(r.name) && r.name !== CLASS_NAMES[classIndex]);
+        if (staleRoles.size) await member.roles.remove(staleRoles);
         log.info(`User ${member.id} already has role ${existingRole.name}, skipping`);
         return;
     }
@@ -37,10 +57,12 @@ async function setUserRole(member, classIndex, guild) {
             throw e;
         }
     }
+    const staleRoles = member.roles.cache.filter(r => CLASS_NAMES.includes(r.name) && r.name !== CLASS_NAMES[classIndex]);
+    if (staleRoles.size) await member.roles.remove(staleRoles);
     lastChangeRoleTime = Date.now();
 }
 
-async function removeUserRole(member, guild) {
+async function applyRemoveUserRole(member, guild) {
     log.info(`Removing roles for user ${member.id} in guild ${guild.id}, check timeout ${lastChangeRoleTime + ROLE_CHANGE_DELAY_MS - Date.now()} ms`);
     if (lastChangeRoleTime + ROLE_CHANGE_DELAY_MS > Date.now()) {
         await new Promise(resolve => setTimeout(resolve, ROLE_CHANGE_DELAY_MS));

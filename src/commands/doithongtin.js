@@ -16,15 +16,7 @@ module.exports = {
                 .setName('class')
                 .setDescription('Phái')
                 .setRequired(false)
-                .addChoices(
-                    { name: 'Cửu Linh', value: 'Cửu Linh' },
-                    { name: 'Huyết Hà', value: 'Huyết Hà' },
-                    { name: 'Toái Mộng', value: 'Toái Mộng' },
-                    { name: 'Thần Tương', value: 'Thần Tương' },
-                    { name: 'Tố Vấn', value: 'Tố Vấn' },
-                    { name: 'Thiết Y', value: 'Thiết Y' },
-                    { name: 'Long Ngâm', value: 'Long Ngâm' }
-                )
+                .addChoices(...CLASS_NAMES.map(name => ({ name, value: name })))
         )
         .addStringOption(option =>
             option.setName('ingame').setDescription('Tên Ingame').setRequired(false)

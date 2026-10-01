@@ -4,7 +4,7 @@ const { AttachmentBuilder } = require('discord.js');
 const log = require('../logger');
 const client = require('./client');
 const { data, saveData, flushSync } = require('./state');
-const { CLASS_NAMES, MANAGER_ID, EMOTE_GUILD_ID, EMOTE_FILES } = require('./constants');
+const { CLASS_NAMES, MANAGER_ID, EMOTE_GUILD_ID } = require('./constants');
 const { sanitizeIngame, isManager, isAbsent, isParticipant, isSuperAdmin, checkGameCooldown, replyEphemeral, replyChunked } = require('./utils');
 const { isMaintenance, setMaintenance, isBlockedByMaintenance } = require('./services/maintenance');
 const { doWeeklyPost, sendReminders, sendListToManager, editMessage } = require('./services/guildWar');
@@ -1590,13 +1590,13 @@ ${DISCLAIMER}`;
                 `⏰ Đợt sau: <t:${nextTs}:F> (<t:${nextTs}:R>)`,
                 `🎟️ Giá vé: **${fmt(lottery.LOTTERY.TICKET_PRICE)}** ${ngocEmote} · Chọn 4 số trong 1-${lottery.LOTTERY.NUMBER_POOL_MAX}`,
                 `> \`!xoso <a b c d>\` — mua vé với 4 số đã chọn`,
-                `> \`!xoso bao [n]\` — mua n vé random (mặc định 1, tối đa ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt)`,
+                `> Bấm **Bao hết** hoặc **Bao tùy chọn** để mua vé random (tối đa ${lottery.LOTTERY.MAX_TICKETS_PER_DRAW}/đợt).`,
                 `> \`!xoso ve\` — xem vé của bạn`,
                 ``,
                 `🏆 4/4 = toàn bộ pool · 3/4 = ${fmt(lottery.LOTTERY.PRIZE_3_OF_4)} ${ngocEmote} · 2/4 = ${fmt(lottery.LOTTERY.PRIZE_2_OF_4)} ${ngocEmote}`,
                 `-# Nhiều người trúng jackpot: chia đều pool.`
             ];
-            return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
+            return msg.reply({ content: lines.join('\n'), allowedMentions: { parse: [] }, components: [lottery.buildPurchaseButtons()] });
         }
 
         if (sub === 've') {
@@ -2349,33 +2349,13 @@ ${DISCLAIMER}`;
     }
 
     if (cmd === '!voteclass') {
-        const instruction = await msg.channel.send({
-            content: `React vào 1 trong các biểu tượng dưới đây để chọn môn phái đang chơi.\nNếu muốn huỷ, hãy remove reaction.\nChỉ tính reaction đầu tiên`
-        });
-        const emoteIds = data.emoteIds || [];
-
-        if (emoteIds.length === CLASS_NAMES.length) {
-            for (const id of emoteIds) {
-                try {
-                    const emoji = client.emojis.cache.get(id);
-                    if (emoji) {
-                        await instruction.react(emoji);
-                    } else {
-                        await instruction.react('🔢');
-                    }
-                } catch (e) {
-                    log.warn('react fallback', e);
-                    await instruction.react('🔢');
-                }
-            }
-        } else {
-            const numeric = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣'];
-            for (const r of numeric) await instruction.react(r).catch(() => { });
-        }
+        const { selectionContent, seedClassReactions } = require('./services/classSelection');
+        const instruction = await msg.channel.send({ content: selectionContent() });
 
         data.classVoteMessages = data.classVoteMessages || [];
         data.classVoteMessages.push(instruction.id);
         saveData();
+        await seedClassReactions(instruction);
         return;
     }
 
@@ -2456,20 +2436,7 @@ ${DISCLAIMER}`;
             if (!guild || msg.guildId !== EMOTE_GUILD_ID) {
                 return msg.reply(`This command must be run inside a valid guild. Current Guild ID = ${msg.guildId}`);
             }
-            const createdIds = [];
-            for (let i = 0; i < EMOTE_FILES.length; i++) {
-                const filePath = EMOTE_FILES[i];
-                const name = `class${filePath.replace('.png', '').replace('emotes/', '').toLowerCase()}`;
-                const buffer = fs.readFileSync(path.resolve(filePath));
-                const existing = guild.emojis.cache.find(e => e.name === name);
-                if (existing) {
-                    await existing.delete('Recreating emoji for bot setup').catch(() => { });
-                }
-                const created = await guild.emojis.create({ attachment: buffer, name });
-                createdIds.push(created.id);
-            }
-            data.emoteIds = createdIds;
-            saveData();
+            await require('./services/classSelection').ensureClassEmotes(client);
             await msg.reply('Uploaded emotes and saved IDs. Ready for DM-based registration.');
         } catch (e) {
             log.error('uploademotes error', e);

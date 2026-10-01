@@ -26,7 +26,10 @@ const CLASS_TO_FILE = {
     'Thần Tương': 'TT.png',
     'Tố Vấn': 'TV.png',
     'Thiết Y': 'TY.png',
-    'Long Ngâm': 'LN.png'
+    'Long Ngâm': 'LN.png',
+    'Hồng Âm': 'HA.png',
+    'Huyền Cơ': 'HC.png',
+    'Thương Lan': 'TL.png'
 };
 
 const emoteCache = new Map();

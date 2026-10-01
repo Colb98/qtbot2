@@ -18,21 +18,14 @@ module.exports = {
             if (reaction.message.partial) await reaction.message.fetch();
 
             if (data.registrations && data.classVoteMessages && data.classVoteMessages.indexOf(reaction.message.id) !== -1) {
-                let classIndex = -1;
-                const emoteIds = data.emoteIds || [];
-                if (emoteIds.length === CLASS_NAMES.length) {
-                    if (reaction.emoji.id) classIndex = emoteIds.indexOf(reaction.emoji.id);
-                } else {
-                    const numeric = { '1️⃣': 0, '2️⃣': 1, '3️⃣': 2, '4️⃣': 3, '5️⃣': 4, '6️⃣': 5 };
-                    classIndex = numeric[reaction.emoji.name] ?? -1;
-                }
+                const classIndex = require('../services/classSelection').getClassIndex(reaction.emoji);
 
                 if (classIndex === -1) return;
 
                 const guildId = reaction.message.guildId;
                 const clsName = CLASS_NAMES[classIndex];
                 data.registrations = data.registrations || {};
-                if (!data.registrations[guildId][user.id] || !data.registrations[guildId][user.id].class) {
+                if (!data.registrations[guildId]?.[user.id] || !data.registrations[guildId][user.id].class) {
                     return;
                 }
 

@@ -1,3 +1,4 @@
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const log = require('../../logger');
 const client = require('../client');
 const { data, saveData } = require('../state');
@@ -112,6 +113,7 @@ function buyTicket(guildId, userId, numbers) {
 // Buy multiple random ("bao") tickets up to limit.
 // Returns { ok, error?, bought: [tickets], newPool, newCount }
 function buyRandomTickets(guildId, userId, count) {
+    if (!Number.isSafeInteger(count) || count < 1) return { ok: false, error: 'invalid_count' };
     const g = ensureRoot(guildId);
     const existing = userTicketsThisDraw(guildId, userId).length;
     const room = LOTTERY.MAX_TICKETS_PER_DRAW - existing;
@@ -300,15 +302,30 @@ async function announceDraw(result) {
     lines.push(`---`);
     lines.push(`💰 Pool đợt sau: **${fmt(result.newPool)}** ${ngoc}${result.poolReset ? ' *(reset sau jackpot)*' : ''}`);
     lines.push(`⏰ Đợt sau: <t:${nextTs}:F> (<t:${nextTs}:R>)`);
-    lines.push(`🎟️ Mua vé: \`!xoso bao\` · \`!xoso <4 số 1-${LOTTERY.NUMBER_POOL_MAX}>\``);
+    lines.push('🎟️ Bấm **Bao hết** hoặc **Bao tùy chọn** bên dưới để mua vé đợt tiếp theo.');
 
     // Big draws (lots of jackpot/3of4/2of4 winners) easily blow past Discord's
     // 2000-char message limit, so split on blank-line / line boundaries.
     const chunks = chunkMessage(lines.join('\n'));
-    for (const chunk of chunks) {
-        await channel.send({ content: chunk, allowedMentions: { users: [] } })
+    for (const [index, chunk] of chunks.entries()) {
+        await channel.send({ content: chunk, allowedMentions: { users: [] },
+            components: index === chunks.length - 1 ? [buildPurchaseButtons()] : [] })
             .catch(e => log.warn('lottery: announce send failed', e));
     }
+}
+
+function getPurchaseLimit(guildId, userId) {
+    const remaining = Math.max(0, LOTTERY.MAX_TICKETS_PER_DRAW - userTicketsThisDraw(guildId, userId).length);
+    const wallet = getWallet(guildId, userId);
+    const affordable = Math.max(0, Math.floor((wallet.ngoc + (wallet.lockedNgoc || 0)) / LOTTERY.TICKET_PRICE));
+    return { min: 1, max: Math.min(remaining, affordable), remaining };
+}
+
+function buildPurchaseButtons() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('lottery:all').setLabel('Bao hết').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('lottery:custom').setLabel('Bao tùy chọn').setStyle(ButtonStyle.Primary)
+    );
 }
 
 // ── Schedule ────────────────────────────────────────────────────────────────
@@ -396,6 +413,8 @@ function getTicketCount(guildId) {
 
 module.exports = {
     LOTTERY,
+    getPurchaseLimit,
+    buildPurchaseButtons,
     ensureRoot,
     parseNumbers,
     validateNumbers,

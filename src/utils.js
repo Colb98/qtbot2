@@ -47,7 +47,8 @@ function getUserDisplayName(userId, guildId) {
 }
 
 function getClassEmoji(index) {
-    return `<:class${CLASS_SHORT[index].toLowerCase()}:${data.emoteIds[index]}>`;
+    const id = data.emoteIds?.[index];
+    return id && CLASS_SHORT[index] ? `<:class${CLASS_SHORT[index].toLowerCase()}:${id}>` : '🔹';
 }
 
 function sanitizeIngame(name) {

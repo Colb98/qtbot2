@@ -12,14 +12,7 @@ module.exports = {
                 .setName('class')
                 .setDescription('Lọc theo phái')
                 .setRequired(false)
-                .addChoices(
-                    { name: 'Cửu Linh', value: 'Cửu Linh' },
-                    { name: 'Huyết Hà', value: 'Huyết Hà' },
-                    { name: 'Toái Mộng', value: 'Toái Mộng' },
-                    { name: 'Thần Tương', value: 'Thần Tương' },
-                    { name: 'Tố Vấn', value: 'Tố Vấn' },
-                    { name: 'Thiết Y', value: 'Thiết Y' }
-                )
+                .addChoices(...CLASS_NAMES.map(name => ({ name, value: name })))
         )
         .addBooleanOption(option =>
             option

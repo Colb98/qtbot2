@@ -74,7 +74,10 @@ const SECT_TO_CODE = {
     'Thần Tương': 'tt',
     'Tố Vấn': 'tv',
     'Thiết Y': 'ty',
-    'Long Ngâm': 'ln'
+    'Long Ngâm': 'ln',
+    'Hồng Âm': 'ha',
+    'Huyền Cơ': 'hc',
+    'Thương Lan': 'tl'
 };
 
 const SECT_DISPLAY = {
@@ -84,10 +87,16 @@ const SECT_DISPLAY = {
     tt: { vi: 'Thần Tương', words: ['THẦN', 'TƯƠNG'], chinese: ['神', '相'] },
     tv: { vi: 'Tố Vấn',     words: ['TỐ', 'VẤN'],     chinese: ['素', '問'] },
     ty: { vi: 'Thiết Y',    words: ['THIẾT', 'Y'],    chinese: ['鐵', '醫'] },
-    ln: { vi: 'Long Ngâm',  words: ['LONG', 'NGÂM'],  chinese: ['龍', '吟'] }
+    ln: { vi: 'Long Ngâm',  words: ['LONG', 'NGÂM'],  chinese: ['龍', '吟'] },
+    ha: { vi: 'Hồng Âm', words: ['HỒNG', 'ÂM'], chinese: ['鸿', '音'] },
+    hc: { vi: 'Huyền Cơ', words: ['HUYỀN', 'CƠ'], chinese: ['玄', '机'] },
+    tl: { vi: 'Thương Lan', words: ['THƯƠNG', 'LAN'], chinese: ['沧', '澜'] }
 };
 
 const THEMES = {
+    ha: { accent: '#efd389', glow: '#d7ac45', deep: '#33260c', nameShadow: { color: 'rgba(110,80,15,0.55)', blur: 26, offset: 4 } },
+    hc: { accent: '#77bfbb', glow: '#247b78', deep: '#092b2a', nameShadow: { color: 'rgba(15,80,75,0.55)', blur: 26, offset: 4 } },
+    tl: { accent: '#8ccbf2', glow: '#328dce', deep: '#0c243b', nameShadow: { color: 'rgba(20,65,110,0.55)', blur: 26, offset: 4 } },
     cl: { accent: '#cbb3e8', glow: '#a98be0', deep: '#1f0e34',
           nameShadow: { color: 'rgba(60,20,100,0.55)', blur: 28, offset: 4 } },
     hh: { accent: '#e8b06a', glow: '#ff7a3d', deep: '#3a0d0a',
@@ -144,7 +153,7 @@ const ITEM_LABELS = {
 };
 function itemIconPath(key) { return path.join(EMOTES_INGAME, `${key}.png`); }
 function classIconPath(sectCode) {
-    const map = { cl: 'CL', hh: 'HH', tm: 'TM', tt: 'TT', tv: 'TV', ty: 'TY', ln: 'LN' };
+    const map = { cl: 'CL', hh: 'HH', tm: 'TM', tt: 'TT', tv: 'TV', ty: 'TY', ln: 'LN', ha: 'HA', hc: 'HC', tl: 'TL' };
     const f = map[sectCode];
     return f ? path.join(EMOTES_DIR, `${f}.png`) : null;
 }
