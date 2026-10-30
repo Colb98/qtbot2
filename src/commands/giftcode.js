@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const giftcode = require('../services/giftcode');
 
 const MAX_CODES = 10;
@@ -78,14 +78,11 @@ module.exports = {
 
         if (remove) {
             const removed = giftcode.removeRole(interaction.user.id);
-            await interaction.reply({
-                content: removed ? 'Đã xoá nhân vật đã lưu.' : 'Bạn chưa lưu nhân vật nào.',
-                flags: MessageFlags.Ephemeral
-            });
+            await interaction.reply(removed ? 'Đã xoá nhân vật đã lưu.' : 'Bạn chưa lưu nhân vật nào.');
             return;
         }
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply();
         const out = [];
         let role = giftcode.getRole(interaction.user.id);
 
