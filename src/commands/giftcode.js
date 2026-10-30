@@ -1,7 +1,33 @@
 const { SlashCommandBuilder } = require('discord.js');
 const giftcode = require('../services/giftcode');
+const { addNgoc, fmt, renderEmote } = require('../services/currency');
+const economy = require('../config/economy');
 
 const MAX_CODES = 10;
+// Pause between redeems while sharing a code, so a fan-out to every saved
+// character doesn't hammer the giftcode API.
+const SHARE_DELAY_MS = 500;
+const MENTIONS_PER_MESSAGE = 50;
+const NO_PINGS = { parse: [] };
+
+// Fan-outs run one at a time across all users for the same reason.
+let shareQueue = Promise.resolve();
+
+function enqueueShare(fn) {
+    const run = shareQueue.then(fn);
+    shareQueue = run.catch(() => {});
+    return run;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function roleKey(r) {
+    return `${r.serverId}:${r.roleId}`;
+}
+
+function codeList(codes) {
+    return codes.map(c => `\`${c}\``).join(', ');
+}
 
 function describeRole(r) {
     return `**${r.roleName || '(không tên)'}** — ID \`${r.roleId}\`, server ${r.serverName || r.serverId}${r.level ? `, cấp ${r.level}` : ''}`;
@@ -41,17 +67,80 @@ async function linkRole(interaction, roleId, serverInput) {
     return { role: roles[0] };
 }
 
-async function redeemAll(role, codes) {
+// Redeems for the caller only. A code the caller is first to redeem (in a
+// server) is claimed for sharing; later redeemers of it get no share.
+async function redeemOwn(userId, role, codes, canShare) {
     const lines = [];
+    const shared = [];
     for (const code of codes) {
+        let res;
         try {
-            const res = await giftcode.redeem(role, code);
-            lines.push(res.ok ? `✅ \`${code}\` — nhập thành công` : `❌ \`${code}\` — ${res.message}`);
+            res = await giftcode.redeem(role, code);
         } catch (e) {
             lines.push(`⚠️ \`${code}\` — không gọi được trang giftcode (${e.message})`);
+            continue;
+        }
+        const claim = giftcode.getClaim(code);
+        const note = claim && claim.by !== userId ? ` (<@${claim.by}> đã nhập hộ mọi người mã này rồi, không có thưởng)` : '';
+        if (!res.ok) {
+            lines.push(`❌ \`${code}\` — ${res.message}${note}`);
+            continue;
+        }
+        lines.push(`✅ \`${code}\` — nhập thành công${note}`);
+        if (canShare && giftcode.tryClaim(code, userId)) shared.push(code);
+    }
+    return { lines, shared };
+}
+
+// Redeems the codes for every other saved character. Returns the Discord IDs
+// that got at least one code and the number of successful redeems.
+async function shareCodes(userId, ownRole, codes) {
+    const seen = new Set([roleKey(ownRole)]);
+    const targets = [];
+    for (const [discordId, role] of giftcode.listRoles()) {
+        if (discordId === userId || seen.has(roleKey(role))) continue;
+        seen.add(roleKey(role));
+        targets.push([discordId, role]);
+    }
+
+    const recipients = new Set();
+    let total = 0;
+    for (const code of codes) {
+        let count = 0;
+        for (const [discordId, role] of targets) {
+            await sleep(SHARE_DELAY_MS);
+            try {
+                const res = await giftcode.redeem(role, code);
+                if (res.ok) {
+                    count++;
+                    recipients.add(discordId);
+                }
+            } catch {
+                // API hiccup for this character; skip it.
+            }
+        }
+        giftcode.setClaimCount(code, count);
+        total += count;
+    }
+    return { recipients: [...recipients], total };
+}
+
+// Mentions only ping on a new message, not an edit, so tag in follow-ups.
+async function announceShare(interaction, recipients, codes) {
+    for (let i = 0; i < recipients.length; i += MENTIONS_PER_MESSAGE) {
+        const chunk = recipients.slice(i, i + MENTIONS_PER_MESSAGE);
+        const tags = chunk.map(id => `<@${id}>`).join(' ');
+        const payload = {
+            content: i === 0 ? `📢 <@${interaction.user.id}> vừa nhập hộ ${codeList(codes)} cho:\n${tags}` : tags,
+            allowedMentions: { users: chunk }
+        };
+        try {
+            await interaction.followUp(payload);
+        } catch {
+            // Interaction token expired on a long fan-out; post directly.
+            await interaction.channel?.send(payload).catch(() => {});
         }
     }
-    return lines;
 }
 
 module.exports = {
@@ -121,7 +210,26 @@ module.exports = {
             await interaction.editReply(`Tối đa ${MAX_CODES} mã mỗi lần.`);
             return;
         }
-        out.push(`Nhập mã cho ${describeRole(role)}:`, ...(await redeemAll(role, codes)));
-        await interaction.editReply(out.join('\n'));
+        const userId = interaction.user.id;
+        const { lines, shared } = await redeemOwn(userId, role, codes, !!interaction.guildId);
+        out.push(`Nhập mã cho ${describeRole(role)}:`, ...lines);
+        if (!shared.length) {
+            await interaction.editReply({ content: out.join('\n'), allowedMentions: NO_PINGS });
+            return;
+        }
+
+        await interaction.editReply({
+            content: [...out, `⏳ Đang nhập hộ ${codeList(shared)} cho mọi người đã lưu nhân vật...`].join('\n'),
+            allowedMentions: NO_PINGS
+        });
+        const { recipients, total } = await enqueueShare(() => shareCodes(userId, role, shared));
+        const reward = total * economy.GIFTCODE_SHARE_REWARD;
+        if (reward > 0) addNgoc(interaction.guildId, userId, reward);
+        out.push(total
+            ? `🎁 Đã nhập hộ cho **${recipients.length}** người${shared.length > 1 ? ` (${total} lượt)` : ''} — bạn được thưởng **${fmt(reward)}** ${renderEmote('ngoc')}`
+            : '🎁 Không nhập hộ được cho ai (mọi người đều đã có mã này).');
+        // A long fan-out can outlive the 15-minute interaction token.
+        await interaction.editReply({ content: out.join('\n'), allowedMentions: NO_PINGS }).catch(() => {});
+        if (recipients.length) await announceShare(interaction, recipients, shared);
     }
 };

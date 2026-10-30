@@ -19,6 +19,43 @@ function ensureStore() {
     return data.giftcode;
 }
 
+// Codes someone already redeemed for everyone: { [CODE]: { by, at, count } }.
+function ensureClaims() {
+    if (!data.giftcodeClaims) data.giftcodeClaims = {};
+    return data.giftcodeClaims;
+}
+
+function claimKey(code) {
+    return code.toUpperCase();
+}
+
+function getClaim(code) {
+    return ensureClaims()[claimKey(code)] || null;
+}
+
+// Synchronous check-and-set, so two users redeeming the same code at once
+// can't both win the share.
+function tryClaim(code, discordId) {
+    const claims = ensureClaims();
+    const key = claimKey(code);
+    if (claims[key]) return false;
+    claims[key] = { by: discordId, at: Date.now(), count: 0 };
+    saveData();
+    return true;
+}
+
+function setClaimCount(code, count) {
+    const claim = getClaim(code);
+    if (!claim) return;
+    claim.count = count;
+    saveData();
+}
+
+// Every saved character as [discordId, role].
+function listRoles() {
+    return Object.entries(ensureStore());
+}
+
 function getRole(discordId) {
     return ensureStore()[discordId] || null;
 }
@@ -106,4 +143,7 @@ async function redeem(role, code) {
     });
 }
 
-module.exports = { getRole, saveRole, removeRole, listServers, findRoles, redeem };
+module.exports = {
+    getRole, saveRole, removeRole, listRoles, listServers, findRoles, redeem,
+    getClaim, tryClaim, setClaimCount
+};

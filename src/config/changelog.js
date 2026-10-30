@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '3.31.0';
+const CURRENT_VERSION = '3.32.0';
 
 const CHANGELOG = {
+    '3.32.0': {
+        date: '2026-10-30',
+        title: 'Một người nhập, cả hội cùng có quà',
+        changes: [
+            '🤝 **Nhập giftcode là nhập hộ luôn cả hội** — khi bạn `/giftcode code:<mã>` thành công, bot tự nhập mã đó cho tất cả mọi người đã lưu nhân vật với bot, rồi tag tên những ai vừa được nhập hộ để họ biết mà vào game nhận quà.',
+            '💎 **Người nhanh tay được thưởng** — mỗi người được nhập hộ thành công, người nhập mã đầu tiên nhận **10,000 ngọc**. Ai nhập cùng mã đó sau thì vẫn nhập cho bản thân được, nhưng không có thưởng.',
+            '🐢 **Nhập hộ từ từ, không spam** — bot luôn nhập cho bạn trước, chỉ khi bạn nhận thành công mới lần lượt nhập cho người khác. Mã sai hoặc bạn đã nhập rồi thì không nhập hộ ai cả. Nhập hộ chỉ áp dụng khi dùng lệnh trong server.'
+        ]
+    },
     '3.31.0': {
         date: '2026-10-30',
         title: 'Nhờ bot nhập giftcode',

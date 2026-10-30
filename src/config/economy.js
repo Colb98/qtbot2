@@ -53,6 +53,9 @@ const DEFAULTS = {
     },
 
     BANG_CHIEN_REWARD: 1000,
+    // /giftcode: ngọc paid to the first person to redeem a code, per other
+    // saved character the bot then redeems it for.
+    GIFTCODE_SHARE_REWARD: 10000,
 
     COINFLIP_MAX_BET: 50000,
     // Player win probability per flip (payout stays 2x). 0.5 = zero house
