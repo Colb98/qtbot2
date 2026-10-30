@@ -1,6 +1,15 @@
-const CURRENT_VERSION = '3.30.0';
+const CURRENT_VERSION = '3.31.0';
 
 const CHANGELOG = {
+    '3.31.0': {
+        date: '2026-10-30',
+        title: 'Nhờ bot nhập giftcode',
+        changes: [
+            '🎁 **Lệnh `/giftcode` mới** — lần đầu gõ `/giftcode id:<ID nhân vật>` để bot ghi nhớ nhân vật của bạn (bot tự tìm server). Từ đó chỉ cần `/giftcode code:<mã>` là bot nhập mã giùm, khỏi mở web giftcode.',
+            '📦 **Nhập nhiều mã một lượt** — dán tối đa 10 mã, cách nhau bằng dấu cách hoặc dấu phẩy, bot báo từng mã thành công hay lỗi gì.',
+            '🔁 **Đổi hoặc xoá nhân vật** — nhập `id` mới để thay nhân vật đã lưu, hoặc `/giftcode xoa:True` để xoá. Gõ `/giftcode` không kèm gì để xem nhân vật đang lưu.'
+        ]
+    },
     '3.30.0': {
         date: '2026-08-14',
         title: 'Nhờ bot nhớ là bot nhớ thật',
